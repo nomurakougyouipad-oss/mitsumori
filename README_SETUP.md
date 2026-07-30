@@ -7,7 +7,7 @@
 データは **Firebase Firestore**、スケッチ写真は **Firebase Storage** に保存します。
 
 - 公開URL（予定）: https://nomurakougyouipad-oss.github.io/mitsumori/
-- Firebase プロジェクト: mitsumori（us-central1／Blaze）
+- Firebase プロジェクト: mitsumori-35e9d（us-central1／Blaze）
 - Googleアカウント: clover@yotsuba-official.com
 
 ---
