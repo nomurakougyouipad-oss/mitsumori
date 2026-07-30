@@ -5,7 +5,7 @@
 // （zaiko-shohin から流用）
 // ============================================================
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = 'mitsumori-' + VERSION;
 
 // アプリシェル（オフラインでも起動できる最小セット）
@@ -14,13 +14,19 @@ const CACHE = 'mitsumori-' + VERSION;
 const SHELL = [
   './',
   './index.html',
-  './app.css?v=1',
+  './app.css?v=2',
   './manifest.webmanifest',
-  './firebase-config.js?v=1',
-  './js/app.js?v=1',
-  './js/util.js?v=1',
-  './js/icons.js?v=1',
-  './js/firebase.js?v=1',
+  './firebase-config.js?v=2',
+  './js/app.js?v=2',
+  './js/util.js?v=2',
+  './js/icons.js?v=2',
+  './js/firebase.js?v=2',
+  './js/calc.js?v=2',
+  './js/store.js?v=2',
+  './js/ui.js?v=2',
+  './js/screen-home.js?v=2',
+  './js/screen-est.js?v=2',
+  './js/screen-material.js?v=2',
   './icons/icon-48.png',
   './icons/icon-120.png',
   './icons/icon-180.png',

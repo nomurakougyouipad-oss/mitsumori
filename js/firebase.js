@@ -12,7 +12,7 @@ import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDocs, getDoc, onSnapshot, query, where, orderBy, limit,
-  serverTimestamp, writeBatch, increment, Timestamp,
+  serverTimestamp, writeBatch, increment, Timestamp, arrayUnion, arrayRemove,
 } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 import {
   getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject,
@@ -21,7 +21,7 @@ import {
   getAuth, signInAnonymously, onAuthStateChanged,
 } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 
-import firebaseConfig from '../firebase-config.js?v=1';
+import firebaseConfig from '../firebase-config.js?v=2';
 
 export const app = initializeApp(firebaseConfig);
 
@@ -59,6 +59,6 @@ export const ready = new Promise((resolve, reject) => {
 export {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDocs, getDoc, onSnapshot, query, where, orderBy, limit,
-  serverTimestamp, writeBatch, increment, Timestamp,
+  serverTimestamp, writeBatch, increment, Timestamp, arrayUnion, arrayRemove,
   storageRef, uploadBytes, getDownloadURL, deleteObject,
 };

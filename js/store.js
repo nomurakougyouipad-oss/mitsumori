@@ -7,8 +7,8 @@
 import {
   db, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDoc, onSnapshot, query, orderBy, serverTimestamp,
-} from './firebase.js?v=1';
-import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=1';
+} from './firebase.js?v=2';
+import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=2';
 
 // ---------- 検索の正規化 ----------
 // ひらがな→カタカナ、全角→半角(NFKC)、大文字→小文字、記号ゆれ(×→x等)を吸収
@@ -31,6 +31,7 @@ export const cache = {
   customers: [],
   suppliers: [],
   standingOrders: [],
+  estimates: [],      // 見積一覧（更新が新しい順）
 };
 
 const listeners = new Set();
@@ -59,6 +60,11 @@ export function startSubscriptions() {
       emit();
     }, (e) => console.error(col + '購読失敗:', e));
   }
+
+  onSnapshot(query(collection(db, 'estimates'), orderBy('updatedAt', 'desc')), (snap) => {
+    cache.estimates = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    emit();
+  }, (e) => console.error('estimates購読失敗:', e));
 
   onSnapshot(collection(db, 'items'), (snap) => {
     cache.items = snap.docs.map((d) => {
