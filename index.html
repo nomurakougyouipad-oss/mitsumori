@@ -3,92 +3,77 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>見積 — 接続テスト</title>
+<title>見積</title>
+<meta name="description" content="よつば建設工業 社内向け 見積アプリ">
 <meta name="theme-color" content="#1B3A5C">
+<!-- iPhone「ホーム画面に追加」用: アイコン・表示名・全画面起動 -->
+<meta name="apple-mobile-web-app-title" content="見積">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon-48.png" sizes="48x48" type="image/png">
+<link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
 <style>
-  /* フェーズ0の接続テストページ。フェーズ1でアプリ本体に置き換える */
-  html, body { margin: 0; background: #EEF0F3; font-family: 'Noto Sans JP', system-ui, -apple-system, sans-serif; }
-  header {
-    background: #1B3A5C; color: #fff;
-    padding: calc(16px + env(safe-area-inset-top, 0px)) 20px 16px;
-    font-size: 18px; font-weight: 700;
+  /* 起動画面（スプラッシュ）のスタイルはインライン化してある。
+     外部CSSの読み込みを待たずに1フレーム目から正しく表示するため
+     （PWA起動直後の白いちらつき対策）。app.css側には置かないこと。 */
+  html, body { margin: 0; background: #fff; }
+  #splash {
+    position: fixed; inset: 0; z-index: 999;
+    display: flex; align-items: center; justify-content: center;
+    background: #fff;
+    opacity: 1;
+    transition: opacity .45s ease-in;
   }
-  main { padding: 20px; max-width: 480px; margin: 0 auto; }
-  .check {
-    background: #fff; border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
-    display: flex; align-items: center; gap: 12px; font-size: 15px;
+  #splash .splash-logo {
+    width: min(45vw, 300px); height: auto; display: block;
+    transform: scale(1);
+    transform-origin: center center;
+    will-change: transform, opacity;
+    transition: transform .45s ease-in;
   }
-  .check .mark { font-size: 20px; width: 28px; text-align: center; flex: none; }
-  .check .detail { font-size: 12px; color: #667; margin-top: 2px; }
-  .wait { color: #99a; }
-  .ok .mark { color: #177a49; }
-  .ng .mark { color: #b3261e; }
-  .ng { border-left: 4px solid #b3261e; }
-  .hint {
-    background: #FBF3E2; border-radius: 10px; padding: 14px 16px; margin-top: 16px;
-    font-size: 13px; color: #6b5210; line-height: 1.7; display: none;
-  }
+  #splash.splash-hide { opacity: 0; pointer-events: none; }
+  #splash.splash-hide .splash-logo { transform: scale(8); }
 </style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="./app.css?v=1">
 </head>
-<body>
-<header>見積アプリ（mitsumori）— 接続テスト</header>
-<main>
-  <div class="check wait" id="c-config"><span class="mark">…</span><div>firebase-config.js が設定済み<div class="detail" id="d-config"></div></div></div>
-  <div class="check wait" id="c-auth"><span class="mark">…</span><div>匿名サインイン<div class="detail" id="d-auth"></div></div></div>
-  <div class="check wait" id="c-write"><span class="mark">…</span><div>Firestore 書き込み・読み取り<div class="detail" id="d-write"></div></div></div>
-  <div class="check wait" id="c-persist"><span class="mark">…</span><div>オフライン永続化（IndexedDB）<div class="detail" id="d-persist"></div></div></div>
-  <div class="hint" id="hint"></div>
-</main>
-<script type="module">
-  const set = (id, ok, detail) => {
-    const el = document.getElementById('c-' + id);
-    el.classList.remove('wait');
-    el.classList.add(ok ? 'ok' : 'ng');
-    el.querySelector('.mark').textContent = ok ? '✓' : '✕';
-    if (detail) document.getElementById('d-' + id).textContent = detail;
-  };
-  const hint = (msg) => {
-    const el = document.getElementById('hint');
-    el.style.display = 'block';
-    el.textContent = msg;
-  };
-
-  try {
-    const config = (await import('./firebase-config.js?v=1')).default;
-    if (!config.projectId || config.projectId.includes('貼り替え')) {
-      set('config', false, 'firebase-config.js がまだ書き替えられていません');
-      hint('Firebaseコンソールでウェブアプリを登録し、表示された firebaseConfig の値を firebase-config.js に貼り替えてください。');
-      throw new Error('config not set');
-    }
-    set('config', true, 'プロジェクト: ' + config.projectId);
-
-    const fb = await import('./js/firebase.js?v=1');
-    set('persist', fb.persistenceEnabled, fb.persistenceEnabled ? '有効（複数タブ対応）' : '無効（メモリキャッシュで継続）');
-
-    let user;
-    try {
-      user = await Promise.race([
-        fb.ready,
-        new Promise((_, rej) => setTimeout(() => rej(new Error('タイムアウト（15秒）')), 15000)),
-      ]);
-      set('auth', true, 'uid: ' + user.uid.slice(0, 12) + '…');
-    } catch (e) {
-      set('auth', false, String(e.message || e));
-      hint('Authentication → ログイン方法 で「匿名」が有効か、Settings → 承認済みドメイン にこのサイトのドメインがあるか確認してください。');
-      throw e;
-    }
-
-    try {
-      const ref = fb.doc(fb.db, 'diagnostics', user.uid);
-      await fb.setDoc(ref, { at: fb.serverTimestamp(), ua: navigator.userAgent.slice(0, 120) });
-      const snap = await fb.getDoc(ref);
-      set('write', snap.exists(), '書き込み → 読み取り 成功');
-    } catch (e) {
-      set('write', false, String(e.message || e));
-      hint('Firestore Database → ルール に firestore.rules の中身を貼り付けて「公開」したか確認してください。');
-    }
-  } catch (e) {
-    console.error(e);
+<body class="has-tabbar">
+<!-- 起動画面（スプラッシュ）: QUOTEワードマーク（濃紺）をSVGで描画。
+     読み込み完了後、ズームインしながらフェードアウト（最低0.8秒表示） -->
+<div id="splash" aria-hidden="true">
+  <svg class="splash-logo" viewBox="0 0 200 60" xmlns="http://www.w3.org/2000/svg">
+    <text x="100" y="38" text-anchor="middle" fill="#1B3A5C" font-size="34" font-weight="700"
+      letter-spacing="3" font-family="'IBM Plex Mono', ui-monospace, monospace">QUOTE</text>
+    <rect x="22" y="48" width="156" height="5" fill="#1B3A5C"/>
+  </svg>
+</div>
+<script>
+  // 保険: 万一アプリ側の処理が走らなくても、起動画面のまま固まらないようにする
+  setTimeout(function () {
+    var s = document.getElementById('splash');
+    if (s) { s.classList.add('splash-hide'); setTimeout(function () { s.remove(); }, 500); }
+  }, 10000);
+  // iOS Safari はビューポート設定(user-scalable=no)を無視することがあるため、
+  // ジェスチャーイベントを止めてページ全体のピンチズームを抑止する。
+  // （スケッチ写真ビューアの拡大は独自実装のため影響なし）
+  document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+  document.addEventListener('gesturechange', function (e) { e.preventDefault(); });
+</script>
+<div id="app">
+  <div style="padding:48px 24px;text-align:center;font-size:14px;opacity:.7">読み込み中…</div>
+</div>
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+<script type="module" src="./js/app.js?v=1"></script>
+<script>
+  // PWA: Service Worker 登録（ローカルファイル直開きでは無効）
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    });
   }
 </script>
 </body>

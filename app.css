@@ -1,0 +1,240 @@
+/* ============================================================
+   見積アプリ — デザインシステム
+   テーマ: 濃紺 #1B3A5C ／ アクセント: 山吹 #BA7517（警告・注意のみ）
+   スマホ 390px基準・主。PCは従。フォント: Noto Sans JP＋IBM Plex Mono(数字)
+   UI設計モック（鉄工所見積アプリUI設計.zip）準拠
+   ============================================================ */
+
+:root {
+  --font: "Noto Sans JP", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --navy: #1B3A5C;
+  --navy-grad: linear-gradient(180deg, #24507A 0%, #1B3A5C 100%);
+  --accent: #BA7517;
+  --bg: #EEF0F3;
+  --surface: #ffffff;
+  --text: #16202B;
+  --muted: #6B7783;
+  --muted2: #8A96A3;
+  --line: #D9DEE4;
+  --line2: #D2D8E0;
+  --red: #b3261e;
+  --green: #177a49;
+}
+
+* { box-sizing: border-box; }
+
+/* ダブルタップズームを無効化（スクロール・ボタン操作はそのまま）。
+   touch-action は継承されないため全要素に指定する */
+* { touch-action: manipulation; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+h1, h2, h3 { margin: 0; font-weight: 700; }
+a { color: var(--navy); text-decoration: none; }
+button { font-family: var(--font); }
+
+/* 金額・注番などの数字は等幅で桁を揃える */
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ---------- 起動画面（スプラッシュ） ----------
+   スタイルは index.html にインラインで記述している（外部CSS読み込み前から
+   1フレーム目で正しく表示するため）。ここには置かないこと。 */
+
+/* ---------- アプリヘッダー ---------- */
+.app-header {
+  background: var(--navy-grad);
+  color: #fff;
+  padding-top: env(safe-area-inset-top, 0px); /* iOSステータスバーの帯も濃紺で塗る */
+  flex: none;
+}
+.app-header .bar {
+  height: 56px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px 0 16px;
+}
+.wordmark {
+  font-family: var(--mono);
+  font-size: 20px; font-weight: 700; letter-spacing: .14em;
+  border-bottom: 3px solid #fff; padding-bottom: 3px;
+  user-select: none;
+}
+.staff-btn {
+  display: flex; align-items: center; gap: 6px;
+  height: 40px; padding: 0 10px 0 14px;
+  background: rgba(255,255,255,.14); border: 0; border-radius: 6px;
+  color: #fff; font-size: 16px; font-weight: 500; cursor: pointer;
+}
+.staff-btn svg { font-size: 16px; }
+
+/* ---------- レイアウト ---------- */
+#app { min-height: 100dvh; display: flex; flex-direction: column; }
+.screen { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.scroll { flex: 1; overflow-y: auto; padding: 0 12px 12px; }
+
+/* タブバーの高さ＋セーフエリアぶん、下に余白 */
+body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0px)); }
+
+/* ---------- 下部タブバー ---------- */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+  display: flex;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px); /* iPhoneホームバーぶん */
+}
+.tabbar a {
+  flex: 1; height: 56px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  font-size: 11px; font-weight: 500; color: var(--muted2); cursor: pointer;
+}
+.tabbar a svg { font-size: 24px; }
+.tabbar a.on { color: var(--navy); font-weight: 700; }
+
+/* ---------- ボタン ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-family: var(--font); font-weight: 700; font-size: 15px;
+  color: var(--navy);
+  background: var(--surface);
+  border: 1px solid var(--navy); border-radius: 6px;
+  min-height: 48px; padding: 8px 16px;
+  cursor: pointer; white-space: nowrap;
+}
+.btn:active { background: #E3E9F0; }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn-primary { background: var(--navy-grad); border: 0; color: #fff; }
+.btn-primary:active { background: var(--navy); }
+.btn-ghost { border-color: transparent; background: transparent; }
+.btn-block { width: 100%; }
+.btn-big { height: 56px; font-size: 18px; }
+.btn-big svg { font-size: 22px; }
+.btn-danger { color: var(--red); border-color: var(--red); }
+.btn-sm { min-height: 38px; font-size: 13px; padding: 4px 12px; }
+
+/* ---------- ホームのセグメント（自分の工事／会社全体） ---------- */
+.seg-band { display: flex; gap: 8px; padding: 0 12px 10px; background: var(--navy); }
+.seg-band .opt {
+  flex: 1; height: 44px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; font-weight: 500; cursor: pointer;
+  color: rgba(255,255,255,.85); border: 1px solid rgba(255,255,255,.35);
+}
+.seg-band .opt.on { background: #fff; color: var(--navy); font-weight: 700; border: 0; }
+
+/* ---------- 事務所向けバッジ行（発注待ち・単価待ち・判断待ち） ---------- */
+.badge-row {
+  display: flex; gap: 6px; padding: 8px 12px;
+  background: #E3E7EC; border-bottom: 1px solid var(--line2);
+}
+.badge-row .bdg {
+  flex: 1; height: 30px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
+  background: #fff; border: 1px solid var(--line2);
+  font-size: 12px; color: #4A5A6B; cursor: pointer;
+}
+.badge-row .bdg b { font-family: var(--mono); font-weight: 700; font-size: 14px; color: var(--navy); }
+
+/* ---------- セクション見出し（見積中 2 ────） ---------- */
+.sec-head { display: flex; align-items: center; gap: 8px; padding: 14px 2px 8px; }
+.sec-head .ttl { font-size: 14px; font-weight: 700; color: var(--navy); }
+.sec-head .cnt { font-family: var(--mono); font-size: 13px; font-weight: 600; color: #7A8794; }
+.sec-head .rule { flex: 1; height: 1px; background: var(--line2); }
+
+/* ---------- カード ---------- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 12px 14px;
+}
+.card + .card { margin-top: 8px; }
+.card .ttl { font-size: 16px; font-weight: 700; line-height: 1.4; }
+.card .meta { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.card .yen { font-family: var(--mono); font-size: 29px; font-weight: 700; color: var(--navy); letter-spacing: -.01em; line-height: 1.1; }
+.card .note { font-size: 11px; color: var(--muted2); }
+
+/* 暫定タグ（山吹） */
+.tag-warn {
+  display: inline-flex; align-items: center; gap: 3px;
+  height: 26px; padding: 0 8px; border-radius: 4px;
+  background: var(--accent); color: #fff; font-size: 13px; font-weight: 700;
+}
+
+/* ---------- 画面下の主ボタン帯 ---------- */
+.bottom-action { flex: none; padding: 10px 12px 12px; background: var(--bg); }
+
+/* ---------- フォーム ---------- */
+.field label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 4px; color: var(--muted); }
+.input, select.input, textarea.input {
+  font-family: var(--font); font-size: 16px; color: var(--text);
+  background: var(--surface); border: 1px solid var(--line2); border-radius: 6px;
+  padding: 10px 12px; width: 100%; min-height: 48px;
+}
+.input:focus { outline: 2px solid var(--navy); outline-offset: -1px; }
+
+/* ---------- モーダル ----------
+   position:fixed; inset:0 の全画面オーバーレイは iPhone のステータスバー／
+   ホームバーの下まで広がるため、上下に env(safe-area-inset-*) を必ず足す。
+   新しい全画面オーバーレイを作るときはこの padding を踏襲すること。 */
+.modal-back {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(15, 22, 30, .55);
+  display: grid; place-items: center;
+  padding: calc(16px + env(safe-area-inset-top, 0px))
+           16px
+           calc(16px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+}
+.modal {
+  /* 親がgridのため max-width:100% は効かない（トラック幅が内容依存で循環するため）。
+     ビューポート基準で上限を決める */
+  width: 420px; max-width: calc(100vw - 32px);
+  background: var(--surface); border-radius: 10px; overflow: hidden;
+  margin: auto;
+}
+.modal-head {
+  background: var(--navy-grad); color: #fff;
+  padding: 14px 18px; font-weight: 700; font-size: 17px;
+  display: flex; align-items: center;
+}
+.modal-head .x { margin-left: auto; cursor: pointer; font-size: 22px; line-height: 1; padding: 0 4px; background: none; border: 0; color: #fff; }
+.modal-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+
+/* 選択リスト（担当者など。軍手でも押せる高さ） */
+.pick-list { display: flex; flex-direction: column; gap: 8px; }
+.pick-list .pick {
+  min-height: 52px; padding: 8px 14px;
+  display: flex; align-items: center;
+  background: var(--surface); border: 1px solid var(--line2); border-radius: 6px;
+  font-size: 16px; font-weight: 500; cursor: pointer;
+}
+.pick-list .pick.on { border: 2px solid var(--navy); color: var(--navy); font-weight: 700; }
+
+/* ---------- 接続バナー・トースト ---------- */
+.conn-error { background: var(--red); color: #fff; font-weight: 700; padding: 10px 16px; font-size: 13px; }
+.toast {
+  position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  background: var(--text); color: #fff; font-weight: 700; font-size: 13px;
+  padding: 12px 20px; border-radius: 8px; z-index: 200;
+  box-shadow: 0 4px 16px rgba(0,0,0,.3);
+  max-width: calc(100vw - 32px);
+}
+.toast .undo { color: #9CC7F0; margin-left: 12px; cursor: pointer; }
+
+/* ---------- 空状態・準備中 ---------- */
+.empty { text-align: center; color: var(--muted2); padding: 48px 24px; font-size: 14px; }
+.empty .big { font-size: 15px; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
+
+/* ---------- PC（従）: 中央390〜560pxに寄せる ---------- */
+@media (min-width: 700px) {
+  #app { max-width: 560px; margin: 0 auto; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+  .tabbar { max-width: 560px; left: 50%; transform: translateX(-50%); }
+}
