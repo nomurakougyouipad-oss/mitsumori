@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>見積 — マスター投入（管理用）</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; background: #EEF0F3; margin: 0; }
+  header { background: #1B3A5C; color: #fff; padding: 16px 20px; font-size: 18px; font-weight: 700; }
+  header a { color: #fff; text-decoration: none; font-weight: 500; font-size: 14px; margin-right: 12px; }
+  main { padding: 20px; max-width: 640px; margin: 0 auto; }
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 12px; font-size: 14px; }
+  button { font: inherit; font-weight: 700; background: #1B3A5C; color: #fff; border: 0; border-radius: 6px; padding: 12px 20px; cursor: pointer; }
+  button:disabled { opacity: .4; }
+  #log { font-size: 13px; line-height: 1.8; white-space: pre-wrap; font-family: ui-monospace, monospace; }
+  .warn { color: #8a560f; }
+  .err { color: #b3261e; font-weight: 700; }
+  .ok { color: #177a49; }
+</style>
+</head>
+<body>
+<header><a href="../">‹ アプリへ戻る</a>マスター投入（管理用・初回のみ）</header>
+<main>
+  <div class="card">
+    Excel原本（Tekkosho_Mitsumorisho.xlsm）を選ぶと、以下をFirestoreに投入します。<br>
+    ・単価マスター（A〜K列、約1,572件）　・率の既定値　・時間単価（職種6つ＋移動）<br>
+    ・常設注番 14件　・仕入先（外注先マスターから）<br>
+    <b>Excelファイルには一切書き込みません（読み取りのみ）。</b>
+  </div>
+  <div class="card">
+    <input type="file" id="file" accept=".xlsm,.xlsx">
+    <button id="run" disabled>投入を開始</button>
+  </div>
+  <div class="card"><div id="log">ファイルを選んでください。</div></div>
+</main>
+<script type="module">
+  const fb = await import('../js/firebase.js?v=1');
+  const logEl = document.getElementById('log');
+  const log = (msg, cls = '') => {
+    const line = document.createElement('div');
+    if (cls) line.className = cls;
+    line.textContent = msg;
+    logEl.appendChild(line);
+    line.scrollIntoView();
+  };
+
+  const fileInput = document.getElementById('file');
+  const runBtn = document.getElementById('run');
+  let wb = null;
+
+  async function loadWorkbook(buf, label) {
+    logEl.textContent = '';
+    log('読み込み中: ' + label);
+    wb = XLSX.read(buf, { type: 'array', cellDates: false });
+    log('シート: ' + wb.SheetNames.join(' / '));
+    if (!wb.SheetNames.includes('単価マスター')) { log('「単価マスター」シートがありません', 'err'); return; }
+    runBtn.disabled = false;
+  }
+
+  fileInput.addEventListener('change', async () => {
+    const f = fileInput.files[0];
+    if (f) await loadWorkbook(await f.arrayBuffer(), f.name);
+  });
+
+  // 開発用: ?url=... でサーバー上のファイルを直接読む
+  const urlParam = new URLSearchParams(location.search).get('url');
+  if (urlParam) {
+    const res = await fetch(urlParam);
+    if (res.ok) await loadWorkbook(await res.arrayBuffer(), urlParam);
+    else log('URLから読めませんでした: ' + res.status, 'err');
+  }
+
+  const cellV = (ws, addr) => { const c = ws[addr]; return c ? c.v : undefined; };
+  const asNum = (v) => (typeof v === 'number' && isFinite(v)) ? v : undefined;
+  const asStr = (v) => (v == null) ? '' : String(v).trim();
+
+  // 更新日: 文字列("2025/9/27")・シリアル値の両対応。読めなければnull＋原文保持
+  function parseDate(v) {
+    if (typeof v === 'number' && isFinite(v)) {
+      return new Date(Math.round((v - 25569) * 86400 * 1000));
+    }
+    const m = asStr(v).match(/^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})/);
+    if (m) {
+      const d = new Date(+m[1], +m[2] - 1, +m[3]);
+      if (!isNaN(d)) return d;
+    }
+    return null;
+  }
+
+  runBtn.addEventListener('click', async () => {
+    runBtn.disabled = true;
+    try {
+      await fb.ready;
+      log('サインイン済み。既存データを確認…');
+
+      // ガード: itemsに1件でもあれば二重投入を止める
+      const probe = await fb.getDocs(fb.query(fb.collection(fb.db, 'items'), fb.limit(1)));
+      if (!probe.empty) { log('単価マスターは投入済みです。二重投入を避けるため中止しました。', 'err'); return; }
+
+      // ---- 1. 単価マスター（行4〜、C列の品名が続く限り） ----
+      const ws = wb.Sheets['単価マスター'];
+      const items = [];
+      let review = 0, kgMismatch = 0;
+      // データは5行目から。ブロック区切りの空行があるため途中では止めず、
+      // 1774行まで全域を走査（1775行以降は職種単価なので読まない）。
+      // 数字だけのセル（単価の値など）は品名ではないので除外。
+      for (let r = 4; r <= 1774; r++) {
+        const name = asStr(cellV(ws, 'C' + r));
+        if (!name || /^\d+(\.\d+)?$/.test(name)) continue;
+        const updRaw = cellV(ws, 'F' + r);
+        const upd = parseDate(updRaw);
+        const future = upd && upd.getTime() > Date.now() + 86400 * 1000;
+        const it = {
+          category: asStr(cellV(ws, 'A' + r)),
+          supplier: asStr(cellV(ws, 'B' + r)),
+          name,
+          unit: asStr(cellV(ws, 'D' + r)),
+          material: asStr(cellV(ws, 'G' + r)),
+          spec: asStr(cellV(ws, 'H' + r)),
+          type: asStr(cellV(ws, 'K' + r)),
+          useCount: 0,
+          aliases: [],
+          effectiveDate: null,
+          updatedAt: (upd && !future) ? fb.Timestamp.fromDate(upd) : null,
+          updatedAtRaw: asStr(updRaw),
+          needsReview: (!upd || future),
+        };
+        const cost = asNum(cellV(ws, 'E' + r));
+        if (cost !== undefined) it.cost = cost;
+        const weight = asNum(cellV(ws, 'I' + r));
+        if (weight !== undefined) it.weight = weight;
+        const kg = asNum(cellV(ws, 'J' + r));
+        if (kg !== undefined) it.kgPrice = kg;
+        if (it.needsReview) review++;
+        if (weight !== undefined && kg !== undefined && cost !== undefined
+            && Math.abs(Math.round(weight * kg) - cost) > 1) kgMismatch++;
+        items.push(it);
+      }
+      log(`単価マスター: ${items.length}件 読み取り（更新日が読めない/未来: ${review}件、kg単価と原価の不一致: ${kgMismatch}件）`,
+        review || kgMismatch ? 'warn' : '');
+      if (items.length < 1500) log('件数が想定(1,572)より少なめです。中止する場合はページを閉じてください（3秒後に続行）', 'warn');
+
+      // ---- 2. 時間単価（B1776:C1781 職種、C1785 移動労務、C1786 km単価） ----
+      const trades = [];
+      for (let r = 1776; r <= 1781; r++) {
+        const n = asStr(cellV(ws, 'B' + r));
+        const rate = asNum(cellV(ws, 'C' + r));
+        if (n && rate !== undefined) trades.push({ name: n, rate });
+      }
+      const travelLabor = asNum(cellV(ws, 'C1785')) ?? 3000;
+      const kmRate = asNum(cellV(ws, 'C1786')) ?? 25;
+      log(`時間単価: 職種${trades.length}件 ／ 移動労務 ${travelLabor}円/h ／ 車両 ${kmRate}円/km`);
+
+      // ---- 3. 仕入先（外注先マスター C=名称 E=メール） ----
+      const suppliers = [];
+      if (wb.SheetNames.includes('外注先マスター')) {
+        const ws4 = wb.Sheets['外注先マスター'];
+        let blanks = 0;
+        for (let r = 2; r <= 300 && blanks < 5; r++) {
+          const n = asStr(cellV(ws4, 'C' + r));
+          if (!n) { blanks++; continue; }
+          blanks = 0;
+          suppliers.push({
+            name: n,
+            email: asStr(cellV(ws4, 'E' + r)),
+            mergeName: /^小野建/.test(n) ? '小野建' : n,
+            priceVolatile: /菅機械/.test(n),
+          });
+        }
+      }
+      log(`仕入先: ${suppliers.length}件`);
+
+      // ---- 4. 常設注番（README v2 第2章の14件） ----
+      const standing = [
+        ['HD26000', '大西', '東動力'], ['HK26000', '篠原', '東方工場'],
+        ['II26000', '野村', '伊予工場'], ['KK26000', '池内', '北吉田工場'],
+        ['MM26000', '本山', '松前工場'], ['ND26000', '渡部', '西動力'],
+        ['OY26000', '竹本', '余戸小川ポンプ'], ['RR26000', '稲垣', '緑化作業'],
+        ['OT26888', '野村', 'クリンパー整備'], ['SB26000', '野村', '消防車内作'],
+        ['TR26000', '山岡', 'トラストワン'], ['YR26000', '', 'よつばレンタル品購入'],
+        ['YY26000', '', 'その他'], ['ZK26000', '', '小野建在庫'],
+      ];
+
+      // ---- 書き込み ----
+      log('--- Firestoreへ書き込み開始 ---');
+      await fb.setDoc(fb.doc(fb.db, 'settings', 'rates'), {
+        material: 0.15, labor: 0, overhead: 0.15,
+        welfare: 0.16, depreciation: 0.05, tax: 0.10, targetMargin: 0.25,
+      });
+      log('settings/rates 完了', 'ok');
+      await fb.setDoc(fb.doc(fb.db, 'settings', 'unitRates'), { trades, travelLabor, kmRate });
+      log('settings/unitRates 完了', 'ok');
+
+      const soProbe = await fb.getDocs(fb.query(fb.collection(fb.db, 'standingOrders'), fb.limit(1)));
+      if (soProbe.empty) {
+        for (const [orderNo, staff, name] of standing) {
+          await fb.addDoc(fb.collection(fb.db, 'standingOrders'), { orderNo, staff, name });
+        }
+        log(`standingOrders ${standing.length}件 完了`, 'ok');
+      } else log('standingOrders は投入済みのためスキップ', 'warn');
+
+      const supProbe = await fb.getDocs(fb.query(fb.collection(fb.db, 'suppliers'), fb.limit(1)));
+      if (supProbe.empty) {
+        for (const s of suppliers) {
+          await fb.addDoc(fb.collection(fb.db, 'suppliers'), s);
+        }
+        log(`suppliers ${suppliers.length}件 完了`, 'ok');
+      } else log('suppliers は投入済みのためスキップ', 'warn');
+
+      // items: 450件ずつバッチ書き込み
+      for (let i = 0; i < items.length; i += 450) {
+        const batch = fb.writeBatch(fb.db);
+        for (const it of items.slice(i, i + 450)) {
+          batch.set(fb.doc(fb.collection(fb.db, 'items')), it);
+        }
+        await batch.commit();
+        log(`items ${Math.min(i + 450, items.length)}/${items.length} …`);
+      }
+      log(`items ${items.length}件 完了`, 'ok');
+      log('=== すべて完了しました ===', 'ok');
+    } catch (e) {
+      console.error(e);
+      log('エラー: ' + (e.message || e), 'err');
+      runBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

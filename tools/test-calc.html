@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>計算エンジン テスト</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #EEF0F3; margin: 0; padding: 20px; }
+  h1 { font-size: 18px; color: #1B3A5C; }
+  .case { background: #fff; border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; font-size: 14px; }
+  .ok { border-left: 4px solid #177a49; }
+  .ng { border-left: 4px solid #b3261e; font-weight: 700; }
+  #summary { font-size: 16px; font-weight: 700; margin: 12px 0; }
+</style>
+</head>
+<body>
+<h1>計算エンジン テスト（Excel内訳書との一致検証）</h1>
+<div id="summary">実行中…</div>
+<div id="out"></div>
+<script type="module">
+  import { excelRound, materialLine, laborLine, travelLine, totals, DEFAULT_RATES, DEFAULT_UNIT_RATES } from '../js/calc.js?v=1';
+
+  const out = document.getElementById('out');
+  let pass = 0, fail = 0;
+  const eq = (name, got, want) => {
+    const ok = Object.is(got, want) || (typeof got === 'number' && Math.abs(got - want) < 1e-9);
+    const div = document.createElement('div');
+    div.className = 'case ' + (ok ? 'ok' : 'ng');
+    div.textContent = `${ok ? '✓' : '✕'} ${name} — got: ${got} / want: ${want}`;
+    out.appendChild(div);
+    ok ? pass++ : fail++;
+  };
+
+  // ---- excelRound: 四捨五入・負数は0から遠ざける（ExcelのROUNDと同じ） ----
+  eq('round(0.5)=1', excelRound(0.5), 1);
+  eq('round(1.5)=2', excelRound(1.5), 2);
+  eq('round(2.5)=3', excelRound(2.5), 3);
+  eq('round(-0.5)=-1', excelRound(-0.5), -1);
+  eq('round(-1345.5)=-1346', excelRound(-1345.5), -1346);
+  eq('round(4036.10625)=4036', excelRound(4036.10625), 4036);
+
+  // ---- 行計算 ----
+  const R = DEFAULT_RATES, U = DEFAULT_UNIT_RATES;
+  eq('材料 3×1000 → 3450', materialLine({ qty: 3, cost: 1000 }, R).amount, 3450);
+  eq('材料 2.5×333 → 957.375（丸めない）', materialLine({ qty: 2.5, cost: 333 }, R).amount, 957.375);
+  eq('材料 数量なし → null', materialLine({ cost: 100 }, R).amount, null);
+  eq('労務 2×3×3500 → 21000（labor=0）', laborLine({ persons: 2, hours: 3, rate: 3500 }, R).amount, 21000);
+  eq('移動 2人×1.5h＋12.3km → 9615（往復×2）', travelLine({ persons: 2, hours: 1.5, km: 12.3 }, U).amount, 9615);
+  eq('移動 距離なし 1×0.33h → 990', travelLine({ persons: 1, hours: 0.33 }, U).amount, 990);
+  eq('移動 人数なしは距離だけでも0（Excel仕様）', travelLine({ km: 10 }, U).amount, null);
+
+  // ---- 見積全体（手計算で検証済みの期待値） ----
+  const lines = [
+    { kind: '材料', qty: 3, cost: 1000 },
+    { kind: '材料', qty: 2.5, cost: 333 },
+    { kind: '労務', persons: 2, hours: 3, rate: 3500 },
+    { kind: '労務', persons: 1, hours: 0.5, rate: 3000 },
+    { kind: '移動', persons: 2, hours: 1.5, km: 12.3 },
+    { kind: '移動', persons: 1, hours: 0.33 },
+    { kind: '外注', amount: 50000 },
+  ];
+  const t = totals(lines, R, U, true, -142);
+  eq('材料費 H35', t.material, 4407.375);
+  eq('労務費 H49', t.labor, 22500);
+  eq('移動費 H60', t.travel, 10605);
+  eq('外注費 H70', t.subcontract, 50000);
+  eq('諸経費 H74 = R(26907.375×0.15)', t.overhead, 4036);
+  eq('法定福利費 H77 = R(22500×0.16)', t.welfare, 3600);
+  eq('損料 H80 = R(26907.375×0.05)', t.depreciation, 1345);
+  eq('税抜 H82', t.taxable, 96493.375);
+  eq('消費税 H83', t.tax, 9649);
+  eq('税込 H84', t.withTax, 106142.375);
+  eq('御見積金額 H86（端数調整-142）', t.final, 106000.375);
+  eq('売上目標逆算 H87', t.targetPrice, 128658);
+
+  const t2 = totals(lines, R, U, false, 0);
+  eq('福利オフ: 福利=0', t2.welfare, 0);
+  eq('福利オフ: 税抜', t2.taxable, 92893.375);
+  eq('福利オフ: 消費税', t2.tax, 9289);
+
+  const t3 = totals([], R, U, true, 0);
+  eq('空の見積: 御見積金額 0', t3.final, 0);
+
+  document.getElementById('summary').textContent = fail === 0
+    ? `全 ${pass} 件 合格 ✓` : `${fail} 件 失敗 ／ ${pass} 件 合格`;
+  document.getElementById('summary').style.color = fail === 0 ? '#177a49' : '#b3261e';
+</script>
+</body>
+</html>

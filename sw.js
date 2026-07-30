@@ -52,6 +52,10 @@ self.addEventListener('fetch', (e) => {
   // ページ遷移（ナビゲーション）: キャッシュ優先で即起動し、
   // 背後で最新の index.html を取得して次回起動に反映する
   // （PWA起動時にネットワーク待ちの白画面を出さないため）
+  // ※アプリ本体（ルート）への遷移だけが対象。tools/ 等のサブページを
+  //   index.html で乗っ取らないよう、パスを必ず確認する
+  const isAppRoot = url.pathname.endsWith('/') || url.pathname.endsWith('/index.html');
+  if (req.mode === 'navigate' && !isAppRoot) return;
   if (req.mode === 'navigate') {
     e.respondWith(
       caches.match('./index.html').then((cached) => {
