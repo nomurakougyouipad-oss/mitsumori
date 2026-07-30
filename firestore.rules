@@ -1,0 +1,149 @@
+rules_version = '2';
+
+// ============================================================
+// Firestore セキュリティルール — 見積アプリ (mitsumori)
+// 方針: 匿名認証(サインイン済み)のみ読み書き可 + 主要フィールドを検証
+// ※ 本番環境モードの初期ルール(全拒否)から必ずこのルールへ差し替えてください
+// ※ 検証は「型と長さの安全網」まで。業務ルール（計算式・状態遷移）は
+//    アプリ側が持つ。開発が進んだフェーズで必要に応じて締める。
+// ============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function strMax(v, max) {
+      return v is string && v.size() <= max;
+    }
+
+    // 名前を持つマスタ（担当者・取引先・仕入先など）の共通チェック
+    function validNamed(d) {
+      return d.name is string && d.name.size() > 0 && d.name.size() <= 100;
+    }
+
+    // ---- 設定（会社で1つ） ----
+    // settings/rates: 率(小数)。material/labor/overhead/welfare/depreciation/tax/targetMargin
+    // settings/unitRates: 職種1h単価6つ・車両円/km・移動労務円/h
+    match /settings/{settingId} {
+      allow read: if signedIn();
+      allow write: if signedIn();
+
+      // 率の変更履歴（いつ・誰が・何%から何%に）。追記のみ、書き換え不可
+      match /history/{historyId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.resource.data.at is timestamp
+          && strMax(request.resource.data.get('staff', ''), 60)
+          && strMax(request.resource.data.get('key', ''), 40);
+        allow update, delete: if false;
+      }
+    }
+
+    // ---- 担当者 ----
+    match /staff/{staffId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && validNamed(request.resource.data);
+      allow delete: if signedIn();
+    }
+
+    // ---- 取引先（宛先） ----
+    match /customers/{customerId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && validNamed(request.resource.data)
+        && strMax(request.resource.data.get('email', ''), 200)
+        && request.resource.data.get('noWelfare', false) is bool;
+      allow delete: if signedIn();
+    }
+
+    // ---- 仕入先 ----
+    match /suppliers/{supplierId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && validNamed(request.resource.data)
+        && strMax(request.resource.data.get('email', ''), 200)
+        && strMax(request.resource.data.get('mergeName', ''), 100)
+        && request.resource.data.get('priceVolatile', false) is bool;
+      allow delete: if signedIn();
+    }
+
+    // ---- 常設注番 ----
+    match /standingOrders/{soId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && strMax(request.resource.data.orderNo, 30)
+        && request.resource.data.orderNo.size() > 0
+        && strMax(request.resource.data.get('staff', ''), 60)
+        && validNamed(request.resource.data);
+      allow delete: if signedIn();
+    }
+
+    // ---- 単価マスター（約1,600件） ----
+    match /items/{itemId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && validNamed(request.resource.data)         // name は必須・一意はアプリ側で担保
+        && strMax(request.resource.data.get('category', ''), 60)
+        && strMax(request.resource.data.get('supplier', ''), 100)
+        && strMax(request.resource.data.get('unit', ''), 20)
+        && request.resource.data.get('cost', 0) is number
+        && request.resource.data.get('useCount', 0) is number
+        && request.resource.data.get('aliases', []) is list;
+      allow delete: if signedIn();
+    }
+
+    // ---- 見積 ----
+    // 下書きは工事名が空でも保存できる（現場で止まらないことを優先）ため、
+    // 必須フィールドは課さない。型の安全網のみ。
+    match /estimates/{estimateId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && strMax(request.resource.data.get('projectName', ''), 200)
+        && strMax(request.resource.data.get('site', ''), 200)
+        && strMax(request.resource.data.get('customer', ''), 100)
+        && strMax(request.resource.data.get('orderNo', ''), 30)
+        && strMax(request.resource.data.get('staff', ''), 60)
+        && request.resource.data.get('status', '見積中') in ['見積中', '発注待ち', '進行中']
+        && request.resource.data.get('welfareOn', false) is bool
+        && request.resource.data.get('ratesEdited', false) is bool
+        && request.resource.data.get('sketchPhotos', []) is list;
+      allow delete: if signedIn();
+
+      // 明細（材料／労務／移動／外注）
+      match /lines/{lineId} {
+        allow read: if signedIn();
+        allow create, update: if signedIn()
+          && request.resource.data.kind in ['材料', '労務', '移動', '外注']
+          && strMax(request.resource.data.get('name', ''), 200)
+          && request.resource.data.get('qty', 0) is number
+          && request.resource.data.get('cost', 0) is number
+          && request.resource.data.get('handwritten', false) is bool
+          && request.resource.data.get('pendingPrice', false) is bool;
+        allow delete: if signedIn();
+      }
+    }
+
+    // ---- 単価の判断待ち ----
+    match /priceReviews/{reviewId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.get('status', '判断待ち') in ['判断待ち', '承認', '据え置き']
+        && strMax(request.resource.data.get('reason', ''), 100)
+        && strMax(request.resource.data.get('note', ''), 500);
+      allow delete: if signedIn();
+    }
+
+    // ---- 接続テスト用（セットアップ確認ページが使用） ----
+    match /diagnostics/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // 上記以外は全面的に拒否
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

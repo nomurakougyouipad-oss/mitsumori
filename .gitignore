@@ -1,0 +1,8 @@
+# OS / エディタ
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# 作業用（リポジトリに含めない）
+_work/
+*.bak

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>見積 — 接続テスト</title>
+<meta name="theme-color" content="#1B3A5C">
+<style>
+  /* フェーズ0の接続テストページ。フェーズ1でアプリ本体に置き換える */
+  html, body { margin: 0; background: #EEF0F3; font-family: 'Noto Sans JP', system-ui, -apple-system, sans-serif; }
+  header {
+    background: #1B3A5C; color: #fff;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 20px 16px;
+    font-size: 18px; font-weight: 700;
+  }
+  main { padding: 20px; max-width: 480px; margin: 0 auto; }
+  .check {
+    background: #fff; border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
+    display: flex; align-items: center; gap: 12px; font-size: 15px;
+  }
+  .check .mark { font-size: 20px; width: 28px; text-align: center; flex: none; }
+  .check .detail { font-size: 12px; color: #667; margin-top: 2px; }
+  .wait { color: #99a; }
+  .ok .mark { color: #177a49; }
+  .ng .mark { color: #b3261e; }
+  .ng { border-left: 4px solid #b3261e; }
+  .hint {
+    background: #FBF3E2; border-radius: 10px; padding: 14px 16px; margin-top: 16px;
+    font-size: 13px; color: #6b5210; line-height: 1.7; display: none;
+  }
+</style>
+</head>
+<body>
+<header>見積アプリ（mitsumori）— 接続テスト</header>
+<main>
+  <div class="check wait" id="c-config"><span class="mark">…</span><div>firebase-config.js が設定済み<div class="detail" id="d-config"></div></div></div>
+  <div class="check wait" id="c-auth"><span class="mark">…</span><div>匿名サインイン<div class="detail" id="d-auth"></div></div></div>
+  <div class="check wait" id="c-write"><span class="mark">…</span><div>Firestore 書き込み・読み取り<div class="detail" id="d-write"></div></div></div>
+  <div class="check wait" id="c-persist"><span class="mark">…</span><div>オフライン永続化（IndexedDB）<div class="detail" id="d-persist"></div></div></div>
+  <div class="hint" id="hint"></div>
+</main>
+<script type="module">
+  const set = (id, ok, detail) => {
+    const el = document.getElementById('c-' + id);
+    el.classList.remove('wait');
+    el.classList.add(ok ? 'ok' : 'ng');
+    el.querySelector('.mark').textContent = ok ? '✓' : '✕';
+    if (detail) document.getElementById('d-' + id).textContent = detail;
+  };
+  const hint = (msg) => {
+    const el = document.getElementById('hint');
+    el.style.display = 'block';
+    el.textContent = msg;
+  };
+
+  try {
+    const config = (await import('./firebase-config.js?v=1')).default;
+    if (!config.projectId || config.projectId.includes('貼り替え')) {
+      set('config', false, 'firebase-config.js がまだ書き替えられていません');
+      hint('Firebaseコンソールでウェブアプリを登録し、表示された firebaseConfig の値を firebase-config.js に貼り替えてください。');
+      throw new Error('config not set');
+    }
+    set('config', true, 'プロジェクト: ' + config.projectId);
+
+    const fb = await import('./js/firebase.js?v=1');
+    set('persist', fb.persistenceEnabled, fb.persistenceEnabled ? '有効（複数タブ対応）' : '無効（メモリキャッシュで継続）');
+
+    let user;
+    try {
+      user = await Promise.race([
+        fb.ready,
+        new Promise((_, rej) => setTimeout(() => rej(new Error('タイムアウト（15秒）')), 15000)),
+      ]);
+      set('auth', true, 'uid: ' + user.uid.slice(0, 12) + '…');
+    } catch (e) {
+      set('auth', false, String(e.message || e));
+      hint('Authentication → ログイン方法 で「匿名」が有効か、Settings → 承認済みドメイン にこのサイトのドメインがあるか確認してください。');
+      throw e;
+    }
+
+    try {
+      const ref = fb.doc(fb.db, 'diagnostics', user.uid);
+      await fb.setDoc(ref, { at: fb.serverTimestamp(), ua: navigator.userAgent.slice(0, 120) });
+      const snap = await fb.getDoc(ref);
+      set('write', snap.exists(), '書き込み → 読み取り 成功');
+    } catch (e) {
+      set('write', false, String(e.message || e));
+      hint('Firestore Database → ルール に firestore.rules の中身を貼り付けて「公開」したか確認してください。');
+    }
+  } catch (e) {
+    console.error(e);
+  }
+</script>
+</body>
+</html>

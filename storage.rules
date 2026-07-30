@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// ============================================================
+// Storage セキュリティルール — 見積アプリ (mitsumori)
+// 拾い出しスケッチの写真のみ。画像・10MB以下・サインイン必須
+// ============================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // 見積の表紙に貼る拾い出しスケッチ写真
+    match /sketchPhotos/{estimateId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null;
+    }
+
+    // 上記以外は全面的に拒否
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
