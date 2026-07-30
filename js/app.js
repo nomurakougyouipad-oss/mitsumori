@@ -10,6 +10,7 @@ import { db, ready, collection, addDoc } from './firebase.js?v=2';
 import { startSubscriptions, onCacheChange, cache } from './store.js?v=2';
 import { renderHome, renderEstimatesTab } from './screen-home.js?v=2';
 import { renderEstScreen, openCoverPage } from './screen-est.js?v=2';
+import { renderSearchTab } from './screen-order.js?v=2';
 
 const state = {
   staff: local.get('staff', ''),
@@ -69,16 +70,6 @@ function tabbarHtml(active) {
           <span>${t.label}</span>
         </a>`).join('')}
     </nav>`;
-}
-
-function searchHtml() {
-  return `
-    <div class="screen"><div class="scroll">
-      <div class="empty">
-        <div class="big">案件をさがす（フェーズ3で実装）</div>
-        工事名・宛先・注番・担当者・期間で検索。過去の見積のコピー、加工品の実績検索もここです
-      </div>
-    </div></div>`;
 }
 
 function settingsHtml() {
@@ -194,7 +185,7 @@ function render() {
 
   if (state.tab === 'home') renderHome(rootEl);
   else if (state.tab === 'estimates') renderEstimatesTab(rootEl);
-  else if (state.tab === 'search') rootEl.innerHTML = searchHtml();
+  else if (state.tab === 'search') renderSearchTab(rootEl);
   else {
     rootEl.innerHTML = settingsHtml();
     rootEl.querySelector('#staff-change').addEventListener('click', () => openStaffModal());

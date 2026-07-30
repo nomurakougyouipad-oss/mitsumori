@@ -11,13 +11,14 @@ import {
 } from './store.js?v=2';
 import { totals, lineAmount, excelRound } from './calc.js?v=2';
 import {
-  db, doc, updateDoc, Timestamp, arrayUnion, arrayRemove,
+  db, doc, updateDoc, deleteDoc, getDocs, collection, Timestamp, arrayUnion, arrayRemove,
   storageRef, uploadBytes, getDownloadURL, deleteObject, storage,
 } from './firebase.js?v=2';
 import {
   openMaterialPage, openManualPage, openPendingPage,
   openLaborPage, openTravelPage, openSubcontractPage,
 } from './screen-material.js?v=2';
+import { exportEstimateCsv } from './export.js?v=2';
 
 const KINDS = ['材料', '労務', '移動', '外注'];
 const KIND_LABEL = { 材料: '材料費', 労務: '労務費', 移動: '移動費', 外注: '外注費' };
@@ -311,6 +312,13 @@ export function openCoverPage(estId, getEst) {
         <div class="field"><label>注文番号</label>
           <input class="input num" id="c-orderno" value="${esc(est.orderNo || '')}" autocomplete="off" placeholder="OT26249">
           ${dup ? '<div style="color:#8A560F;font-size:12.5px;font-weight:700;margin-top:6px">⚠ この注番はすでに使われています（Excel移行期は特に注意）</div>' : ''}
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <select class="input" id="c-prefix" style="flex:1">
+              <option value="">自動採番（系列を選ぶ）…</option>
+              ${knownPrefixes().map((p) => `<option value="${p}">${p}（${p}${yy()}の続き番号）</option>`).join('')}
+            </select>
+          </div>
+          <div style="font-size:11px;color:var(--muted2);margin-top:4px">アプリ内の最大＋1を提案します。Excel側と混在中は番号を確かめてください</div>
           <select class="input" id="c-standing" style="margin-top:8px">
             <option value="">常設注番から選ぶ…</option>
             ${cache.standingOrders.map((s) => `<option value="${esc(s.orderNo)}">${esc(s.orderNo)}　${esc(s.name)}${s.staff ? '（' + esc(s.staff) + '）' : ''}</option>`).join('')}
@@ -326,6 +334,9 @@ export function openCoverPage(estId, getEst) {
             <button class="ph-add" id="c-addph">📷<span>追加</span></button>
             <input type="file" id="c-file" accept="image/*" style="display:none">
           </div></div>
+        <div style="margin-top:24px;border-top:1px solid var(--line);padding-top:16px">
+          <button class="btn btn-danger btn-block" id="c-delete">この見積を削除する</button>
+        </div>
       </div></div>
       <div class="bottom-bar">
         <button class="btn btn-primary btn-block btn-big" id="c-done">明細の入力へ</button>
@@ -346,6 +357,15 @@ export function openCoverPage(estId, getEst) {
       const c = cache.customers.find((x) => x.name === v);
       await updateEstimate(estId, { customer: v, welfareOn: c ? !c.noWelfare : true });
       toast(c && c.noWelfare ? 'この宛先は法定福利費なしです（確認画面で変えられます）' : '法定福利費を計上します');
+    });
+
+    // 自動採番: プレフィックス選択 → その系列の既存最大+1を提案（手で直せる）
+    ov.el.querySelector('#c-prefix').addEventListener('change', async (e) => {
+      const p = e.target.value;
+      if (!p) return;
+      const proposal = proposeOrderNo(p);
+      await updateEstimate(estId, { orderNo: proposal });
+      setTimeout(paint, 300);
     });
 
     // 常設注番: 選ぶと注番＋担当者が入る
@@ -376,6 +396,20 @@ export function openCoverPage(estId, getEst) {
       } catch (e) { console.error(e); toast('アップロードできませんでした（電波を確認）'); }
     });
     ov.el.querySelectorAll('[data-ph]').forEach((img) => img.addEventListener('click', () => viewPhoto(img.src)));
+
+    // 見積の削除（明細ごと消す。二重確認）
+    ov.el.querySelector('#c-delete').addEventListener('click', async () => {
+      if (!(await confirmDialog('この見積を削除しますか?', '削除する'))) return;
+      if (!(await confirmDialog('明細も含めて完全に消えます。本当に削除しますか?', '完全に削除'))) return;
+      try {
+        const snap = await getDocs(collection(db, 'estimates', estId, 'lines'));
+        for (const d0 of snap.docs) await deleteDoc(d0.ref);
+        await deleteDoc(doc(db, 'estimates', estId));
+        ov.close();
+        location.hash = '#home';
+        toast('見積を削除しました');
+      } catch (e) { console.error(e); toast('削除できませんでした'); }
+    });
   }
 
   async function addCustomerFlow() {
@@ -410,6 +444,39 @@ export function openCoverPage(estId, getEst) {
   }
 
   paint();
+}
+
+// ---------- 注番の自動採番 ----------
+// 形式: アルファベット2文字＋年2桁＋連番3桁（例 OT26265）。枝番 -01-01 は無視。
+// 000は常設の受け皿・888は特別枠なので提案から外す。知らない形式は判定しない。
+function yy() { return String(new Date().getFullYear() % 100).padStart(2, '0'); }
+
+function knownPrefixes() {
+  const set = new Set();
+  for (const s of cache.standingOrders) {
+    const m = (s.orderNo || '').match(/^([A-Z]{2})\d{5}/);
+    if (m) set.add(m[1]);
+  }
+  for (const e of cache.estimates) {
+    const m = (e.orderNo || '').match(/^([A-Z]{2})\d{5}/);
+    if (m) set.add(m[1]);
+  }
+  return [...set].sort();
+}
+
+function proposeOrderNo(prefix) {
+  const year = yy();
+  let max = 0;
+  for (const e of cache.estimates) {
+    const m = (e.orderNo || '').match(new RegExp('^' + prefix + year + '(\\d{3})'));
+    if (!m) continue;
+    const n = parseInt(m[1], 10);
+    if (n === 0 || n === 888) continue; // 受け皿・特別枠は連番に数えない
+    if (n > max) max = n;
+  }
+  let next = max + 1;
+  if (next === 888) next = 889;
+  return prefix + year + String(next).padStart(3, '0');
 }
 
 // 画像を縮小してJPEG化（アップロードを軽くする）
@@ -509,7 +576,8 @@ export function openConfirmPage(estId) {
         <button class="btn btn-primary btn-block" style="height:56px;font-size:18px" id="cf-order">🚚 発注依頼を出す</button>
         ${provisional
           ? `<div class="btn btn-block" style="margin-top:8px;background:#EEF0F3;border-color:#D9DEE4;color:#A9B3BD;cursor:default">🔒 Excelへ渡す</div>
-             <div style="text-align:center;font-size:11.5px;color:#8A560F;margin-top:6px">単価が全部そろうと押せます（「概算として出す」は今後追加）</div>`
+             <div style="text-align:center;font-size:11.5px;color:#8A560F;margin-top:6px">単価が全部そろうと押せます／
+               <span id="cf-approx" style="text-decoration:underline;cursor:pointer;font-weight:700">概算として出す</span></div>`
           : '<button class="btn btn-block" style="margin-top:8px" id="cf-excel">Excelへ渡す</button>'}
       </div>`;
 
@@ -543,8 +611,61 @@ export function openConfirmPage(estId) {
         welfareLog: arrayUnion({ by: local.get('staff', ''), at: Timestamp.now(), on: next }),
       });
     });
-    ov.el.querySelector('#cf-order')?.addEventListener('click', () => toast('発注依頼はフェーズ3で実装します'));
-    ov.el.querySelector('#cf-excel')?.addEventListener('click', () => toast('Excelへの書き出しはフェーズ3で実装します'));
+    ov.el.querySelector('#cf-order')?.addEventListener('click', () => openOrderRequestDialog());
+    ov.el.querySelector('#cf-excel')?.addEventListener('click', () => doExport(false));
+    ov.el.querySelector('#cf-approx')?.addEventListener('click', async () => {
+      if (await confirmDialog(`単価待ちが${pending}件あります。仮単価（無ければ0円）のまま概算として出しますか?`, '概算として出す')) doExport(true);
+    });
+  }
+
+  function doExport(approx) {
+    const warnings = exportEstimateCsv(est, lines, ratesOf(est), unitRatesOf(est), { approx });
+    if (warnings.length) toast('⚠ ' + warnings.join('／'));
+    else toast('CSVを書き出しました。Excelの「アプリのCSVを読み込む」で取り込めます');
+  }
+
+  // 発注依頼: 納品場所と希望納期は必須（README第4章）
+  function openOrderRequestDialog() {
+    const PLACES = ['松前工場', '伊予工場', '東方加工場'];
+    const root = document.getElementById('modal-root');
+    const back = document.createElement('div');
+    back.className = 'modal-back';
+    let place = est.deliveryPlace || '';
+    const paintDlg = () => {
+      back.innerHTML = `
+        <div class="modal"><div class="modal-head">発注依頼を出す</div>
+        <div class="modal-body">
+          <div class="field"><label>納品場所（必須）</label>
+            <div class="chips" style="flex-wrap:wrap">
+              ${PLACES.map((p) => `<div class="chip ${place === p ? 'on' : ''}" data-p="${p}" style="flex:none;min-width:31%">${p}</div>`).join('')}
+            </div>
+            <input class="input" id="or-place" style="margin-top:8px" placeholder="その他の場所は手打ち" value="${PLACES.includes(place) ? '' : esc(place)}"></div>
+          <div class="field"><label>希望納期（必須）</label>
+            <input class="input" type="date" id="or-due" value="${esc(est.dueDate || '')}"></div>
+          <div style="display:flex;gap:8px">
+            <button class="btn" style="flex:1" id="or-cancel">やめる</button>
+            <button class="btn btn-primary" style="flex:1" id="or-ok">発注依頼を出す</button>
+          </div>
+        </div></div>`;
+      back.querySelectorAll('[data-p]').forEach((c) => c.addEventListener('click', () => { place = c.dataset.p; paintDlg(); }));
+      back.querySelector('#or-place').addEventListener('input', (e) => { place = e.target.value.trim(); });
+      back.querySelector('#or-cancel').addEventListener('click', () => back.remove());
+      back.querySelector('#or-ok').addEventListener('click', async () => {
+        const due = back.querySelector('#or-due').value;
+        if (!place) { toast('納品場所を選んでください'); return; }
+        if (!due) { toast('希望納期を入れてください'); return; }
+        try {
+          await updateEstimate(estId, {
+            status: '発注待ち', deliveryPlace: place, dueDate: due,
+            orderRequestedAt: Timestamp.now(), orderStatus: est.orderStatus || {},
+          });
+          back.remove();
+          toast('発注依頼を出しました。事務所の発注待ち一覧に載ります');
+        } catch (e) { console.error(e); toast('保存できませんでした'); }
+      });
+    };
+    paintDlg();
+    root.appendChild(back);
   }
 
   function rateRow(lbl, key, r) {
