@@ -11,6 +11,7 @@ import { startSubscriptions, onCacheChange, cache } from './store.js?v=2';
 import { renderHome, renderEstimatesTab } from './screen-home.js?v=2';
 import { renderEstScreen, openCoverPage } from './screen-est.js?v=2';
 import { renderSearchTab } from './screen-order.js?v=2';
+import { renderSettingsTab } from './screen-settings.js?v=2';
 
 const state = {
   staff: local.get('staff', ''),
@@ -70,25 +71,6 @@ function tabbarHtml(active) {
           <span>${t.label}</span>
         </a>`).join('')}
     </nav>`;
-}
-
-function settingsHtml() {
-  return `
-    <div class="screen"><div class="scroll">
-      <div class="sec-head"><span class="ttl">担当者</span><span class="rule"></span></div>
-      <div class="card" id="staff-change" style="cursor:pointer">
-        <div class="ttl">${esc(state.staff || '未選択')}</div>
-        <div class="meta">タップして切り替える</div>
-      </div>
-      <div class="sec-head"><span class="ttl">マスターと率</span><span class="rule"></span></div>
-      <div class="card"><div class="ttl" style="font-size:14px">単価マスター ${cache.itemsLoaded ? cache.items.length + '件' : '読み込み中…'}</div>
-        <div class="meta">率の設定・マスターの編集・集計表の読み込みはフェーズ4で実装します</div></div>
-      <div class="sec-head"><span class="ttl">システム</span><span class="rule"></span></div>
-      <div class="card" style="cursor:pointer" id="setup-check">
-        <div class="ttl">接続テスト</div>
-        <div class="meta">Firebaseとの接続を確認する</div>
-      </div>
-    </div></div>`;
 }
 
 // ---------- 担当者の選択 ----------
@@ -186,12 +168,11 @@ function render() {
   if (state.tab === 'home') renderHome(rootEl);
   else if (state.tab === 'estimates') renderEstimatesTab(rootEl);
   else if (state.tab === 'search') renderSearchTab(rootEl);
-  else {
-    rootEl.innerHTML = settingsHtml();
-    rootEl.querySelector('#staff-change').addEventListener('click', () => openStaffModal());
-    rootEl.querySelector('#setup-check').addEventListener('click', () => { location.href = './tools/setup-check.html'; });
-  }
+  else renderSettingsTab(rootEl);
 }
+
+// 設定画面からの担当者切替
+document.addEventListener('open-staff-modal', () => openStaffModal());
 
 // キャッシュ変化で再描画（入力中のオーバーレイは崩さない）
 onCacheChange(() => {

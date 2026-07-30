@@ -7,6 +7,7 @@ import { icons } from './icons.js?v=2';
 import { toast } from './ui.js?v=2';
 import { cache, createEstimate } from './store.js?v=2';
 import { openOrderWaitPage } from './screen-order.js?v=2';
+import { openPendingPricePage, openReviewsPage } from './screen-settings.js?v=2';
 
 const STATUSES = ['見積中', '発注待ち', '進行中'];
 
@@ -29,6 +30,7 @@ export function renderHome(container, opts = {}) {
           <div style="display:flex;align-items:center;gap:8px">
             <span class="yen">${YEN(e.totalFinal || 0)}</span>
             ${(e.pendingCount || 0) > 0 ? '<span class="tag-warn">⚠ 暫定</span>' : ''}
+            ${e.priceFilled ? '<span class="tag-warn" style="background:var(--green)">✓ 単価が入りました</span>' : ''}
           </div>
           <span style="font-size:11.5px;color:var(--muted2)" class="num">${fmtDateJa(e.updatedAt)}</span>
         </div>
@@ -65,8 +67,8 @@ export function renderHome(container, opts = {}) {
       </div>`;
 
     container.querySelector('#bdg-order').addEventListener('click', openOrderWaitPage);
-    container.querySelector('#bdg-price').addEventListener('click', () => toast('単価待ちの一覧はフェーズ4（事務所向け）で実装します'));
-    container.querySelector('#bdg-review').addEventListener('click', () => toast('判断待ちはフェーズ4で実装します'));
+    container.querySelector('#bdg-price').addEventListener('click', openPendingPricePage);
+    container.querySelector('#bdg-review').addEventListener('click', openReviewsPage);
     container.querySelectorAll('[data-scope]').forEach((el) => el.addEventListener('click', () => {
       local.set('homeScope', el.dataset.scope === 'all' ? 'all' : 'mine');
       renderHome(container, opts);

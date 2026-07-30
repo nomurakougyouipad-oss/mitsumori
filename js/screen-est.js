@@ -43,6 +43,8 @@ export function renderEstScreen(container, estId) {
   const unsubEst = subscribeEstimate(estId, (e) => {
     if (!e) { location.hash = '#home'; return; }
     est = e;
+    // 「単価が入りました」の印は、見たら消える
+    if (e.priceFilled) updateEstimate(estId, { priceFilled: false }).catch(() => {});
     paint();
   });
   const unsubLines = subscribeLines(estId, (ls) => {
