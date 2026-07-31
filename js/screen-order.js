@@ -2,11 +2,11 @@
 // 発注待ち一覧（事務所の主戦場）と 案件をさがす
 // ============================================================
 
-import { esc, YEN, fmtDateJa, toDate, local } from './util.js?v=2';
-import { openOverlay, toast, confirmDialog } from './ui.js?v=2';
-import { cache, norm, updateEstimate, createEstimate, addLine } from './store.js?v=2';
-import { db, collection, getDocs } from './firebase.js?v=2';
-import { exportEstimateCsv } from './export.js?v=2';
+import { esc, YEN, fmtDateJa, toDate, local } from './util.js?v=4';
+import { openOverlay, toast, confirmDialog, bindSearch } from './ui.js?v=4';
+import { cache, norm, updateEstimate, createEstimate, addLine } from './store.js?v=4';
+import { db, collection, getDocs } from './firebase.js?v=4';
+import { exportEstimateCsv } from './export.js?v=4';
 
 // 仕入先名 → 発注メール統合名（小野建／小野建 SUS／小野建（継手）→ 小野建）
 function mergeNameOf(supplierName) {
@@ -125,6 +125,20 @@ export function openOrderWaitPage() {
 export function renderSearchTab(container) {
   let q = '';
 
+  // iPhone対策: 検索inputは一度だけ生成し、絞り込みでは結果リストだけ描き直す
+  //（詳細は ui.js の bindSearch のコメント参照）
+  container.innerHTML = `
+    <div class="screen">
+      <div class="search-block">
+        <div class="search-box" style="height:48px">
+          <input id="s-q" placeholder="工事名・宛先・注番・担当者" autocomplete="off" style="font-size:16px">
+        </div>
+      </div>
+      <div class="scroll" id="s-list"></div>
+    </div>`;
+  const listEl = container.querySelector('#s-list');
+  bindSearch(container.querySelector('#s-q'), (v) => { q = v; paint(); });
+
   function paint() {
     const tokens = norm(q).split(' ').filter(Boolean);
     const hits = !tokens.length ? cache.estimates : cache.estimates.filter((e) => {
@@ -132,14 +146,7 @@ export function renderSearchTab(container) {
       return tokens.every((t) => key.includes(t));
     });
 
-    container.innerHTML = `
-      <div class="screen">
-        <div class="search-block">
-          <div class="search-box" style="height:48px">
-            <input id="s-q" placeholder="工事名・宛先・注番・担当者" value="${esc(q)}" autocomplete="off" style="font-size:16px">
-          </div>
-        </div>
-        <div class="scroll">
+    listEl.innerHTML = `
           <div class="sec-head"><span class="ttl">見つかった案件</span><span class="cnt">${hits.length}</span><span class="rule"></span></div>
           ${hits.slice(0, 50).map((e) => `
             <div class="card" style="margin-bottom:8px">
@@ -153,21 +160,12 @@ export function renderSearchTab(container) {
                 <button class="btn btn-sm" data-copy="${e.id}">コピーして新規</button>
               </div>
             </div>`).join('') || '<div class="empty">見つかりませんでした</div>'}
-          ${hits.length > 50 ? '<div style="text-align:center;font-size:12px;color:var(--muted2);padding:8px">50件まで表示。検索で絞ってください</div>' : ''}
-        </div>
-      </div>`;
+          ${hits.length > 50 ? '<div style="text-align:center;font-size:12px;color:var(--muted2);padding:8px">50件まで表示。検索で絞ってください</div>' : ''}`;
 
-    const input = container.querySelector('#s-q');
-    input.addEventListener('input', () => {
-      q = input.value;
-      paint();
-      const i2 = container.querySelector('#s-q');
-      i2.focus(); i2.setSelectionRange(i2.value.length, i2.value.length);
-    });
-    container.querySelectorAll('[data-open]').forEach((el) => el.addEventListener('click', () => {
+    listEl.querySelectorAll('[data-open]').forEach((el) => el.addEventListener('click', () => {
       location.hash = '#est/' + el.dataset.open;
     }));
-    container.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
+    listEl.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
       const src = cache.estimates.find((x) => x.id === b.dataset.copy);
       if (!src) return;
       if (!(await confirmDialog(`「${src.projectName || '（工事名なし）'}」をコピーして新しい見積を作りますか?\n（注番は空になります。率は今の設定値）`, 'コピーする'))) return;

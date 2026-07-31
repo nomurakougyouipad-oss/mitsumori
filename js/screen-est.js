@@ -2,23 +2,23 @@
 // 見積画面 — 明細一覧（費目タブ）・表紙の情報・見積の確認
 // ============================================================
 
-import { esc, YEN, fmtDateJa, local } from './util.js?v=2';
-import { icons } from './icons.js?v=2';
-import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=2';
+import { esc, YEN, fmtDateJa, local } from './util.js?v=4';
+import { icons } from './icons.js?v=4';
+import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=4';
 import {
   cache, subscribeEstimate, subscribeLines, updateEstimate,
   addLine, deleteLine, saveSummary, addNamed,
-} from './store.js?v=2';
-import { totals, lineAmount, excelRound } from './calc.js?v=2';
+} from './store.js?v=4';
+import { totals, lineAmount, excelRound } from './calc.js?v=4';
 import {
   db, doc, updateDoc, deleteDoc, getDocs, collection, Timestamp, arrayUnion, arrayRemove,
   storageRef, uploadBytes, getDownloadURL, deleteObject, storage,
-} from './firebase.js?v=2';
+} from './firebase.js?v=4';
 import {
   openMaterialPage, openManualPage, openPendingPage,
   openLaborPage, openTravelPage, openSubcontractPage,
-} from './screen-material.js?v=3';
-import { exportEstimateCsv } from './export.js?v=2';
+} from './screen-material.js?v=4';
+import { exportEstimateCsv } from './export.js?v=4';
 
 const KINDS = ['材料', '労務', '移動', '外注'];
 const KIND_LABEL = { 材料: '材料費', 労務: '労務費', 移動: '移動費', 外注: '外注費' };

@@ -5,7 +5,7 @@
 // （zaiko-shohin から流用）
 // ============================================================
 
-const VERSION = 'v6';
+const VERSION = 'v7';
 const CACHE = 'mitsumori-' + VERSION;
 
 // アプリシェル（オフラインでも起動できる最小セット）
@@ -14,23 +14,23 @@ const CACHE = 'mitsumori-' + VERSION;
 const SHELL = [
   './',
   './index.html',
-  './app.css?v=2',
+  './app.css?v=4',
   './manifest.webmanifest',
-  './firebase-config.js?v=2',
-  './js/app.js?v=2',
-  './js/util.js?v=2',
-  './js/icons.js?v=2',
-  './js/firebase.js?v=2',
-  './js/calc.js?v=2',
-  './js/store.js?v=2',
-  './js/ui.js?v=2',
-  './js/screen-home.js?v=2',
-  './js/screen-est.js?v=2',
-  './js/screen-material.js?v=3',
-  './js/screen-order.js?v=2',
-  './js/screen-settings.js?v=2',
-  './js/screen-tally.js?v=3',
-  './js/export.js?v=2',
+  './firebase-config.js?v=4',
+  './js/app.js?v=4',
+  './js/util.js?v=4',
+  './js/icons.js?v=4',
+  './js/firebase.js?v=4',
+  './js/calc.js?v=4',
+  './js/store.js?v=4',
+  './js/ui.js?v=4',
+  './js/screen-home.js?v=4',
+  './js/screen-est.js?v=4',
+  './js/screen-material.js?v=4',
+  './js/screen-order.js?v=4',
+  './js/screen-settings.js?v=4',
+  './js/screen-tally.js?v=4',
+  './js/export.js?v=4',
   './icons/icon-48.png',
   './icons/icon-120.png',
   './icons/icon-180.png',

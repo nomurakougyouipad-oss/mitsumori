@@ -3,11 +3,11 @@
 // 「入力は1件1ページ。保存して次へで画面は移動しない」（README第4章）
 // ============================================================
 
-import { esc, YEN, local } from './util.js?v=2';
-import { icons } from './icons.js?v=2';
-import { openOverlay, openNumpad, toast } from './ui.js?v=2';
-import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=2';
-import { excelRound } from './calc.js?v=2';
+import { esc, YEN, local } from './util.js?v=4';
+import { icons } from './icons.js?v=4';
+import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=4';
+import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=4';
+import { excelRound } from './calc.js?v=4';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
@@ -71,9 +71,8 @@ export function openMaterialPage(estimateId, est, opts = {}) {
         ${editingLineId ? '' : '<button class="btn btn-block" id="m-back" style="margin-top:8px" disabled>保存して戻る</button>'}
       </div>`;
 
-    const q = ov.el.querySelector('#m-q');
     // inputは再生成しないので、変換中でもフォーカスとIME状態はそのまま保たれる
-    q.addEventListener('input', () => { query = q.value; paintBody(); });
+    bindSearch(ov.el.querySelector('#m-q'), (v) => { query = v; paintBody(); });
     ov.el.querySelector('#m-close').addEventListener('click', ov.close);
     ov.el.querySelector('#m-next').addEventListener('click', () => save(true));
     ov.el.querySelector('#m-back')?.addEventListener('click', () => save(false));

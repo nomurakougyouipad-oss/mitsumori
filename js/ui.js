@@ -2,7 +2,7 @@
 // 共通UI部品 — 全画面オーバーレイ・テンキー・トースト
 // ============================================================
 
-import { esc } from './util.js?v=2';
+import { esc } from './util.js?v=4';
 
 // ---------- トースト ----------
 let toastTimer = null;
@@ -14,6 +14,23 @@ export function toast(msg, undoLabel = null, onUndo = null) {
     root.querySelector('.undo').addEventListener('click', () => { root.innerHTML = ''; onUndo(); });
   }
   toastTimer = setTimeout(() => { root.innerHTML = ''; }, 4000);
+}
+
+// ---------- 検索入力の共通処理（iPhone対策） ----------
+// リアルタイム絞り込みの検索欄はすべてこれを使うこと。約束は2つ:
+// ① inputノードは一度だけ生成し、絞り込みの再描画で作り直さない
+//    （inputをinnerHTMLで再生成→focusし直すと、iOSはキーボードを
+//      既定（かな）で出し直す・変換中の文字が二重に入る）
+// ② 日本語IMEの変換中（compositionstart〜compositionend）は
+//    絞り込みを走らせない。確定した時点で1回だけ走らせる
+export function bindSearch(input, onQuery) {
+  let composing = false;
+  input.addEventListener('compositionstart', () => { composing = true; });
+  input.addEventListener('compositionend', () => { composing = false; onQuery(input.value); });
+  input.addEventListener('input', (e) => {
+    if (composing || e.isComposing) return;
+    onQuery(input.value);
+  });
 }
 
 // ---------- 全画面オーバーレイ（材料を追加・表紙など） ----------

@@ -4,15 +4,15 @@
 // 単価マスター・取引先・仕入先・常設注番／集計表読み込み／書き戻しCSV
 // ============================================================
 
-import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=2';
-import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=2';
-import { cache, searchItems, isStale, updateEstimate, saveSummary, addNamed } from './store.js?v=2';
-import { totals } from './calc.js?v=2';
+import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=4';
+import { openOverlay, openNumpad, toast, confirmDialog, bindSearch } from './ui.js?v=4';
+import { cache, searchItems, isStale, updateEstimate, saveSummary, addNamed } from './store.js?v=4';
+import { totals } from './calc.js?v=4';
 import {
   db, doc, collection, addDoc, updateDoc, deleteDoc, getDocs, setDoc,
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
-} from './firebase.js?v=2';
-import { openTallyPage } from './screen-tally.js?v=3';
+} from './firebase.js?v=4';
+import { openTallyPage } from './screen-tally.js?v=4';
 
 const RATE_DEFS = [
   ['material', '材料費 上乗せ%', '原価に対して'],
@@ -174,13 +174,20 @@ function openUnitRatesPage() {
 function openItemsPage() {
   const ov = openOverlay();
   let q = '';
+  // iPhone対策: 検索inputは一度だけ生成し、絞り込みでは結果リストだけ描き直す
+  //（詳細は ui.js の bindSearch のコメント参照）
+  ov.el.innerHTML = `
+    <div class="page-head"><div class="bar"><button class="icon-btn" id="i-back">←</button><span class="ttl">単価マスター ${cache.items.length}件</span></div></div>
+    <div class="search-block"><div class="search-box" style="height:48px">
+      <input id="i-q" placeholder="品名・仕入先・材質で検索" style="font-size:16px" autocomplete="off"></div></div>
+    <div class="page-body" id="i-list"></div>`;
+  ov.el.querySelector('#i-back').addEventListener('click', ov.close);
+  const listEl = ov.el.querySelector('#i-list');
+  bindSearch(ov.el.querySelector('#i-q'), (v) => { q = v; paint(); });
+
   function paint() {
     const hits = searchItems(q, 30);
-    ov.el.innerHTML = `
-      <div class="page-head"><div class="bar"><button class="icon-btn" id="i-back">←</button><span class="ttl">単価マスター ${cache.items.length}件</span></div></div>
-      <div class="search-block"><div class="search-box" style="height:48px">
-        <input id="i-q" placeholder="品名・仕入先・材質で検索" value="${esc(q)}" style="font-size:16px" autocomplete="off"></div></div>
-      <div class="page-body">
+    listEl.innerHTML = `
         ${hits.map((it) => `
           <div class="cand" data-id="${it.id}" style="padding-left:14px">
             <div style="display:flex;align-items:center">
@@ -190,12 +197,8 @@ function openItemsPage() {
               </div>
               ${isStale(it) ? '<span class="cand-badge stale">単価が古い</span>' : ''}
             </div>
-          </div>`).join('')}
-      </div>`;
-    ov.el.querySelector('#i-back').addEventListener('click', ov.close);
-    const input = ov.el.querySelector('#i-q');
-    input.addEventListener('input', () => { q = input.value; paint(); const i2 = ov.el.querySelector('#i-q'); i2.focus(); i2.setSelectionRange(i2.value.length, i2.value.length); });
-    ov.el.querySelectorAll('[data-id]').forEach((el) => el.addEventListener('click', () => editItem(cache.items.find((x) => x.id === el.dataset.id), paint)));
+          </div>`).join('')}`;
+    listEl.querySelectorAll('[data-id]').forEach((el) => el.addEventListener('click', () => editItem(cache.items.find((x) => x.id === el.dataset.id), paint)));
   }
   paint();
 }
