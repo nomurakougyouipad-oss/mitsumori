@@ -81,6 +81,15 @@ service cloud.firestore {
       allow delete: if signedIn();
     }
 
+    // ---- 検索の言い換え辞書（言葉単位。初期セットはアプリ内、ここは追加・上書き分） ----
+    match /synonyms/{synId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && validNamed(request.resource.data)
+        && strMax(request.resource.data.get('terms', ''), 300);
+      allow delete: if signedIn();
+    }
+
     // ---- 単価マスター（約1,600件） ----
     match /items/{itemId} {
       allow read: if signedIn();

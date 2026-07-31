@@ -7,8 +7,8 @@
 import {
   db, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDoc, onSnapshot, query, orderBy, serverTimestamp,
-} from './firebase.js?v=8';
-import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=8';
+} from './firebase.js?v=9';
+import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=9';
 
 // ---------- 検索の正規化 ----------
 // ひらがな→カタカナ、全角→半角(NFKC)、大文字→小文字、記号ゆれ(×→x等)を吸収
@@ -21,6 +21,71 @@ export function norm(s) {
   return t;
 }
 
+// ---------- 検索の言い換え辞書（同義語） ----------
+// 現場は社内マスターの表記（SGP・ｱﾝｸﾞﾙ等）ではなく普段の言葉で打つ。
+// 「パイプ 25A」で SGP(溶協品) 25Ax5.5m が出るように、打った言葉を内部で置き換える。
+// ※ 集計表の別名辞書（items.aliases）とは別物。
+//    あちら＝品目単位（この行はこの品目）／こちら＝言葉単位（この言葉はこの表記）。
+// この初期セットはコードに持つ（初回から設定なしで効く）。
+// 追加・変更は Firestore の synonyms コレクションが上書きする（設定画面から編集）。
+export const DEFAULT_SYNONYMS = [
+  ['パイプ', ['SGP', 'STK', 'STPG', '丸ﾊﾟｲﾌﾟ']],
+  ['配管', ['SGP', 'STK', 'STPG', '丸ﾊﾟｲﾌﾟ']],
+  ['丸鋼', ['RB', '丸棒']],
+  ['丸棒', ['RB', '丸棒']],
+  ['山形鋼', ['ｱﾝｸﾞﾙ', 'L']],
+  ['溝形鋼', ['C']],
+  ['チャンネル', ['C']],
+  ['平鋼', ['FB']],
+  ['フラットバー', ['FB']],
+  ['縞鋼板', ['縞板']],
+  ['ステン', ['SUS304', 'SUS316']],
+  ['ステンレス', ['SUS304', 'SUS316']],
+  ['鉄', ['SS400']],
+  ['ボルト', ['BT', '六角ﾎﾞﾙﾄ']],
+  ['ナット', ['NT']],
+  ['ワッシャー', ['FW', 'SW', 'PW']],
+];
+
+// 「SGP、STK」「SGP STK」「SGP/STK」どれでも区切れるようにする
+export const splitTerms = (s) => String(s || '').split(/[、,，／/｜|\s]+/).map((x) => x.trim()).filter(Boolean);
+
+// 初期セット＋Firestoreの追加/上書き を合わせた辞書を作る
+// （同じ言葉がFirestoreにあればそちらが勝つ。中身を空にすると初期セットを無効化できる）
+export function synonymMap() {
+  const m = new Map();
+  const put = (word, terms) => {
+    const w = norm(word);
+    if (!w) return;
+    const list = terms.map(norm).filter(Boolean);
+    if (list.length) m.set(w, list); else m.delete(w);
+  };
+  for (const [w, t] of DEFAULT_SYNONYMS) put(w, t);
+  for (const s of cache.synonyms) put(s.name, splitTerms(s.terms));
+  return m;
+}
+
+// 1〜2文字の英字（L・C・BT等）は、そのまま部分一致させると無関係な品目まで拾うので
+// 当てる位置を絞る。前に英字が地続きなら別物（AL6063・PL型切 の l など）。
+//  ・2文字（BT・NT・FW・SW）: 後ろも英字でなければ当てる
+//    （「根角BT(ｷｼﾞ)」「(B,N,SW,2FW)」に当てたいので、数字や記号の隣は許す）
+//  ・1文字（L・C）: 寸法の頭に付く形（L-6x65・C-125x65）だけに当てる。
+//    これをしないと S45C( や FB-C) まで拾ってしまう
+function termHit(key, term) {
+  if (!/^[a-z]{1,2}$/.test(term)) return key.includes(term);
+  const single = term.length === 1;
+  let i = key.indexOf(term);
+  while (i !== -1) {
+    const before = i > 0 ? key[i - 1] : ' ';
+    const after = i + term.length < key.length ? key[i + term.length] : ' ';
+    const okBefore = !/[a-z]/.test(before);
+    const okAfter = single ? /[-0-9]/.test(after) : !/[a-z]/.test(after);
+    if (okBefore && okAfter) return true;
+    i = key.indexOf(term, i + 1);
+  }
+  return false;
+}
+
 // ---------- メモリキャッシュ ----------
 export const cache = {
   rates: { ...DEFAULT_RATES },
@@ -31,6 +96,7 @@ export const cache = {
   customers: [],
   suppliers: [],
   standingOrders: [],
+  synonyms: [],       // 検索の言い換え（追加・上書き分）
   estimates: [],      // 見積一覧（更新が新しい順）
 };
 
@@ -53,6 +119,7 @@ export function startSubscriptions() {
   const simple = [
     ['staff', 'staff'], ['customers', 'customers'],
     ['suppliers', 'suppliers'], ['standingOrders', 'standingOrders'],
+    ['synonyms', 'synonyms'],
   ];
   for (const [col, key] of simple) {
     onSnapshot(query(collection(db, col), orderBy('name')), (snap) => {
@@ -87,9 +154,17 @@ export function searchItems(q, max = 30) {
       .sort((a, b) => (b.useCount || 0) - (a.useCount || 0))
       .slice(0, max);
   }
+  // 打った言葉を言い換え辞書で展開する。
+  // トークン同士はAND（「パイプ 25A」は両方必要）、展開した候補同士はOR
+  // （「パイプ」は SGP でも STK でも 丸ﾊﾟｲﾌﾟ でもよい）。
+  const syn = synonymMap();
+  const groups = tokens.map((t) => {
+    const alts = syn.get(t);
+    return alts ? [t, ...alts] : [t];
+  });
   const hits = [];
   for (const it of cache.items) {
-    if (tokens.every((t) => it.searchKey.includes(t))) hits.push(it);
+    if (groups.every((g) => g.some((t) => termHit(it.searchKey, t)))) hits.push(it);
   }
   hits.sort((a, b) =>
     (b.useCount || 0) - (a.useCount || 0) ||

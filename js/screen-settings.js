@@ -4,15 +4,18 @@
 // 単価マスター・取引先・仕入先・常設注番／集計表読み込み／書き戻しCSV
 // ============================================================
 
-import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=8';
-import { openOverlay, openNumpad, toast, confirmDialog, bindSearch } from './ui.js?v=8';
-import { cache, searchItems, isStale, updateEstimate, saveSummary, addNamed } from './store.js?v=8';
-import { totals } from './calc.js?v=8';
+import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=9';
+import { openOverlay, openNumpad, toast, confirmDialog, bindSearch } from './ui.js?v=9';
+import {
+  cache, searchItems, isStale, updateEstimate, saveSummary, addNamed,
+  norm, DEFAULT_SYNONYMS, splitTerms,
+} from './store.js?v=9';
+import { totals } from './calc.js?v=9';
 import {
   db, doc, collection, addDoc, updateDoc, deleteDoc, getDocs, setDoc,
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
-} from './firebase.js?v=8';
-import { openTallyPage } from './screen-tally.js?v=8';
+} from './firebase.js?v=9';
+import { openTallyPage } from './screen-tally.js?v=9';
 
 const RATE_DEFS = [
   ['material', '材料費 上乗せ%', '原価に対して'],
@@ -51,6 +54,8 @@ export function renderSettingsTab(container) {
         <div class="meta">発注統合名・単価変動ありフラグ</div></div>
       <div class="card" id="st-standing" style="cursor:pointer"><div class="ttl" style="font-size:14px">常設注番 ${cache.standingOrders.length}件</div>
         <div class="meta">工場・区分ごとの受け皿</div></div>
+      <div class="card" id="st-synonyms" style="cursor:pointer"><div class="ttl" style="font-size:14px">言葉の言い換え（材料検索）</div>
+        <div class="meta">「パイプ」でSGPが出るようにする。現場の言葉のまま打てる</div></div>
       <div class="sec-head"><span class="ttl">集計表とExcel</span><span class="rule"></span></div>
       <div class="card" id="st-tally" style="cursor:pointer"><div class="ttl" style="font-size:14px">集計表を読み込む</div>
         <div class="meta">事務員さんの「納品書 材料集計表」から単価マスターを育てる</div></div>
@@ -77,6 +82,7 @@ export function renderSettingsTab(container) {
   container.querySelector('#st-customers').addEventListener('click', () => openNamedMaster('customers', '取引先', [['email', 'メール'], ['noWelfare', '法定福利費なし', 'bool']]));
   container.querySelector('#st-suppliers').addEventListener('click', () => openNamedMaster('suppliers', '仕入先', [['email', 'メール'], ['mergeName', '発注統合名'], ['priceVolatile', '単価変動あり', 'bool']]));
   container.querySelector('#st-standing').addEventListener('click', () => openNamedMaster('standingOrders', '常設注番', [['orderNo', '注番'], ['staff', '担当者']]));
+  container.querySelector('#st-synonyms').addEventListener('click', openSynonymsPage);
   container.querySelector('#st-tally').addEventListener('click', openTallyPage);
   container.querySelector('#st-export').addEventListener('click', exportItemsCsv);
   container.querySelector('#st-staff').addEventListener('click', () => document.dispatchEvent(new Event('open-staff-modal')));
@@ -304,6 +310,110 @@ function editNamed(col, title, fields, m, onDone) {
     if (!(await confirmDialog(`「${m.name}」を削除しますか?`, '削除する'))) return;
     await deleteDoc(doc(db, col, m.id));
     toast('削除しました'); close(); setTimeout(onDone, 400);
+  });
+}
+
+// ---------- 検索の言い換え辞書（言葉単位） ----------
+// 初期セットはコード（store.js の DEFAULT_SYNONYMS）にあり、設定なしで効く。
+// ここで足した・直した分は Firestore の synonyms に入り、同じ言葉なら上書きする。
+function openSynonymsPage() {
+  const ov = openOverlay();
+
+  // 初期セット＋追加分を、画面に出す1本のリストにまとめる
+  function rows() {
+    const edited = new Map(cache.synonyms.map((s) => [norm(s.name), s]));
+    const list = DEFAULT_SYNONYMS.map(([word, terms]) => {
+      const o = edited.get(norm(word));
+      return { word, terms: o ? splitTerms(o.terms) : terms, builtin: true, doc: o || null };
+    });
+    for (const s of cache.synonyms) {
+      if (DEFAULT_SYNONYMS.some(([w]) => norm(w) === norm(s.name))) continue;
+      list.push({ word: s.name, terms: splitTerms(s.terms), builtin: false, doc: s });
+    }
+    return list;
+  }
+
+  function paint() {
+    const list = rows();
+    ov.el.innerHTML = `
+      <div class="page-head"><div class="bar"><button class="icon-btn" id="sy-back">←</button>
+        <span class="ttl">言葉の言い換え（材料検索）</span></div></div>
+      <div class="page-body"><div style="padding:12px">
+        <div class="card" style="margin-bottom:10px">
+          <div style="font-size:13px;line-height:1.7;color:var(--muted)">
+            現場の言葉で打っても、マスターの表記で探しにいきます。<br>
+            例：<b>パイプ 25A</b> → SGP・STK・STPG・丸ﾊﾟｲﾌﾟ の 25A を探す。<br>
+            <span style="color:var(--muted2)">※ 集計表の別名辞書とは別物です（あちらは品目ごと、こちらは言葉ごと）</span>
+          </div>
+        </div>
+        ${list.map((r, i) => `
+          <div class="card" style="margin-bottom:8px;cursor:pointer" data-i="${i}">
+            <div class="ttl" style="font-size:14px">${esc(r.word)}
+              <span style="font-size:10.5px;font-weight:500;color:${r.builtin ? 'var(--muted2)' : 'var(--navy)'};margin-left:6px">
+                ${r.builtin ? (r.doc ? '標準（変更あり）' : '標準') : '追加'}</span></div>
+            <div class="meta">→ ${r.terms.length ? esc(r.terms.join('、')) : '（使わない）'}</div>
+          </div>`).join('')}
+        <button class="btn btn-block" id="sy-add">＋ 言い換えを追加</button>
+        <div style="height:16px"></div>
+      </div></div>`;
+
+    ov.el.querySelector('#sy-back').addEventListener('click', ov.close);
+    ov.el.querySelector('#sy-add').addEventListener('click', () => editSynonym(null, paint));
+    ov.el.querySelectorAll('[data-i]').forEach((el) => el.addEventListener('click', () =>
+      editSynonym(list[+el.dataset.i], paint)));
+  }
+  paint();
+}
+
+function editSynonym(r, onDone) {
+  const root = document.getElementById('modal-root');
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = `
+    <div class="modal"><div class="modal-head">言い換え${r ? 'を編集' : 'を追加'}<button class="x" id="sy-x">×</button></div>
+    <div class="modal-body">
+      <div class="field"><label>現場が打つ言葉</label>
+        <input class="input" id="sy-word" value="${esc(r?.word || '')}" placeholder="パイプ" ${r?.builtin ? 'readonly style="background:#F3F5F8"' : ''}></div>
+      <div class="field"><label>マスターの言葉（読点や空白で区切って何個でも）</label>
+        <input class="input" id="sy-terms" value="${esc((r?.terms || []).join('、'))}" placeholder="SGP、STK、STPG、丸ﾊﾟｲﾌﾟ"></div>
+      <div style="font-size:11.5px;color:var(--muted2);line-height:1.6">
+        ${r?.builtin ? '標準の言葉です。中身を空にして保存すると、この言い換えを使わなくなります。' : ''}</div>
+      <div style="display:flex;gap:8px">
+        ${r?.doc ? `<button class="btn btn-danger" id="sy-del" style="flex:1">${r.builtin ? '標準に戻す' : '削除'}</button>` : ''}
+        <button class="btn btn-primary" id="sy-save" style="flex:2">保存</button>
+      </div>
+    </div></div>`;
+  root.appendChild(back);
+  const close = () => back.remove();
+  back.querySelector('#sy-x').addEventListener('click', close);
+
+  back.querySelector('#sy-save').addEventListener('click', async () => {
+    const word = back.querySelector('#sy-word').value.trim();
+    const terms = back.querySelector('#sy-terms').value.trim();
+    if (!word) { toast('言葉を入れてください'); return; }
+    if (!terms && !r?.builtin) { toast('マスターの言葉を入れてください'); return; }
+    // 同じ言葉が既にあるなら、増やさずそこを直す
+    const exist = r?.doc || cache.synonyms.find((s) => norm(s.name) === norm(word));
+    try {
+      if (exist) await updateDoc(doc(db, 'synonyms', exist.id), { name: word, terms });
+      else await addNamed('synonyms', { name: word, terms });
+      toast('保存しました。次の検索から効きます'); close(); setTimeout(onDone, 400);
+    } catch (e) {
+      console.error(e);
+      // synonyms はルールを更新しないと書き込めない（初期セットは更新なしで効く）
+      toast(e.code === 'permission-denied'
+        ? 'Firestoreのルール更新が必要です（firestore.rulesを貼り直してください）'
+        : '保存できませんでした');
+    }
+  });
+
+  back.querySelector('#sy-del')?.addEventListener('click', async () => {
+    const msg = r.builtin ? `「${r.word}」を標準の内容に戻しますか?` : `「${r.word}」を削除しますか?`;
+    if (!(await confirmDialog(msg, r.builtin ? '戻す' : '削除する'))) return;
+    try {
+      await deleteDoc(doc(db, 'synonyms', r.doc.id));
+      toast(r.builtin ? '標準に戻しました' : '削除しました'); close(); setTimeout(onDone, 400);
+    } catch (e) { console.error(e); toast('削除できませんでした'); }
   });
 }
 
