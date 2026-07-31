@@ -5,7 +5,7 @@
 // （zaiko-shohin から流用）
 // ============================================================
 
-const VERSION = 'v4';
+const VERSION = 'v5';
 const CACHE = 'mitsumori-' + VERSION;
 
 // アプリシェル（オフラインでも起動できる最小セット）
@@ -29,7 +29,7 @@ const SHELL = [
   './js/screen-material.js?v=2',
   './js/screen-order.js?v=2',
   './js/screen-settings.js?v=2',
-  './js/screen-tally.js?v=2',
+  './js/screen-tally.js?v=3',
   './js/export.js?v=2',
   './icons/icon-48.png',
   './icons/icon-120.png',

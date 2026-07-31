@@ -12,7 +12,7 @@ import {
   db, doc, collection, addDoc, updateDoc, deleteDoc, getDocs, setDoc,
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
 } from './firebase.js?v=2';
-import { openTallyPage } from './screen-tally.js?v=2';
+import { openTallyPage } from './screen-tally.js?v=3';
 
 const RATE_DEFS = [
   ['material', '材料費 上乗せ%', '原価に対して'],
