@@ -2,23 +2,23 @@
 // 見積画面 — 明細一覧（費目タブ）・表紙の情報・見積の確認
 // ============================================================
 
-import { esc, YEN, fmtDateJa, local } from './util.js?v=4';
-import { icons } from './icons.js?v=4';
-import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=4';
+import { esc, YEN, fmtDateJa, local } from './util.js?v=5';
+import { icons } from './icons.js?v=5';
+import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=5';
 import {
   cache, subscribeEstimate, subscribeLines, updateEstimate,
   addLine, deleteLine, saveSummary, addNamed,
-} from './store.js?v=4';
-import { totals, lineAmount, excelRound } from './calc.js?v=4';
+} from './store.js?v=5';
+import { totals, lineAmount, excelRound } from './calc.js?v=5';
 import {
   db, doc, updateDoc, deleteDoc, getDocs, collection, Timestamp, arrayUnion, arrayRemove,
   storageRef, uploadBytes, getDownloadURL, deleteObject, storage,
-} from './firebase.js?v=4';
+} from './firebase.js?v=5';
 import {
   openMaterialPage, openManualPage, openPendingPage,
   openLaborPage, openTravelPage, openSubcontractPage,
-} from './screen-material.js?v=4';
-import { exportEstimateCsv } from './export.js?v=4';
+} from './screen-material.js?v=5';
+import { exportEstimateCsv } from './export.js?v=5';
 
 const KINDS = ['材料', '労務', '移動', '外注'];
 const KIND_LABEL = { 材料: '材料費', 労務: '労務費', 移動: '移動費', 外注: '外注費' };
@@ -576,6 +576,7 @@ export function openConfirmPage(estId) {
       </div>
       <div class="bottom-bar">
         <button class="btn btn-primary btn-block" style="height:56px;font-size:18px" id="cf-order">🚚 発注依頼を出す</button>
+        <button class="btn btn-block" style="margin-top:8px" id="cf-hyoshi">📄 見積書を作る${provisional ? '（概算）' : ''}</button>
         ${provisional
           ? `<div class="btn btn-block" style="margin-top:8px;background:#EEF0F3;border-color:#D9DEE4;color:#A9B3BD;cursor:default">🔒 Excelへ渡す</div>
              <div style="text-align:center;font-size:11.5px;color:#8A560F;margin-top:6px">単価が全部そろうと押せます／
@@ -618,6 +619,41 @@ export function openConfirmPage(estId) {
     ov.el.querySelector('#cf-approx')?.addEventListener('click', async () => {
       if (await confirmDialog(`単価待ちが${pending}件あります。仮単価（無ければ0円）のまま概算として出しますか?`, '概算として出す')) doExport(true);
     });
+    ov.el.querySelector('#cf-hyoshi')?.addEventListener('click', async () => {
+      if (provisional) {
+        if (!(await confirmDialog(`単価待ちが${pending}件あります。仮単価（無ければ0円）のまま「概算」と明記した見積書を作りますか?`, '概算として出す'))) return;
+        openHyoshi(true);
+      } else openHyoshi(false);
+    });
+  }
+
+  // 見積書（表紙HTML hyoshi.html）を開く。データはURLの #app= に載せて渡す
+  //（別タブ/別コンテキストでも確実に届くように。ストレージ共有には頼らない）
+  function openHyoshi(approx) {
+    const r = ratesOf(est), u = unitRatesOf(est);
+    const t = calcAll(est, lines);
+    const amt = (l) => excelRound(lineAmount(l, r, u) || 0);
+    const by = (k) => lines.filter((l) => l.kind === k);
+    const payload = {
+      work: est.projectName || '', loc: est.site || '', client: est.customer || '',
+      orderNo: est.orderNo || '', tanto: est.staff || '',
+      welfareOn: est.welfareOn !== false, approx: !!approx,
+      totals: {
+        mat: t.material, lab: t.labor, mov: t.travel, subcon: t.subcontract,
+        exp: t.overhead, wel: t.welfare, songa: t.depreciation,
+        subtax: t.taxable, tax: t.tax, adjust: t.adjust, grand: t.final, taxPct: r.tax,
+      },
+      mat: by('材料').map((l) => ({
+        nm: (l.name || '') + (l.pendingPrice ? (l.tempCost > 0 ? '（仮単価）' : '（単価未定）') : ''),
+        qty: l.qty || 0, unit: l.unit || '', price: l.cost || 0, amt: amt(l),
+      })),
+      lab: by('労務').map((l) => ({ job: l.name || l.trade || '', ppl: l.persons || 0, hrs: l.hours || 0, rate: l.rate || 0, amt: amt(l) })),
+      mov: by('移動').map((l) => ({ desc: l.name || '', ppl: l.persons || 0, hrs: l.hours || 0, km: l.km || 0, amt: amt(l) })),
+      subcon: by('外注').map((l) => ({ vendor: l.supplier || '', content: l.name || '', amt: l.amount || 0 })),
+    };
+    const url = 'hyoshi.html#app=' + encodeURIComponent(JSON.stringify(payload));
+    const w = window.open(url, '_blank');
+    if (!w) location.assign(url);
   }
 
   function doExport(approx) {

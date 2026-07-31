@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>御見積書 - よつば建設工業</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Noto+Serif+JP:wght@700;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --g1:#1a5c3a;--g2:#2d8659;--g3:#4caf7d;--g4:#cdeedc;
+  --ink:#1a1a1a;--ink2:#444;--ink3:#888;
+  --line:#e0e0e0;--bg:#f0f4f2;--white:#ffffff;
+  --y:#fffde7;
+}
+
+body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);padding:16px}
+
+/* ===== ツールバー ===== */
+.toolbar{max-width:860px;margin:0 auto 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.toolbar-title{font-size:13px;color:var(--g1);font-weight:700;flex:1}
+.tabs{display:flex;gap:3px;background:#e0eae4;padding:3px;border-radius:8px}
+.tab{font-family:'Noto Sans JP',sans-serif;font-size:11px;font-weight:600;padding:7px 14px;border-radius:6px;border:none;background:transparent;color:#5a7a6a;cursor:pointer;transition:all .15s;white-space:nowrap}
+.tab.active{background:#fff;color:var(--g1);box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.btn{font-family:'Noto Sans JP',sans-serif;font-size:12px;font-weight:700;padding:8px 16px;border-radius:6px;cursor:pointer;border:none;transition:all .15s}
+.btn-upload{background:var(--g1);color:#fff}.btn-upload:hover{background:#0f3d26}
+.btn-print{background:var(--g2);color:#fff}.btn-print:hover{background:var(--g1)}
+
+.upload-zone{max-width:860px;margin:0 auto 14px;border:2px dashed var(--g2);border-radius:8px;padding:18px;text-align:center;background:#eef7f1;cursor:pointer;transition:all .2s}
+.upload-zone:hover,.upload-zone.drag{border-color:var(--g1);background:#ddf0e6}
+.upload-zone strong{color:var(--g1);font-size:14px}
+.upload-zone p{color:var(--ink3);font-size:11px;margin-top:4px}
+.status{max-width:860px;margin:0 auto 10px;padding:9px 14px;border-radius:5px;font-size:12px;display:none}
+.status.ok{background:#e8f8ee;color:#1a6b3a;border-left:3px solid var(--g2);display:block}
+.status.err{background:#fdf0f0;color:#8b1a1a;border-left:3px solid #e74c3c;display:block}
+
+/* ===== ページ共通 ===== */
+.page{max-width:860px;margin:0 auto 28px;background:var(--white);border-radius:4px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.1);display:none}
+.page.show{display:block}
+
+/* ===== オフィスボタン共通 ===== */
+.office-sel{display:flex;gap:4px;margin-top:6px}
+.office-btn{font-family:'Noto Sans JP',sans-serif;font-size:9px;font-weight:500;padding:3px 10px;border-radius:10px;border:1px solid var(--g4);background:transparent;color:var(--g1);cursor:pointer;transition:all .15s}
+.office-btn.active{background:var(--g1);color:#fff;border-color:var(--g1)}
+@media print{.office-sel{display:none!important}}
+
+/* ============================================================
+   1. ビジネス版 縦A4（参考テンプレート風・明細付き）
+   ============================================================ */
+#pageBiz .biz-stripe{height:6px;background:linear-gradient(90deg,var(--g1) 0%,var(--g3) 100%)}
+
+#pageBiz .biz-top{padding:24px 36px 18px;display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid var(--line)}
+#pageBiz .biz-title{font-family:'Noto Serif JP',serif;font-size:26px;font-weight:900;color:var(--ink);letter-spacing:.12em}
+#pageBiz .biz-sub{font-size:9px;color:var(--g2);letter-spacing:.18em;margin-top:3px}
+#pageBiz .biz-co{text-align:right}
+#pageBiz .biz-co-name{font-size:13px;font-weight:700;color:var(--ink);cursor:pointer}
+#pageBiz .biz-co-info{font-size:9px;color:var(--ink3);margin-top:3px;line-height:1.8;cursor:pointer}
+
+#pageBiz .biz-meta{display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid var(--line)}
+#pageBiz .biz-meta-item{padding:10px 36px;border-right:1px solid var(--line)}
+#pageBiz .biz-meta-item:last-child{border-right:none}
+#pageBiz .biz-meta-lbl{font-size:8px;color:var(--g1);font-weight:700;letter-spacing:.1em;margin-bottom:3px}
+.meta-input{border:none;border-bottom:1px solid var(--g3);font-size:12px;font-family:'Noto Sans JP',sans-serif;color:var(--ink);font-weight:500;width:100%;outline:none;background:transparent;padding-bottom:2px}
+.meta-input:focus{border-bottom-color:var(--g1)}
+
+#pageBiz .biz-client-area{padding:14px 36px;display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid var(--line)}
+.client-lbl{font-size:8px;color:var(--ink3);letter-spacing:.1em;margin-bottom:4px}
+.client-input{border:none;border-bottom:2px solid var(--ink);font-size:18px;font-family:'Noto Sans JP',sans-serif;color:var(--ink);font-weight:700;outline:none;background:transparent;min-width:220px;padding-bottom:4px}
+#pageBiz .biz-greeting{font-size:11px;color:var(--ink3);margin-top:6px}
+
+#pageBiz .biz-amount-band{background:linear-gradient(90deg,var(--g1) 0%,var(--g2) 70%,var(--g3) 100%);padding:14px 36px;display:flex;justify-content:space-between;align-items:center}
+#pageBiz .biz-amount-lbl{color:var(--g4);font-size:9px;letter-spacing:.15em;font-weight:700}
+#pageBiz .biz-amount-val{color:#fff;font-size:24px;font-weight:900}
+#pageBiz .biz-amount-val .yen{font-size:13px;color:var(--g4);margin-right:3px;font-weight:500}
+
+#pageBiz .biz-body{padding:12px 36px 20px}
+
+/* 明細テーブル */
+.biz-tbl{width:100%;border-collapse:collapse;margin-bottom:10px;font-size:11px}
+.biz-tbl thead tr{background:var(--g1)}
+.biz-tbl th{color:#fff;font-weight:700;padding:7px 8px;text-align:left;font-size:9px;letter-spacing:.06em}
+.biz-tbl th.r{text-align:right}
+.biz-tbl tbody tr{border-bottom:0.5px solid #f0f5f2}
+.biz-tbl tbody tr:nth-child(even){background:#f7fbf9}
+.biz-tbl td{padding:6px 8px;color:var(--ink2);vertical-align:middle}
+.biz-tbl td.r{text-align:right;font-variant-numeric:tabular-nums;font-weight:500}
+.biz-tbl td.c{text-align:center}
+.biz-tbl .no-data{text-align:center;color:#bbb;font-size:10px;padding:14px}
+
+/* 合計 */
+.biz-totals-wrap{margin-bottom:12px}
+.biz-totals-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.biz-totals-tbl tr{border-bottom:1px solid #f0f0f0}
+.biz-totals-tbl td{padding:11px 14px}
+.biz-totals-tbl td.lbl{color:var(--ink3)}
+.biz-cat-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px}
+.biz-totals-tbl td.val{text-align:right;font-weight:600}
+.biz-totals-tbl .sep{background:#f7fbf9}
+.biz-totals-tbl .total-row{background:linear-gradient(90deg,var(--g1),var(--g2));border-radius:4px}
+.biz-totals-tbl .total-row td{color:#fff!important;font-size:15px!important;font-weight:700!important;padding:14px 16px!important;border:none!important}
+
+/* 備考・振込 */
+.biz-note-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px}
+.biz-note-box{border:1px solid #d8ece1;border-radius:3px;overflow:hidden}
+.biz-note-ttl{background:var(--g2);color:#fff;font-size:8px;font-weight:700;padding:5px 10px;letter-spacing:.1em}
+.biz-note-area{width:100%;border:none;font-size:10px;font-family:'Noto Sans JP',sans-serif;color:var(--ink2);padding:8px 10px;resize:none;min-height:55px;outline:none;background:transparent;box-sizing:border-box}
+
+/* フッター */
+.biz-footer{background:linear-gradient(90deg,var(--ink) 0%,#2e2e2e 100%);padding:11px 36px;display:flex;justify-content:space-between;align-items:center}
+.biz-footer-co{color:var(--g4);font-size:10px;font-weight:700;cursor:pointer}
+.biz-footer-note{color:#555;font-size:9px}
+
+
+
+
+
+
+#pageBiz2 .p2hdr{background:linear-gradient(135deg,#fff,#e8f5ee);padding:16px 40px;border-bottom:1px solid var(--line)}
+#pageBiz2 .p2hdr h2{font-family:'Noto Serif JP',serif;font-size:18px;color:var(--ink);letter-spacing:.1em;font-weight:900}
+#pageBiz2 .p2hdr p{color:var(--g1);font-size:9px;margin-top:3px;font-weight:600}
+#pageBiz2 .p2body{padding:18px 40px}
+.sec-hdr{display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:3px;margin-bottom:5px;margin-top:14px}
+.sec-hdr:first-child{margin-top:0}
+.sec-dot{width:8px;height:8px;border-radius:50%}
+.sec-name{font-size:10px;font-weight:700;letter-spacing:.1em;color:#fff}
+.sec-total{margin-left:auto;font-size:11px;font-weight:700;color:#fff}
+.detail-tbl{width:100%;border-collapse:collapse;margin-bottom:4px;font-size:10px}
+.detail-tbl th{background:#f4f8f5;color:var(--g1);font-size:8px;font-weight:700;padding:4px 7px;border-bottom:1px solid var(--line);text-align:left;letter-spacing:.06em}
+.detail-tbl th.r{text-align:right}
+.detail-tbl td{padding:5px 7px;border-bottom:0.5px solid #eef2ef;color:var(--ink2);vertical-align:middle}
+.detail-tbl td.r{text-align:right;font-variant-numeric:tabular-nums}
+.detail-tbl tr:hover td{background:#f7fbf9}
+.detail-tbl tr:last-child td{border-bottom:none}
+.no-data{text-align:center;color:#bbb;padding:10px;font-size:10px}
+.auto-fee-row{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);border-radius:4px;overflow:hidden;margin-top:14px}
+.auto-fee-item{padding:10px 14px}
+.auto-fee-item:not(:last-child){border-right:1px solid var(--line)}
+.auto-fee-title{font-size:9px;font-weight:700;margin-bottom:3px}
+.auto-fee-note{font-size:8px;color:#aaa;margin-bottom:4px}
+.auto-fee-val{font-size:15px;font-weight:700;text-align:right}
+.grand-band{margin-top:12px;background:linear-gradient(90deg,var(--g1),var(--g2));border-radius:5px;padding:12px 18px;display:flex;justify-content:space-between;align-items:center}
+.grand-band-lbl{color:var(--g4);font-size:11px;font-weight:700}
+.grand-band-val{color:#fff;font-size:18px;font-weight:900}
+#pageBiz2 .footer{background:var(--ink);padding:11px 40px;display:flex;justify-content:space-between;align-items:center}
+#pageBiz2 .footer-co{color:var(--g4);font-size:10px;font-weight:700;cursor:pointer}
+#pageBiz2 .footer-note{color:#555;font-size:9px}
+
+/* ============================================================
+   3. シンプル版 横A4
+   ============================================================ */
+#pageSimple,#pageSeikyuS{max-width:1060px}
+#pageSimple .s-stripe,#pageSeikyuS .s-stripe{height:5px;background:linear-gradient(90deg,var(--g1) 0%,var(--g3) 100%)}
+#pageSimple .s-hdr,#pageSeikyuS .s-hdr{padding:26px 50px 22px;position:relative;background:linear-gradient(135deg,#fff 0%,#fff 55%,#e8f5ee 100%);border-bottom:1px solid var(--line)}
+#pageSimple .s-hdr::after,#pageSeikyuS .s-hdr::after{content:'';position:absolute;bottom:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--g1),var(--g3),var(--g1))}
+#pageSimple .s-hdr-inner,#pageSeikyuS .s-hdr-inner{display:flex;justify-content:space-between;align-items:flex-start}
+#pageSimple .s-main,#pageSeikyuS .s-main{font-family:'Noto Serif JP',serif;font-size:28px;font-weight:900;color:var(--ink);letter-spacing:.14em}
+#pageSimple .s-en,#pageSeikyuS .s-en{color:var(--g2);font-size:9px;letter-spacing:.2em;font-weight:700;margin-top:3px}
+#pageSimple .s-co,#pageSeikyuS .s-co{text-align:right}
+#pageSimple .s-co-name,#pageSeikyuS .s-co-name{font-size:12px;font-weight:700;color:var(--ink);cursor:pointer}
+#pageSimple .s-co-info,#pageSeikyuS .s-co-info{font-size:9px;color:var(--ink3);margin-top:3px;line-height:1.8;cursor:pointer}
+#pageSimple .s-meta-row,#pageSeikyuS .s-meta-row{display:flex;gap:36px;margin-top:16px}
+#pageSimple .s-meta-item,#pageSeikyuS .s-meta-item{flex:1}
+#pageSimple .s-meta-lbl,#pageSeikyuS .s-meta-lbl{font-size:8px;color:var(--g1);font-weight:700;letter-spacing:.1em;margin-bottom:3px}
+
+#pageSimple .s-body,#pageSeikyuS .s-body{display:grid;grid-template-columns:1.1fr 1fr;gap:0}
+#pageSimple .s-left,#pageSeikyuS .s-left{padding:24px 50px;border-right:1px solid var(--line)}
+#pageSimple .s-right,#pageSeikyuS .s-right{padding:24px 44px;display:flex;flex-direction:column;justify-content:center}
+
+#pageSimple .s-detail-tbl,#pageSeikyuS .s-detail-tbl{width:100%;border-collapse:collapse;margin-top:6px}
+#pageSimple .s-detail-tbl tr,#pageSeikyuS .s-detail-tbl tr{border-bottom:1px solid #f0f5f2}
+#pageSimple .s-detail-tbl tr:last-child,#pageSeikyuS .s-detail-tbl tr:last-child{border-bottom:none}
+#pageSimple .s-detail-tbl td,#pageSeikyuS .s-detail-tbl td{padding:10px 0;font-size:13px}
+#pageSimple .s-detail-tbl td.lbl,#pageSeikyuS .s-detail-tbl td.lbl{color:var(--ink3);font-weight:500}
+#pageSimple .s-detail-tbl td.val,#pageSeikyuS .s-detail-tbl td.val{text-align:right;font-weight:600;color:var(--ink)}
+#pageSimple .s-sep-row td,#pageSeikyuS .s-sep-row td{border-top:1.5px solid var(--g3);padding-top:12px!important;font-weight:700}
+#pageSimple .s-tax-row td,#pageSeikyuS .s-tax-row td{color:#9aa8a0;font-size:11px}
+
+#pageSimple .s-amount-box,#pageSeikyuS .s-amount-box{background:transparent;border-radius:12px;padding:40px 32px;text-align:center;position:relative;overflow:hidden}
+#pageSimple .s-amount-box::before,#pageSeikyuS .s-amount-box::before{content:none}
+#pageSimple .s-amount-lbl,#pageSeikyuS .s-amount-lbl{color:var(--ink);font-size:12px;letter-spacing:.15em;font-weight:700;position:relative;z-index:1}
+#pageSimple .s-amount-val,#pageSeikyuS .s-amount-val{color:var(--ink);font-size:48px;font-weight:900;margin-top:10px;position:relative;z-index:1;line-height:1;display:inline-block;border-bottom:4px solid var(--g2);padding-bottom:10px}
+#pageSimple .s-amount-val .yen,#pageSeikyuS .s-amount-val .yen{font-size:18px;color:var(--g1);margin-right:4px;font-weight:500}
+#pageSimple .s-amount-note,#pageSeikyuS .s-amount-note{color:#888;font-size:9px;margin-top:10px;position:relative;z-index:1}
+
+#pageSimple .s-footer,#pageSeikyuS .s-footer{background:var(--ink);padding:12px 50px;display:flex;justify-content:space-between;align-items:center}
+#pageSimple .s-footer-co,#pageSeikyuS .s-footer-co{color:var(--g4);font-size:10px;font-weight:700;cursor:pointer}
+#pageSimple .s-footer-note,#pageSeikyuS .s-footer-note{color:#555;font-size:9px}
+
+/* ===== 印刷 ===== */
+@media print{
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  body{background:#fff;padding:0}
+  .toolbar,.upload-zone,.status{display:none!important}
+  .page{box-shadow:none;border-radius:0;max-width:100%;margin-bottom:0}
+  .page.show + .page.show{page-break-before:always}
+  .biz-stripe,.s-stripe{display:block!important}
+  #pageBiz.show{display:flex!important;flex-direction:column;min-height:277mm}
+  #pageBiz.show .biz-body{flex:1;display:flex;flex-direction:column;justify-content:center}
+  #pageBiz.show .biz-footer{margin-top:auto}
+  #pageSimple.show,#pageSeikyuS.show{display:flex!important;flex-direction:column;min-height:190mm}
+  #pageSimple.show .s-body,#pageSeikyuS.show .s-body{flex:1;align-content:center}
+  #pageSimple.show .s-footer,#pageSeikyuS.show .s-footer{margin-top:auto}
+  #pageSeikyu.show{display:flex!important;flex-direction:column;min-height:277mm}
+  #pageSeikyu.show .biz-body{flex:1;display:flex;flex-direction:column;justify-content:center}
+  #pageSeikyu.show .biz-footer{margin-top:auto}
+  .grand-band,.auto-fee-row{break-inside:avoid;page-break-inside:avoid}
+  .detail-tbl tr{break-inside:avoid;page-break-inside:avoid}
+  .sec-hdr{break-after:avoid;page-break-after:avoid}
+}
+
+/* ============================================================
+   3. 請求書 縦A4
+   ============================================================ */
+#pageSeikyu .biz-stripe{height:6px;background:linear-gradient(90deg,var(--g1) 0%,var(--g3) 100%)}
+#pageSeikyu .biz-top{padding:24px 36px 18px;display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid var(--line)}
+#pageSeikyu .biz-title{font-family:'Noto Serif JP',serif;font-size:26px;font-weight:900;color:var(--ink);letter-spacing:.12em}
+#pageSeikyu .biz-sub{font-size:9px;color:var(--g2);letter-spacing:.18em;margin-top:3px}
+#pageSeikyu .biz-co{text-align:right}
+#pageSeikyu .biz-co-name{font-size:13px;font-weight:700;color:var(--ink);cursor:pointer}
+#pageSeikyu .biz-co-info{font-size:9px;color:var(--ink3);margin-top:3px;line-height:1.8;cursor:pointer}
+#pageSeikyu .sk-reg{font-size:9px;color:var(--g1);font-weight:700;margin-top:3px;cursor:pointer}
+#pageSeikyu .biz-meta{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;border-bottom:1px solid var(--line)}
+#pageSeikyu .biz-meta2{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--line)}
+#pageSeikyu .biz-meta-item{padding:10px 24px;border-right:1px solid var(--line)}
+#pageSeikyu .biz-meta-item:last-child{border-right:none}
+#pageSeikyu .biz-meta-lbl{font-size:8px;color:var(--g1);font-weight:700;letter-spacing:.1em;margin-bottom:3px}
+#pageSeikyu .biz-client-area{padding:14px 36px;display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px solid var(--line)}
+#pageSeikyu .biz-greeting{font-size:11px;color:var(--ink3);margin-top:6px}
+#pageSeikyu .biz-amount-band{background:linear-gradient(90deg,var(--g1) 0%,var(--g2) 70%,var(--g3) 100%);padding:14px 36px;display:flex;justify-content:space-between;align-items:center}
+#pageSeikyu .biz-amount-lbl{color:var(--g4);font-size:9px;letter-spacing:.15em;font-weight:700}
+#pageSeikyu .biz-amount-val{color:#fff;font-size:24px;font-weight:900}
+#pageSeikyu .biz-amount-val .yen{font-size:13px;color:var(--g4);margin-right:3px;font-weight:500}
+#pageSeikyu .biz-body{padding:12px 36px 20px}
+#pageSeikyu .biz-footer{background:linear-gradient(90deg,var(--ink) 0%,#2e2e2e 100%);padding:11px 36px;display:flex;justify-content:space-between;align-items:center}
+#pageSeikyu .biz-footer-co{color:var(--g4);font-size:10px;font-weight:700;cursor:pointer}
+#pageSeikyu .biz-footer-note{color:#555;font-size:9px}
+
+@page{size:A4 portrait;margin:10mm}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button class="btn" id="btnBackApp" style="display:none;background:#5a7a6a;color:#fff" onclick="history.back()">‹ アプリへ戻る</button>
+  <span class="toolbar-title">🍀 よつば建設工業　御見積書・御請求書</span>
+  <div class="tabs">
+    <button class="tab active" id="tab-biz" onclick="switchTab('biz')">ビジネス版（縦2枚）</button>
+    <button class="tab" id="tab-simple" onclick="switchTab('simple')">シンプル版（横）</button>
+    <button class="tab" id="tab-seikyu" onclick="switchTab('seikyu')">請求書（縦）</button>
+    <button class="tab" id="tab-seikyuS" onclick="switchTab('seikyuS')">請求書シンプル（横）</button>
+  </div>
+  <button class="btn btn-upload" onclick="document.getElementById('xlFile').click()">📂 Excel読み込み</button>
+  <button class="btn btn-print" onclick="doPrint()">🖨️ 印刷/PDF</button>
+  <input type="file" id="xlFile" accept=".xlsx,.xlsm,.xls" style="display:none" onchange="loadXL(this)">
+</div>
+
+<div class="upload-zone" id="dropZone"
+  onclick="document.getElementById('xlFile').click()"
+  ondragover="event.preventDefault();this.classList.add('drag')"
+  ondragleave="this.classList.remove('drag')"
+  ondrop="handleDrop(event)">
+  <strong>📊 Tekkosho_Mitsumorisho.xlsm をここにドラッグ＆ドロップ</strong>
+  <p>またはクリックして選択 → 選択中のタブに自動反映</p>
+</div>
+<div class="status" id="status"></div>
+
+<!-- ============================================================
+     1. ビジネス版
+     ============================================================ -->
+<div class="page show" id="pageBiz">
+  <div class="biz-stripe"></div>
+  <div class="biz-top">
+    <div>
+      <div class="biz-title">御　見　積　書</div>
+      <div class="biz-sub">ESTIMATE / YOTSUBA KENSETSU KOGYO</div>
+    </div>
+    <div class="biz-co">
+      <div class="biz-co-name" id="biz-co-name" onclick="editCo('biz-co-name','会社名')">株式会社よつば建設工業</div>
+      <div class="biz-co-info" id="biz-co-info" ondblclick="editCo('biz-co-info','住所・電話')">〒791-3131 愛媛県伊予郡松前町大字北河原1142番地1<br>TEL：089-994-5162　FAX：089-994-5163</div>
+      <div class="office-sel">
+        <button class="office-btn" id="biz-btn-h" onclick="selOffice('honsha')">本社</button>
+        <button class="office-btn active" id="biz-btn-m" onclick="selOffice('matsumae')">松前工場</button>
+      </div>
+    </div>
+  </div>
+  <div class="biz-meta">
+    <div class="biz-meta-item">
+      <div class="biz-meta-lbl">工　事　名</div>
+      <input class="meta-input" id="biz-work" placeholder="工事名を入力">
+    </div>
+    <div class="biz-meta-item">
+      <div class="biz-meta-lbl">施工場所</div>
+      <input class="meta-input" id="biz-loc" placeholder="施工場所を入力">
+    </div>
+    <div class="biz-meta-item">
+      <div class="biz-meta-lbl">作　成　日</div>
+      <input class="meta-input" type="date" id="biz-date">
+    </div>
+  </div>
+  <div class="biz-client-area">
+    <div>
+      <div class="client-lbl">宛　先</div>
+      <input class="client-input" id="biz-client" placeholder="宛先会社名　御中">
+      <div class="biz-greeting">下記の通り御見積申し上げます。</div>
+    </div>
+  </div>
+  <div class="biz-amount-band">
+    <div>
+      <div class="biz-amount-lbl">御 見 積 金 額（税 込）</div>
+    </div>
+    <div class="biz-amount-val"><span class="yen">¥</span><span id="biz-grand">0</span></div>
+  </div>
+  <div class="biz-body">
+    <table class="biz-tbl" style="display:none">
+      <thead>
+        <tr>
+          <th style="width:28px">No.</th>
+          <th>品　名　・　規　格</th>
+          <th class="r" style="width:58px">数量</th>
+          <th class="c" style="width:36px">単位</th>
+          <th class="r" style="width:78px">単価（原価）</th>
+          <th class="r" style="width:88px">計上金額</th>
+        </tr>
+      </thead>
+      <tbody id="biz-mat-body"><tr><td colspan="6" class="no-data">Excelファイルを読み込むと反映されます</td></tr></tbody>
+    </table>
+    <div class="biz-totals-wrap">
+      <table class="biz-totals-tbl">
+        <tr><td class="lbl"><span class="biz-cat-dot" style="background:#2d8659"></span>材　料　費</td><td class="val" id="biz-mat">¥0</td></tr>
+        <tr><td class="lbl"><span class="biz-cat-dot" style="background:#4caf7d"></span>労　務　費</td><td class="val" id="biz-lab">¥0</td></tr>
+        <tr><td class="lbl"><span class="biz-cat-dot" style="background:#b7450a"></span>現場移動費</td><td class="val" id="biz-mov">¥0</td></tr>
+        <tr><td class="lbl"><span class="biz-cat-dot" style="background:#2471a3"></span>外　注　費</td><td class="val" id="biz-subcon">¥0</td></tr>
+        <tr class="sep"><td class="lbl"><span class="biz-cat-dot" style="background:#7d3c98"></span>諸　経　費</td><td class="val" id="biz-exp">¥0</td></tr>
+        <tr class="sep"><td class="lbl"><span class="biz-cat-dot" style="background:#1a5c3a"></span>法定福利費</td><td class="val" id="biz-wel">¥0</td></tr>
+        <tr class="sep"><td class="lbl"><span class="biz-cat-dot" style="background:#c9971f"></span>損　　料</td><td class="val" id="biz-songa">¥0</td></tr>
+        <tr><td class="lbl">税　抜　計</td><td class="val" id="biz-subtax">¥0</td></tr>
+        <tr><td class="lbl" style="color:#aaa;font-size:10px" id="biz-tax-label">消費税（10%）</td><td class="val" id="biz-tax" style="color:#aaa;font-size:10px">¥0</td></tr>
+        <tr><td class="lbl" style="color:#c0392b;font-size:10px">端数調整</td><td class="val" id="biz-adjust" style="color:#c0392b;font-size:10px">¥0</td></tr>
+        <tr class="total-row"><td class="lbl">御見積合計（税込）</td><td class="val" id="biz-total">¥0</td></tr>
+      </table>
+    </div>
+    <div class="biz-note-row" style="grid-template-columns:1fr">
+      <div class="biz-note-box">
+        <div class="biz-note-ttl">特 記 事 項 ・ 備 考</div>
+        <textarea class="biz-note-area" placeholder="特記事項・備考があればご記入ください"></textarea>
+      </div>
+    </div>
+  </div>
+  <div class="biz-footer">
+    <div class="biz-footer-co" id="biz-footer" onclick="editTanto()">株式会社よつば建設工業　担当：担当者名記入</div>
+    <div class="biz-footer-note">※本見積書には消費税が含まれます</div>
+  </div>
+</div>
+
+<!-- ============================================================
+     1b. ビジネス版 2枚目：明細書
+     ============================================================ -->
+<div class="page show" id="pageBiz2">
+  <div class="p2hdr">
+    <h2>見 積 明 細 書</h2>
+    <p id="biz2-workname">工事名：</p>
+  </div>
+  <div class="p2body">
+    <div class="sec-hdr" style="background:var(--g2)">
+      <span class="sec-dot" style="background:#cdeedc"></span>
+      <span class="sec-name">材　料　費</span>
+      <span class="sec-total" id="biz2-mat-sub">小計：¥0</span>
+    </div>
+    <table class="detail-tbl">
+      <thead><tr>
+        <th style="width:26px">No.</th><th>品　名　・　規　格</th>
+        <th class="r" style="width:56px">数量</th><th style="width:34px">単位</th>
+        <th class="r" style="width:76px">単価(原価)</th><th class="r" style="width:82px">計上金額</th>
+      </tr></thead>
+      <tbody id="biz2-mat-body"><tr><td colspan="6" class="no-data">データなし</td></tr></tbody>
+    </table>
+
+    <div class="sec-hdr" style="background:#1a7a4a;margin-top:16px">
+      <span class="sec-dot" style="background:#7de8b4"></span>
+      <span class="sec-name">労　務　費</span>
+      <span class="sec-total" id="biz2-lab-sub">小計：¥0</span>
+    </div>
+    <table class="detail-tbl">
+      <thead><tr>
+        <th style="width:26px">No.</th><th>職　種</th>
+        <th class="r" style="width:48px">人数</th><th class="r" style="width:48px">時間</th>
+        <th class="r" style="width:76px">1h単価</th><th class="r" style="width:82px">計上金額</th>
+      </tr></thead>
+      <tbody id="biz2-lab-body"><tr><td colspan="6" class="no-data">データなし</td></tr></tbody>
+    </table>
+
+    <div class="sec-hdr" style="background:#b7450a;margin-top:16px">
+      <span class="sec-dot" style="background:#f5b07a"></span>
+      <span class="sec-name">現 場 移 動 費</span>
+      <span class="sec-total" id="biz2-mov-sub">小計：¥0</span>
+    </div>
+    <table class="detail-tbl">
+      <thead><tr>
+        <th style="width:26px">No.</th><th>作業内容</th>
+        <th class="r" style="width:38px">人数</th><th class="r" style="width:38px">時間</th>
+        <th class="r" style="width:58px">距離(km)</th><th class="r" style="width:82px">計上金額</th>
+      </tr></thead>
+      <tbody id="biz2-mov-body"><tr><td colspan="6" class="no-data">データなし</td></tr></tbody>
+    </table>
+
+    <div class="sec-hdr" style="background:#2471a3;margin-top:16px">
+      <span class="sec-dot" style="background:#aed6f1"></span>
+      <span class="sec-name">外　注　費</span>
+      <span class="sec-total" id="biz2-subcon-sub">小計：¥0</span>
+    </div>
+    <table class="detail-tbl">
+      <thead><tr>
+        <th style="width:26px">No.</th><th style="width:120px">外注先</th><th>工事内容</th>
+        <th class="r" style="width:82px">金額</th>
+      </tr></thead>
+      <tbody id="biz2-subcon-body"><tr><td colspan="4" class="no-data">データなし</td></tr></tbody>
+    </table>
+
+    <div class="auto-fee-row" style="grid-template-columns:1fr 1fr 1fr">
+      <div class="auto-fee-item">
+        <div class="auto-fee-title" style="color:#7d3c98">■ 諸経費</div>
+        <div class="auto-fee-note">（材料費＋労務費）× 諸経費率</div>
+        <div class="auto-fee-val" style="color:#7d3c98" id="biz2-exp">¥0</div>
+      </div>
+      <div class="auto-fee-item">
+        <div class="auto-fee-title" style="color:var(--g1)">■ 法定福利費</div>
+        <div class="auto-fee-note">労務費 × 法定福利費率</div>
+        <div class="auto-fee-val" style="color:var(--g1)" id="biz2-wel">¥0</div>
+      </div>
+      <div class="auto-fee-item" style="border-right:none">
+        <div class="auto-fee-title" style="color:#c9971f">■ 損料</div>
+        <div class="auto-fee-note">（材料費＋労務費）× 損料率</div>
+        <div class="auto-fee-val" style="color:#c9971f" id="biz2-songa">¥0</div>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:10px;padding:0 4px">
+      <span style="font-size:9px;color:#c0392b;font-weight:700">端数調整</span>
+      <span id="biz2-adjust" style="font-size:12px;color:#c0392b;font-weight:700">¥0</span>
+    </div>
+
+    <div class="grand-band">
+      <div class="grand-band-lbl">御 見 積 金 額（税 込・調 整 後）</div>
+      <div class="grand-band-val">¥<span id="biz2-grand">0</span></div>
+    </div>
+  </div>
+  <div class="footer">
+    <div class="footer-co" id="biz2-footer" onclick="editTanto()">株式会社よつば建設工業　担当：担当者名記入</div>
+    <div class="footer-note">※本見積書には消費税が含まれます</div>
+  </div>
+</div>
+
+<!-- ============================================================
+     3. シンプル版 横A4
+     ============================================================ -->
+<div class="page" id="pageSimple">
+  <div class="s-stripe"></div>
+  <div class="s-hdr">
+    <div class="s-hdr-inner">
+      <div>
+        <div class="s-main">御　見　積　書</div>
+        <div class="s-en">ESTIMATE / YOTSUBA KENSETSU KOGYO</div>
+      </div>
+      <div class="s-co">
+        <div class="s-co-name" id="s-co-name" onclick="editCo('s-co-name','会社名')">株式会社よつば建設工業</div>
+        <div class="s-co-info" id="s-co-info" ondblclick="editCo('s-co-info','住所・電話')">〒791-3131 愛媛県伊予郡松前町大字北河原1142番地1<br>TEL：089-994-5162　FAX：089-994-5163</div>
+        <div class="office-sel" style="justify-content:flex-end">
+          <button class="office-btn" id="s-btn-h" onclick="selOffice('honsha')">本社</button>
+          <button class="office-btn active" id="s-btn-m" onclick="selOffice('matsumae')">松前工場</button>
+        </div>
+      </div>
+    </div>
+    <div class="s-meta-row">
+      <div class="s-meta-item">
+        <div class="s-meta-lbl">工　事　件　名</div>
+        <input class="meta-input" id="s-work" placeholder="工事件名を入力">
+      </div>
+      <div class="s-meta-item" style="flex:0 0 160px">
+        <div class="s-meta-lbl">作　成　日</div>
+        <input class="meta-input" type="date" id="s-date">
+      </div>
+    </div>
+  </div>
+  <div class="s-body">
+    <div class="s-left">
+      <div class="client-lbl">宛　先</div>
+      <input class="client-input" id="s-client" placeholder="宛先会社名　御中">
+      <div style="font-size:11px;color:var(--ink3);margin-top:8px;margin-bottom:18px">下記の通り御見積申し上げます。</div>
+      <table class="s-detail-tbl">
+        <tbody>
+          <tr><td class="lbl">工　事　一　式</td><td class="val" id="s-subtax">¥0</td></tr>
+          <tr class="s-tax-row"><td class="lbl" style="padding-left:14px" id="s-tax-label">消費税（10%）</td><td class="val" id="s-tax">¥0</td></tr>
+          <tr class="s-sep-row"><td class="lbl">御見積合計（税込）</td><td class="val" id="s-total">¥0</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="s-right">
+      <div class="s-amount-box">
+        <div class="s-amount-lbl">御 見 積 金 額（税 込）</div>
+        <div class="s-amount-val"><span class="yen">¥</span><span id="s-grand">0</span></div>
+        <div class="s-amount-note">消費税10%含む</div>
+      </div>
+    </div>
+  </div>
+  <div class="s-footer">
+    <div class="s-footer-co" id="s-footer" onclick="editTanto()">株式会社よつば建設工業　担当：担当者名記入</div>
+    <div class="s-footer-note">※本見積書には消費税が含まれます</div>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     3. 請求書 縦A4
+     ============================================================ -->
+<div class="page" id="pageSeikyu">
+  <div class="biz-stripe"></div>
+  <div class="biz-top">
+    <div>
+      <div class="biz-title">御　請　求　書</div>
+      <div class="biz-sub">INVOICE / YOTSUBA KENSETSU KOGYO</div>
+    </div>
+    <div class="biz-co">
+      <div class="biz-co-name" id="sk-co-name" onclick="editCo('sk-co-name','会社名')">株式会社よつば建設工業</div>
+      <div class="biz-co-info" id="sk-co-info" ondblclick="editCo('sk-co-info','住所・電話')">〒791-3131 愛媛県伊予郡松前町大字北河原1142番地1<br>TEL：089-994-5162　FAX：089-994-5163</div>
+      <div class="sk-reg">登録番号：<span id="sk-reg" onclick="editCo('sk-reg','インボイス登録番号（T+13桁）')">T2500001017486</span></div>
+      <div class="office-sel">
+        <button class="office-btn" id="sk-btn-h" onclick="selOffice('honsha')">本社</button>
+        <button class="office-btn active" id="sk-btn-m" onclick="selOffice('matsumae')">松前工場</button>
+      </div>
+    </div>
+  </div>
+  <div class="biz-meta">
+    <div class="biz-meta-item">
+      <div class="biz-meta-lbl">請　求　日</div>
+      <input class="meta-input" type="date" id="sk-date">
+    </div>
+    <div class="biz-meta-item">
+      <div class="biz-meta-lbl">請求書番号</div>
+      <input class="meta-input" id="sk-no" placeholder="注文番号が自動で入ります">
+    </div>
+    <div class="biz-meta-item">
+      <div class="biz-meta-lbl">お支払期限</div>
+      <input class="meta-input" type="date" id="sk-due">
+    </div>
+    <div class="biz-meta-item">
+      <div class="biz-meta-lbl">注 文 番 号</div>
+      <input class="meta-input" id="sk-orderno" placeholder="－">
+    </div>
+  </div>
+  <div class="biz-meta2">
+    <div class="biz-meta-item">
+      <div class="biz-meta-lbl">工　事　名</div>
+      <input class="meta-input" id="sk-work" placeholder="工事名を入力">
+    </div>
+    <div class="biz-meta-item">
+      <div class="biz-meta-lbl">施工場所</div>
+      <input class="meta-input" id="sk-loc" placeholder="施工場所を入力">
+    </div>
+  </div>
+  <div class="biz-client-area">
+    <div>
+      <input class="client-input" id="sk-client" placeholder="宛先会社名　御中">
+      <div class="biz-greeting">毎度ありがとうございます。下記の通りご請求申し上げます。</div>
+    </div>
+  </div>
+  <div class="biz-amount-band">
+    <div>
+      <div class="biz-amount-lbl">御 請 求 金 額（税 込）</div>
+    </div>
+    <div class="biz-amount-val"><span class="yen">¥</span><span id="sk-grand">0</span></div>
+  </div>
+  <div class="biz-body">
+    <div class="biz-totals-wrap">
+      <table class="biz-totals-tbl">
+        <tr><td class="lbl"><span class="biz-cat-dot" style="background:#2d8659"></span>材　料　費</td><td class="val" id="sk-mat">¥0</td></tr>
+        <tr><td class="lbl"><span class="biz-cat-dot" style="background:#4caf7d"></span>労　務　費</td><td class="val" id="sk-lab">¥0</td></tr>
+        <tr><td class="lbl"><span class="biz-cat-dot" style="background:#b7450a"></span>現場移動費</td><td class="val" id="sk-mov">¥0</td></tr>
+        <tr><td class="lbl"><span class="biz-cat-dot" style="background:#2471a3"></span>外　注　費</td><td class="val" id="sk-subcon">¥0</td></tr>
+        <tr class="sep"><td class="lbl"><span class="biz-cat-dot" style="background:#7d3c98"></span>諸　経　費</td><td class="val" id="sk-exp">¥0</td></tr>
+        <tr class="sep"><td class="lbl"><span class="biz-cat-dot" style="background:#1a5c3a"></span>法定福利費</td><td class="val" id="sk-wel">¥0</td></tr>
+        <tr class="sep"><td class="lbl"><span class="biz-cat-dot" style="background:#c9971f"></span>損　　料</td><td class="val" id="sk-songa">¥0</td></tr>
+        <tr><td class="lbl">税　抜　計</td><td class="val" id="sk-subtax">¥0</td></tr>
+        <tr><td class="lbl" style="color:#aaa;font-size:10px" id="sk-tax-label">消費税（10%）</td><td class="val" id="sk-tax" style="color:#aaa;font-size:10px">¥0</td></tr>
+        <tr><td class="lbl" style="color:#c0392b;font-size:10px">端数調整</td><td class="val" id="sk-adjust" style="color:#c0392b;font-size:10px">¥0</td></tr>
+        <tr class="total-row"><td class="lbl">御請求合計（税込）</td><td class="val" id="sk-total">¥0</td></tr>
+      </table>
+    </div>
+    <div class="biz-note-row">
+      <div class="biz-note-box">
+        <div class="biz-note-ttl">お 振 込 先</div>
+        <textarea class="biz-note-area" id="sk-bank" style="min-height:84px">愛媛信用金庫　石井支店
+普通預金　0379662
+株式会社よつば建設工業
+代表取締役　松高　弘喜</textarea>
+      </div>
+      <div class="biz-note-box">
+        <div class="biz-note-ttl">お支払条件 ・ 備考</div>
+        <textarea class="biz-note-area" id="sk-note" style="min-height:84px">お支払条件：末締め　翌月末払い
+※恐れ入りますが振込手数料は貴社にてご負担願います。</textarea>
+      </div>
+    </div>
+  </div>
+  <div class="biz-footer">
+    <div class="biz-footer-co" id="sk-footer" onclick="editTanto()">株式会社よつば建設工業　担当：担当者名記入</div>
+    <div class="biz-footer-note">※本請求書は適格請求書（インボイス）です</div>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     4. 請求書シンプル 横A4
+     ============================================================ -->
+<div class="page" id="pageSeikyuS">
+  <div class="s-stripe"></div>
+  <div class="s-hdr">
+    <div class="s-hdr-inner">
+      <div>
+        <div class="s-main">御　請　求　書</div>
+        <div class="s-en">INVOICE / YOTSUBA KENSETSU KOGYO</div>
+      </div>
+      <div class="s-co">
+        <div class="s-co-name" id="sks-co-name" onclick="editCo('sks-co-name','会社名')">株式会社よつば建設工業</div>
+        <div class="s-co-info" id="sks-co-info" ondblclick="editCo('sks-co-info','住所・電話')">〒791-3131 愛媛県伊予郡松前町大字北河原1142番地1<br>TEL：089-994-5162　FAX：089-994-5163</div>
+        <div style="font-size:9px;color:var(--g1);font-weight:700;margin-top:3px">登録番号：<span id="sks-reg" style="cursor:pointer" onclick="editCo('sks-reg','インボイス登録番号（T+13桁）')">T2500001017486</span></div>
+        <div class="office-sel" style="justify-content:flex-end">
+          <button class="office-btn" id="sks-btn-h" onclick="selOffice('honsha')">本社</button>
+          <button class="office-btn active" id="sks-btn-m" onclick="selOffice('matsumae')">松前工場</button>
+        </div>
+      </div>
+    </div>
+    <div class="s-meta-row">
+      <div class="s-meta-item">
+        <div class="s-meta-lbl">工　事　件　名</div>
+        <input class="meta-input" id="sks-work" placeholder="工事件名を入力">
+      </div>
+      <div class="s-meta-item" style="flex:0 0 150px">
+        <div class="s-meta-lbl">請　求　日</div>
+        <input class="meta-input" type="date" id="sks-date">
+      </div>
+      <div class="s-meta-item" style="flex:0 0 170px">
+        <div class="s-meta-lbl">請求書番号</div>
+        <input class="meta-input" id="sks-no" placeholder="注文番号が自動で入ります">
+      </div>
+      <div class="s-meta-item" style="flex:0 0 150px">
+        <div class="s-meta-lbl">お支払期限</div>
+        <input class="meta-input" type="date" id="sks-due">
+      </div>
+    </div>
+  </div>
+  <div class="s-body">
+    <div class="s-left">
+      <div class="client-lbl">宛　先</div>
+      <input class="client-input" id="sks-client" placeholder="宛先会社名　御中">
+      <div style="font-size:11px;color:var(--ink3);margin-top:8px;margin-bottom:14px">毎度ありがとうございます。下記の通りご請求申し上げます。</div>
+      <table class="s-detail-tbl">
+        <tbody>
+          <tr><td class="lbl">工　事　一　式</td><td class="val" id="sks-subtax">¥0</td></tr>
+          <tr class="s-tax-row"><td class="lbl" style="padding-left:14px" id="sks-tax-label">消費税（10%）</td><td class="val" id="sks-tax">¥0</td></tr>
+          <tr class="s-sep-row"><td class="lbl">御請求合計（税込）</td><td class="val" id="sks-total">¥0</td></tr>
+        </tbody>
+      </table>
+      <div class="biz-note-box" style="margin-top:14px">
+        <div class="biz-note-ttl">お 振 込 先 ・ お支払条件</div>
+        <textarea class="biz-note-area" id="sks-bank" style="min-height:96px">愛媛信用金庫　石井支店　普通預金　0379662
+株式会社よつば建設工業　代表取締役　松高　弘喜
+お支払条件：末締め　翌月末払い
+※恐れ入りますが振込手数料は貴社にてご負担願います。</textarea>
+      </div>
+    </div>
+    <div class="s-right">
+      <div class="s-amount-box">
+        <div class="s-amount-lbl">御 請 求 金 額（税 込）</div>
+        <div class="s-amount-val"><span class="yen">¥</span><span id="sks-grand">0</span></div>
+        <div class="s-amount-note" id="sks-amount-note">消費税10%含む</div>
+      </div>
+    </div>
+  </div>
+  <div class="s-footer">
+    <div class="s-footer-co" id="sks-footer" onclick="editTanto()">株式会社よつば建設工業　担当：担当者名記入</div>
+    <div class="s-footer-note">※本請求書は適格請求書（インボイス）です</div>
+  </div>
+</div>
+
+<script>
+const fmt = n => '¥' + Math.round(n).toLocaleString('ja-JP');
+const fmtN = n => Math.round(n).toLocaleString('ja-JP');
+const today = new Date().toISOString().split('T')[0];
+['biz-date','s-date','sk-date','sks-date'].forEach(id=>document.getElementById(id).value=today);
+(()=>{const d=new Date();const e=new Date(d.getFullYear(),d.getMonth()+2,0);const p=n=>String(n).padStart(2,'0');const due=e.getFullYear()+'-'+p(e.getMonth()+1)+'-'+p(e.getDate());document.getElementById('sk-due').value=due;document.getElementById('sks-due').value=due;})();
+
+let tantoName = '担当者名記入';
+let currentTab = 'biz';
+
+const officeData = {
+  honsha: '〒791-8041 愛媛県松山市北吉田1034番地1<br>TEL：089-994-5162　FAX：089-994-5163',
+  matsumae: '〒791-3131 愛媛県伊予郡松前町大字北河原1142番地1<br>TEL：089-994-5162　FAX：089-994-5163'
+};
+
+function switchTab(tab){
+  currentTab = tab;
+  ['biz','simple','seikyu','seikyuS'].forEach(t=>{
+    const page = document.getElementById('page'+t.charAt(0).toUpperCase()+t.slice(1));
+    if(page) page.classList.toggle('show', t===tab);
+    document.getElementById('tab-'+t).classList.toggle('active', t===tab);
+  });
+  // ビジネス版は2枚目も連動
+  const b2 = document.getElementById('pageBiz2');
+  if(b2) b2.classList.toggle('show', tab==='biz');
+
+  // 印刷サイズ
+  let st = document.getElementById('dynPageStyle');
+  if(!st){st=document.createElement('style');st.id='dynPageStyle';document.head.appendChild(st);}
+  st.textContent = (tab==='simple'||tab==='seikyuS')
+    ? '@page{size:A4 landscape;margin:10mm}'
+    : '@page{size:A4 portrait;margin:10mm}';
+}
+
+// 初期化（ビジネス版表示、シンプルは非表示）
+document.getElementById('pageSimple').classList.remove('show');
+
+function selOffice(key){
+  ['biz-btn-h','biz-btn-m','s-btn-h','s-btn-m','sk-btn-h','sk-btn-m','sks-btn-h','sks-btn-m'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    el.classList.toggle('active',
+      (key==='honsha' && id.endsWith('-h')) ||
+      (key==='matsumae' && id.endsWith('-m'))
+    );
+  });
+  ['biz-co-info','s-co-info','sk-co-info','sks-co-info'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.innerHTML=officeData[key];
+  });
+}
+
+function editCo(id,label){
+  const el=document.getElementById(id);
+  const val=prompt(label+'を入力してください',el.textContent.trim());
+  if(val===null) return;
+  if(id.endsWith('-info')) el.innerHTML=val.replace(/\n/g,'<br>');
+  else el.textContent=val;
+  if(id==='sk-reg'||id==='sks-reg'){
+    document.getElementById('sk-reg').textContent=val;
+    document.getElementById('sks-reg').textContent=val;
+  }
+  updateFooters();
+}
+
+function editTanto(){
+  const val=prompt('担当者名を入力してください',tantoName);
+  if(val!==null){ tantoName=val; updateFooters(); }
+}
+
+function updateFooters(){
+  const coName=document.getElementById('biz-co-name').textContent;
+  const sk=document.getElementById('sk-co-name'); if(sk&&event&&event.target&&event.target.id==='biz-co-name') sk.textContent=coName;
+  ['biz-footer','biz2-footer','s-footer','sk-footer','sks-footer'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.textContent=coName+'　担当：'+tantoName;
+  });
+}
+
+function doPrint(){
+  if(currentTab==='simple'||currentTab==='seikyuS') showStatus('💡 印刷ダイアログで「用紙の向き：横」を選択してください','ok');
+  setTimeout(()=>window.print(),300);
+}
+
+function handleDrop(e){
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('drag');
+  const f=e.dataTransfer.files[0];
+  if(f&&(f.name.endsWith('.xlsx')||f.name.endsWith('.xlsm')||f.name.endsWith('.xls'))) readFile(f);
+  else showStatus('Excelファイル（.xlsm / .xlsx）を選択してください','err');
+}
+function loadXL(inp){ if(inp.files[0]) readFile(inp.files[0]); }
+
+function readFile(file){
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const data=new Uint8Array(e.target.result);
+      const wb=XLSX.read(data,{type:'array'});
+      let ws=null;
+      for(const n of wb.SheetNames){ if(n.includes('内訳')){ ws=wb.Sheets[n]; break; } }
+      if(!ws) ws=wb.Sheets[wb.SheetNames[0]];
+      const v=(a)=>{ const c=ws[a]; return c?c.v:null; };
+
+      const wn=v('C5')||''; if(wn&&wn!=='工事名を入力'){
+        ['biz-work','s-work','sk-work','sks-work'].forEach(id=>{document.getElementById(id).value=wn;});
+      }
+      const loc=v('C6')||''; if(loc&&loc!=='施工場所を入力'){
+        document.getElementById('biz-loc').value=loc;
+        document.getElementById('sk-loc').value=loc;
+      }
+      const client=v('C8')||''; if(client&&client!=='宛先会社名を入力'){
+        const clientVal=client+'\u3000御中';
+        ['biz-client','s-client','sk-client','sks-client'].forEach(id=>{
+          const el=document.getElementById(id);
+          if(el) el.value=clientVal;
+        });
+      }
+
+      const mat=parseFloat(v('H35'))||0;
+      const lab=parseFloat(v('H49'))||0;
+      const mov=parseFloat(v('H60'))||0;
+      const sub_con=parseFloat(v('H70'))||0;
+      const exp=parseFloat(v('H74'))||0;
+      const wel=parseFloat(v('H77'))||0;
+      const songa=parseFloat(v('H80'))||0;
+      const taxRate=parseFloat(v('F12'));
+      const taxRateUsed=(!isNaN(taxRate)&&taxRate>0)?taxRate:0.1;
+      const sub=mat+lab+mov+sub_con+exp+wel+songa;
+      const tax=Math.round(sub*taxRateUsed);
+      const adjust=parseFloat(v('H85'))||0;
+      const grand=sub+tax+adjust;
+      const taxPct=Math.round(taxRateUsed*1000)/10;
+
+      // ビジネス版
+      document.getElementById('biz-mat').textContent=fmt(mat);
+      document.getElementById('biz-lab').textContent=fmt(lab);
+      document.getElementById('biz-mov').textContent=fmt(mov);
+      document.getElementById('biz-subcon').textContent=fmt(sub_con);
+      document.getElementById('biz-exp').textContent=fmt(exp);
+      document.getElementById('biz-wel').textContent=fmt(wel);
+      document.getElementById('biz-songa').textContent=fmt(songa);
+      document.getElementById('biz-subtax').textContent=fmt(sub);
+      document.getElementById('biz-tax').textContent=fmt(tax);
+      document.getElementById('biz-adjust').textContent=(adjust>=0?'+':'')+fmt(adjust);
+      document.getElementById('biz-tax-label').textContent=`消費税（${taxPct}%）`;
+      document.getElementById('s-tax-label').textContent=`消費税（${taxPct}%）`;
+      document.getElementById('biz-total').textContent=fmt(grand);
+      document.getElementById('biz-grand').textContent=fmtN(grand);
+
+      // シンプル版
+      document.getElementById('s-subtax').textContent=fmt(sub);
+      document.getElementById('s-tax').textContent=fmt(tax);
+      document.getElementById('s-total').textContent=fmt(grand);
+      document.getElementById('s-grand').textContent=fmtN(grand);
+
+      // 請求書
+      document.getElementById('sk-mat').textContent=fmt(mat);
+      document.getElementById('sk-lab').textContent=fmt(lab);
+      document.getElementById('sk-mov').textContent=fmt(mov);
+      document.getElementById('sk-subcon').textContent=fmt(sub_con);
+      document.getElementById('sk-exp').textContent=fmt(exp);
+      document.getElementById('sk-wel').textContent=fmt(wel);
+      document.getElementById('sk-songa').textContent=fmt(songa);
+      document.getElementById('sk-subtax').textContent=fmt(sub);
+      document.getElementById('sk-tax').textContent=fmt(tax);
+      document.getElementById('sk-tax-label').textContent=`消費税（${taxPct}%）`;
+      document.getElementById('sk-adjust').textContent=(adjust>=0?'+':'')+fmt(adjust);
+      document.getElementById('sk-total').textContent=fmt(grand);
+      document.getElementById('sk-grand').textContent=fmtN(grand);
+      // 請求書シンプル版
+      document.getElementById('sks-subtax').textContent=fmt(sub);
+      document.getElementById('sks-tax').textContent=fmt(tax);
+      document.getElementById('sks-tax-label').textContent=`消費税（${taxPct}%）`;
+      document.getElementById('sks-total').textContent=fmt(grand);
+      document.getElementById('sks-grand').textContent=fmtN(grand);
+      document.getElementById('sks-amount-note').textContent=`消費税${taxPct}%含む`;
+
+      const ordNo=v('C9')||'';
+      if(ordNo){
+        document.getElementById('sk-orderno').value=ordNo;
+        if(!document.getElementById('sk-no').value) document.getElementById('sk-no').value=ordNo;
+        if(!document.getElementById('sks-no').value) document.getElementById('sks-no').value=ordNo;
+      }
+
+      // 材料費明細
+      const matRows=[];
+      for(let r=20;r<=34;r++){
+        const nm=v('B'+r); if(!nm) continue;
+        matRows.push({nm,qty:parseFloat(v('C'+r))||0,unit:v('D'+r)||'',price:parseFloat(v('E'+r))||0,amt:parseFloat(v('H'+r))||0});
+      }
+      renderBizMat(matRows);
+
+      // 労務費明細
+      const labRows=[];
+      for(let r=39;r<=48;r++){
+        const job=v('B'+r); if(!job) continue;
+        labRows.push({job,ppl:parseFloat(v('C'+r))||0,hrs:parseFloat(v('D'+r))||0,rate:parseFloat(v('E'+r))||0,amt:parseFloat(v('H'+r))||0});
+      }
+
+      // 移動費明細
+      const movRows=[];
+      for(let r=53;r<=59;r++){
+        const desc=v('B'+r); if(!desc) continue;
+        movRows.push({desc,ppl:parseFloat(v('C'+r))||0,hrs:parseFloat(v('D'+r))||0,km:parseFloat(v('F'+r))||0,amt:parseFloat(v('H'+r))||0});
+      }
+
+      // 外注費明細
+      const subconRows=[];
+      for(let r=63;r<=69;r++){
+        const vendor=v('B'+r); if(!vendor) continue;
+        subconRows.push({vendor,content:v('C'+r)||'',amt:parseFloat(v('H'+r))||0});
+      }
+
+      // ビジネス版2枚目（明細書）
+      document.getElementById('biz2-workname').textContent='工事名：'+wn;
+      document.getElementById('biz2-mat-sub').textContent='小計：'+fmt(mat);
+      document.getElementById('biz2-lab-sub').textContent='小計：'+fmt(lab);
+      document.getElementById('biz2-mov-sub').textContent='小計：'+fmt(mov);
+      document.getElementById('biz2-subcon-sub').textContent='小計：'+fmt(sub_con);
+      document.getElementById('biz2-exp').textContent=fmt(exp);
+      document.getElementById('biz2-wel').textContent=fmt(wel);
+      document.getElementById('biz2-songa').textContent=fmt(songa);
+      document.getElementById('biz2-adjust').textContent=(adjust>=0?'+':'')+fmt(adjust);
+      document.getElementById('biz2-grand').textContent=fmtN(grand);
+      renderD2Mat(matRows,'biz2-mat-body');
+      renderD2Lab(labRows,'biz2-lab-body');
+      renderD2Mov(movRows,'biz2-mov-body');
+      renderD2Subcon(subconRows,'biz2-subcon-body');
+
+      showStatus('✅ 読み込み完了：'+file.name+'　御見積合計（税込）'+fmt(grand),'ok');
+    }catch(err){ showStatus('読み込みエラー：'+err.message,'err'); }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderBizMat(rows){
+  const tb=document.getElementById('biz-mat-body');
+  if(!rows.length){tb.innerHTML='<tr><td colspan="6" class="no-data">入力データなし</td></tr>';return;}
+  tb.innerHTML=rows.map((r,i)=>`<tr>
+    <td style="text-align:center;color:#bbb;font-size:9px">${i+1}</td>
+    <td>${r.nm}</td>
+    <td class="r">${r.qty.toLocaleString('ja-JP')}</td>
+    <td class="c" style="color:#888;font-size:10px">${r.unit}</td>
+    <td class="r">¥${r.price.toLocaleString('ja-JP')}</td>
+    <td class="r" style="font-weight:600">¥${r.amt.toLocaleString('ja-JP')}</td>
+  </tr>`).join('');
+}
+function renderD2Mat(rows,tbodyId){
+  const tb=document.getElementById(tbodyId||'d2-mat-body');
+  if(!rows.length){tb.innerHTML='<tr><td colspan="6" class="no-data">データなし</td></tr>';return;}
+  tb.innerHTML=rows.map((r,i)=>`<tr>
+    <td style="text-align:center;color:#bbb;font-size:9px">${i+1}</td>
+    <td>${r.nm}</td><td class="r">${r.qty.toLocaleString('ja-JP')}</td>
+    <td style="text-align:center;color:#888;font-size:10px">${r.unit}</td>
+    <td class="r">¥${r.price.toLocaleString('ja-JP')}</td>
+    <td class="r" style="font-weight:600">¥${r.amt.toLocaleString('ja-JP')}</td>
+  </tr>`).join('');
+}
+function renderD2Lab(rows,tbodyId){
+  const tb=document.getElementById(tbodyId||'d2-lab-body');
+  if(!rows.length){tb.innerHTML='<tr><td colspan="6" class="no-data">データなし</td></tr>';return;}
+  tb.innerHTML=rows.map((r,i)=>`<tr>
+    <td style="text-align:center;color:#bbb;font-size:9px">${i+1}</td>
+    <td>${r.job}</td><td class="r">${r.ppl}</td><td class="r">${r.hrs}</td>
+    <td class="r">¥${r.rate.toLocaleString('ja-JP')}</td>
+    <td class="r" style="font-weight:600">¥${r.amt.toLocaleString('ja-JP')}</td>
+  </tr>`).join('');
+}
+function renderD2Mov(rows,tbodyId){
+  const tb=document.getElementById(tbodyId||'d2-mov-body');
+  if(!rows.length){tb.innerHTML='<tr><td colspan="6" class="no-data">データなし</td></tr>';return;}
+  tb.innerHTML=rows.map((r,i)=>`<tr>
+    <td style="text-align:center;color:#bbb;font-size:9px">${i+1}</td>
+    <td>${r.desc}</td><td class="r">${r.ppl}</td><td class="r">${r.hrs}</td>
+    <td class="r">${r.km?r.km+'km':'−'}</td>
+    <td class="r" style="font-weight:600">¥${r.amt.toLocaleString('ja-JP')}</td>
+  </tr>`).join('');
+}
+
+function renderD2Subcon(rows,tbodyId){
+  const tb=document.getElementById(tbodyId||'d2-subcon-body');
+  if(!rows.length){tb.innerHTML='<tr><td colspan="4" class="no-data">データなし</td></tr>';return;}
+  tb.innerHTML=rows.map((r,i)=>`<tr>
+    <td style="text-align:center;color:#bbb;font-size:9px">${i+1}</td>
+    <td>${r.vendor}</td><td>${r.content}</td>
+    <td class="r" style="font-weight:600">¥${r.amt.toLocaleString('ja-JP')}</td>
+  </tr>`).join('');
+}
+
+function showStatus(msg,type){
+  const el=document.getElementById('status');
+  el.textContent=msg; el.className='status '+type;
+}
+
+/* ============================================================
+   アプリ連携（見積アプリの「見積書を作る」から #app=JSON で開かれる）
+   ・Excelドロップの代わりにFirestoreの見積データを流し込む
+   ・xlsmドロップ機能はそのまま残る（移行期はExcel経由の見積もあるため)
+   ・まずはビジネス版（縦2枚）が対象。総額は他タブにも入れておく
+   ============================================================ */
+const escHtml = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+function applyAppData(d){
+  switchTab('biz');
+  document.getElementById('btnBackApp').style.display='inline-block';
+
+  // ---- ヘッダー ----
+  if(d.work) ['biz-work','s-work','sk-work','sks-work'].forEach(id=>{document.getElementById(id).value=d.work;});
+  if(d.loc){ document.getElementById('biz-loc').value=d.loc; document.getElementById('sk-loc').value=d.loc; }
+  if(d.client){
+    const cv=d.client+'　御中';
+    ['biz-client','s-client','sk-client','sks-client'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=cv;});
+  }
+  if(d.orderNo){
+    document.getElementById('sk-orderno').value=d.orderNo;
+    if(!document.getElementById('sk-no').value) document.getElementById('sk-no').value=d.orderNo;
+    if(!document.getElementById('sks-no').value) document.getElementById('sks-no').value=d.orderNo;
+  }
+  if(d.tanto){ tantoName=d.tanto; updateFooters(); }
+
+  // ---- 合計（xlsm読み込みと同じ欄に流し込む） ----
+  const t=d.totals;
+  const taxPct=Math.round((t.taxPct??0.1)*1000)/10;
+  const grand=t.grand;
+  document.getElementById('biz-mat').textContent=fmt(t.mat);
+  document.getElementById('biz-lab').textContent=fmt(t.lab);
+  document.getElementById('biz-mov').textContent=fmt(t.mov);
+  document.getElementById('biz-subcon').textContent=fmt(t.subcon);
+  document.getElementById('biz-exp').textContent=fmt(t.exp);
+  document.getElementById('biz-wel').textContent=fmt(t.wel);
+  document.getElementById('biz-songa').textContent=fmt(t.songa);
+  document.getElementById('biz-subtax').textContent=fmt(t.subtax);
+  document.getElementById('biz-tax').textContent=fmt(t.tax);
+  document.getElementById('biz-adjust').textContent=(t.adjust>=0?'+':'')+fmt(t.adjust);
+  document.getElementById('biz-tax-label').textContent=`消費税（${taxPct}%）`;
+  document.getElementById('s-tax-label').textContent=`消費税（${taxPct}%）`;
+  document.getElementById('biz-total').textContent=fmt(grand);
+  document.getElementById('biz-grand').textContent=fmtN(grand);
+  document.getElementById('s-subtax').textContent=fmt(t.subtax);
+  document.getElementById('s-tax').textContent=fmt(t.tax);
+  document.getElementById('s-total').textContent=fmt(grand);
+  document.getElementById('s-grand').textContent=fmtN(grand);
+  ['sk-mat','sk-lab','sk-mov','sk-subcon','sk-exp','sk-wel','sk-songa'].forEach((id,i)=>{
+    document.getElementById(id).textContent=fmt([t.mat,t.lab,t.mov,t.subcon,t.exp,t.wel,t.songa][i]);
+  });
+  document.getElementById('sk-subtax').textContent=fmt(t.subtax);
+  document.getElementById('sk-tax').textContent=fmt(t.tax);
+  document.getElementById('sk-tax-label').textContent=`消費税（${taxPct}%）`;
+  document.getElementById('sk-adjust').textContent=(t.adjust>=0?'+':'')+fmt(t.adjust);
+  document.getElementById('sk-total').textContent=fmt(grand);
+  document.getElementById('sk-grand').textContent=fmtN(grand);
+  document.getElementById('sks-subtax').textContent=fmt(t.subtax);
+  document.getElementById('sks-tax').textContent=fmt(t.tax);
+  document.getElementById('sks-tax-label').textContent=`消費税（${taxPct}%）`;
+  document.getElementById('sks-total').textContent=fmt(grand);
+  document.getElementById('sks-grand').textContent=fmtN(grand);
+  document.getElementById('sks-amount-note').textContent=`消費税${taxPct}%含む`;
+
+  // ---- 明細（ビジネス版2枚目） ----
+  const E=r=>({...r,nm:escHtml(r.nm),unit:escHtml(r.unit)});
+  const mat=(d.mat||[]).map(E);
+  const lab=(d.lab||[]).map(r=>({...r,job:escHtml(r.job)}));
+  const mov=(d.mov||[]).map(r=>({...r,desc:escHtml(r.desc)}));
+  const subcon=(d.subcon||[]).map(r=>({...r,vendor:escHtml(r.vendor),content:escHtml(r.content)}));
+  document.getElementById('biz2-workname').textContent='工事名：'+(d.work||'');
+  document.getElementById('biz2-mat-sub').textContent='小計：'+fmt(t.mat);
+  document.getElementById('biz2-lab-sub').textContent='小計：'+fmt(t.lab);
+  document.getElementById('biz2-mov-sub').textContent='小計：'+fmt(t.mov);
+  document.getElementById('biz2-subcon-sub').textContent='小計：'+fmt(t.subcon);
+  document.getElementById('biz2-exp').textContent=fmt(t.exp);
+  document.getElementById('biz2-wel').textContent=fmt(t.wel);
+  document.getElementById('biz2-songa').textContent=fmt(t.songa);
+  document.getElementById('biz2-adjust').textContent=(t.adjust>=0?'+':'')+fmt(t.adjust);
+  document.getElementById('biz2-grand').textContent=fmtN(grand);
+  renderD2Mat(mat,'biz2-mat-body');
+  renderD2Lab(lab,'biz2-lab-body');
+  renderD2Mov(mov,'biz2-mov-body');
+  renderD2Subcon(subcon,'biz2-subcon-body');
+
+  // ---- 法定福利費オフ: 行ごと消す ----
+  if(d.welfareOn===false){
+    ['biz-wel','sk-wel'].forEach(id=>{const el=document.getElementById(id);const tr=el&&el.closest('tr');if(tr)tr.remove();});
+    const welBox=document.getElementById('biz2-wel');
+    if(welBox){
+      const item=welBox.closest('.auto-fee-item');
+      const row=welBox.closest('.auto-fee-row');
+      if(item)item.remove();
+      if(row)row.style.gridTemplateColumns='1fr 1fr';
+    }
+  }
+
+  // ---- 概算（単価待ちを含む見積を「概算として出す」で開いた場合） ----
+  if(d.approx){
+    document.querySelector('#pageBiz .biz-amount-lbl').textContent='御 見 積 金 額（概 算・税 込）';
+    const totalLbl=document.querySelector('#pageBiz .total-row td.lbl');
+    if(totalLbl)totalLbl.textContent='御見積合計（概算・税込）';
+    const gb=document.querySelector('#pageBiz2 .grand-band-lbl');
+    if(gb)gb.textContent='御 見 積 金 額（概 算・税 込・調 整 後）';
+    document.querySelector('#pageSimple .s-amount-lbl').textContent='御 見 積 金 額（概 算・税 込）';
+  }
+
+  showStatus((d.approx?'⚠ 概算の見積書です（単価待ちの品目は仮単価か0円）。':'✅ ')+
+    'アプリの見積を読み込みました：'+(d.work||'（工事名なし）')+'　御見積合計（税込）'+fmt(grand), d.approx?'err':'ok');
+}
+
+(()=>{
+  const m=location.hash.match(/^#app=(.+)$/);
+  if(!m) return;
+  try{ applyAppData(JSON.parse(decodeURIComponent(m[1]))); }
+  catch(e){ console.error(e); showStatus('アプリからのデータを読み込めませんでした：'+e.message,'err'); }
+})();
+</script>
+</body>
+</html>

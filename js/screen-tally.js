@@ -6,12 +6,12 @@
 // ・穴は指摘するだけで、止めない
 // ============================================================
 
-import { esc, YEN, fmtDate } from './util.js?v=4';
-import { openOverlay, toast } from './ui.js?v=4';
-import { cache, norm } from './store.js?v=4';
+import { esc, YEN, fmtDate } from './util.js?v=5';
+import { openOverlay, toast } from './ui.js?v=5';
+import { cache, norm } from './store.js?v=5';
 import {
   db, doc, collection, addDoc, updateDoc, Timestamp, serverTimestamp, arrayUnion,
-} from './firebase.js?v=4';
+} from './firebase.js?v=5';
 
 // SheetJSを必要なときだけCDNから読む（事務所PCはオンライン前提）
 let sheetJs = null;
