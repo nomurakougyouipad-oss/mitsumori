@@ -4,15 +4,15 @@
 // 単価マスター・取引先・仕入先・常設注番／集計表読み込み／書き戻しCSV
 // ============================================================
 
-import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=7';
-import { openOverlay, openNumpad, toast, confirmDialog, bindSearch } from './ui.js?v=7';
-import { cache, searchItems, isStale, updateEstimate, saveSummary, addNamed } from './store.js?v=7';
-import { totals } from './calc.js?v=7';
+import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=8';
+import { openOverlay, openNumpad, toast, confirmDialog, bindSearch } from './ui.js?v=8';
+import { cache, searchItems, isStale, updateEstimate, saveSummary, addNamed } from './store.js?v=8';
+import { totals } from './calc.js?v=8';
 import {
   db, doc, collection, addDoc, updateDoc, deleteDoc, getDocs, setDoc,
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
-} from './firebase.js?v=7';
-import { openTallyPage } from './screen-tally.js?v=7';
+} from './firebase.js?v=8';
+import { openTallyPage } from './screen-tally.js?v=8';
 
 const RATE_DEFS = [
   ['material', '材料費 上乗せ%', '原価に対して'],

@@ -221,6 +221,14 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);padding:16px}
   #pageSeikyu.show{display:flex!important;flex-direction:column}
   #pageSeikyu.show .biz-body{flex:1;display:flex;flex-direction:column;justify-content:center}
   #pageSeikyu.show .biz-footer{margin-top:auto}
+  /* 請求書（縦）だけは中身が多く（メタ4欄＋2欄・振込先と支払条件の2つのメモ欄）、
+     そのままだと286mmでA4縦の277mmを超えて2枚になる。
+     印刷のときだけ行間を詰めて1枚に収める（画面表示と見積書には影響しない）。 */
+  #pageSeikyu .biz-totals-tbl td{padding:8px 14px}
+  #pageSeikyu .biz-totals-tbl .total-row td{padding:11px 16px!important}
+  #pageSeikyu .biz-note-area{min-height:62px!important}
+  #pageSeikyu .biz-body{padding:10px 36px 12px}
+  #pageSeikyu .biz-top{padding-bottom:14px}
   /* 最後のページの後ろに空ページを作らせない */
   .page.show:last-of-type{page-break-after:auto;break-after:auto}
   .grand-band,.auto-fee-row{break-inside:avoid;page-break-inside:avoid}
