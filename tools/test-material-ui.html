@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>材料を追加 画面テスト（開発用）</title>
+<link rel="stylesheet" href="../app.css?v=2">
+<style>#stat{position:fixed;top:2px;right:4px;z-index:9999;font:11px monospace;background:#ff0;padding:2px 6px}</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+<div id="stat">loading...</div>
+<script type="module">
+import { cache, startSubscriptions } from '../js/store.js?v=2';
+import { openMaterialPage } from '../js/screen-material.js?v=3';
+
+const stat = document.getElementById('stat');
+startSubscriptions();
+for (let i = 0; i < 120 && !cache.itemsLoaded; i++) await new Promise((r) => setTimeout(r, 500));
+stat.textContent = 'items:' + cache.items.length;
+
+// ダミー見積で材料ページを開く。
+// ※ "__ui_test__" はFirestoreの予約ID（__で始まり__で終わる）なので、
+//   保存を押しても必ず invalid-argument で拒否され、本番に書き込まれることはない。
+//   保存ボタンの発火確認（コンソールにFirebaseErrorが出ればクリックは効いている）にも使える。
+openMaterialPage('__ui_test__', { rates: { material: 0.15 } }, {});
+
+// inputノードの同一性を監視: 再生成されたらNGを表示
+const q0 = document.querySelector('#m-q');
+setInterval(() => {
+  const q = document.querySelector('#m-q');
+  stat.textContent = 'items:' + cache.items.length +
+    ' | input同一:' + (q === q0 ? 'OK' : 'NG(再生成された)') +
+    ' | 値:' + (q ? q.value : '-') +
+    ' | focus:' + (document.activeElement === q ? 'ON' : 'off');
+}, 400);
+</script>
+</body>
+</html>

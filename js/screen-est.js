@@ -17,7 +17,7 @@ import {
 import {
   openMaterialPage, openManualPage, openPendingPage,
   openLaborPage, openTravelPage, openSubcontractPage,
-} from './screen-material.js?v=2';
+} from './screen-material.js?v=3';
 import { exportEstimateCsv } from './export.js?v=2';
 
 const KINDS = ['材料', '労務', '移動', '外注'];

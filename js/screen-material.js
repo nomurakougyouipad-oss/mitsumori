@@ -47,12 +47,11 @@ export function openMaterialPage(estimateId, est, opts = {}) {
 
   let query = '';
 
-  function paint() {
-    const results = query || !selected ? searchItems(query, 20) : [];
-    const rate = est.rates?.material ?? cache.rates.material;
-    const base = selected && num(selected.cost) != null ? qty * selected.cost : null;
-    const amount = base != null ? base * (1 + rate) : null;
-
+  // iPhone対策の要：検索inputと下部ボタンは一度だけ生成し、以後は絶対に作り直さない。
+  // 入力のたびにinputをinnerHTMLで再生成すると、iOSはキーボードを既定（かな）で
+  // 出し直す・IME変換中の文字が二重に入る・タップ中のボタンが消えて押せない、が起きる。
+  // 再描画するのは候補リスト等の可変部分（#m-body）だけ。
+  function renderShell() {
     ov.el.innerHTML = `
       <div class="page-head"><div class="bar">
         <span class="ttl">${editingLineId ? '材料を直す' : '材料を追加'}</span>
@@ -64,7 +63,39 @@ export function openMaterialPage(estimateId, est, opts = {}) {
         </div>
         <div class="search-hint">ひらがな・カタカナ・全角半角は気にせず打てます</div>
       </div>
-      <div class="page-body">
+      <div class="page-body" id="m-body"></div>
+      <div class="bottom-bar">
+        <div id="m-recent"></div>
+        <button class="btn btn-primary btn-block btn-big" id="m-next" disabled>
+          ${editingLineId ? '保存して戻る' : '保存して次へ'}</button>
+        ${editingLineId ? '' : '<button class="btn btn-block" id="m-back" style="margin-top:8px" disabled>保存して戻る</button>'}
+      </div>`;
+
+    const q = ov.el.querySelector('#m-q');
+    // inputは再生成しないので、変換中でもフォーカスとIME状態はそのまま保たれる
+    q.addEventListener('input', () => { query = q.value; paintBody(); });
+    ov.el.querySelector('#m-close').addEventListener('click', ov.close);
+    ov.el.querySelector('#m-next').addEventListener('click', () => save(true));
+    ov.el.querySelector('#m-back')?.addEventListener('click', () => save(false));
+  }
+
+  function updateBottom() {
+    const next = ov.el.querySelector('#m-next');
+    const back = ov.el.querySelector('#m-back');
+    if (next) next.disabled = !selected;
+    if (back) back.disabled = !selected;
+    const r = ov.el.querySelector('#m-recent');
+    if (r) r.innerHTML = recentBandHtml(recent);
+  }
+
+  function paintBody() {
+    const results = query || !selected ? searchItems(query, 20) : [];
+    const rate = est.rates?.material ?? cache.rates.material;
+    const base = selected && num(selected.cost) != null ? qty * selected.cost : null;
+    const amount = base != null ? base * (1 + rate) : null;
+    const body = ov.el.querySelector('#m-body');
+
+    body.innerHTML = `
         ${selected ? `
           <div style="padding:14px 12px 0">
             <div class="sel-card">
@@ -104,43 +135,26 @@ export function openMaterialPage(estimateId, est, opts = {}) {
         <div style="padding:6px 0 16px;text-align:center">
           <span id="m-manual" style="font-size:13.5px;color:#4A5A6B;text-decoration:underline;text-underline-offset:3px;cursor:pointer">
             ✎ マスターに無いものを手打ちで入れる</span>
-        </div>
-      </div>
-      <div class="bottom-bar">
-        ${recentBandHtml(recent)}
-        <button class="btn btn-primary btn-block btn-big" id="m-next" ${selected ? '' : 'disabled'}>
-          ${editingLineId ? '保存して戻る' : '保存して次へ'}</button>
-        ${editingLineId ? '' : '<button class="btn btn-block" id="m-back" style="margin-top:8px" ' + (selected ? '' : 'disabled') + '>保存して戻る</button>'}
-      </div>`;
+        </div>`;
 
-    // --- events ---
-    const q = ov.el.querySelector('#m-q');
-    q.addEventListener('input', () => { query = q.value; paintKeepFocus(); });
-    ov.el.querySelector('#m-close').addEventListener('click', ov.close);
-    ov.el.querySelectorAll('.cand').forEach((el) => el.addEventListener('click', () => {
+    // --- 可変部分のイベント（#m-body内だけ。検索inputと下部ボタンはrenderShellで配線済み） ---
+    body.querySelectorAll('.cand').forEach((el) => el.addEventListener('click', () => {
       selected = cache.items.find((i) => i.id === el.dataset.id);
       query = '';
-      paint();
+      const q = ov.el.querySelector('#m-q');
+      q.value = '';
+      paintBody();
     }));
-    ov.el.querySelector('#m-qty')?.addEventListener('click', () => {
-      openNumpad({ title: '数量', value: qty, unit: selected.unit || '', onDone: (n) => { if (n != null) { qty = n; paint(); } } });
+    body.querySelector('#m-qty')?.addEventListener('click', () => {
+      openNumpad({ title: '数量', value: qty, unit: selected.unit || '', onDone: (n) => { if (n != null) { qty = n; paintBody(); } } });
     });
-    ov.el.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
-      qty = (num(qty) || 0) + Number(b.dataset.add); paint();
+    body.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
+      qty = (num(qty) || 0) + Number(b.dataset.add); paintBody();
     }));
-    ov.el.querySelector('#m-pending').addEventListener('click', () => { ov.close(); openPendingPage(estimateId, est, {}); });
-    ov.el.querySelector('#m-manual').addEventListener('click', () => { ov.close(); openManualPage(estimateId, est, {}); });
-    ov.el.querySelector('#m-next')?.addEventListener('click', () => save(true));
-    ov.el.querySelector('#m-back')?.addEventListener('click', () => save(false));
-  }
+    body.querySelector('#m-pending').addEventListener('click', () => { ov.close(); openPendingPage(estimateId, est, {}); });
+    body.querySelector('#m-manual').addEventListener('click', () => { ov.close(); openManualPage(estimateId, est, {}); });
 
-  // 入力中の検索でフォーカスを失わないよう、候補部分だけ差し替えたいが
-  // シンプルさ優先で全再描画→フォーカス復元
-  function paintKeepFocus() {
-    paint();
-    const q = ov.el.querySelector('#m-q');
-    q.focus();
-    q.setSelectionRange(q.value.length, q.value.length);
+    updateBottom();
   }
 
   async function save(stay) {
@@ -165,13 +179,16 @@ export function openMaterialPage(estimateId, est, opts = {}) {
       if (stay) {
         toast('保存しました。そのまま次を入れられます');
         selected = null; qty = 1; query = '';
-        paint();
-        ov.el.querySelector('#m-q').focus();
+        const q = ov.el.querySelector('#m-q');
+        q.value = '';
+        paintBody();
+        q.focus();
       } else ov.close();
     } catch (e) { console.error(e); toast('保存できませんでした'); }
   }
 
-  paint();
+  renderShell();
+  paintBody();
   if (!opts.prefill) ov.el.querySelector('#m-q').focus();
 }
 
