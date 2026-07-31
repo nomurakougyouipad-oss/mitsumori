@@ -3,15 +3,15 @@
 // ルート: #home / #estimates / #search / #settings / #est/{id}
 // ============================================================
 
-import { esc, local } from './util.js?v=11';
-import { icons } from './icons.js?v=11';
-import { toast, closeAllOverlays } from './ui.js?v=11';
-import { db, ready, collection, addDoc } from './firebase.js?v=11';
-import { startSubscriptions, onCacheChange, cache } from './store.js?v=11';
-import { renderHome, renderEstimatesTab } from './screen-home.js?v=11';
-import { renderEstScreen, openCoverPage } from './screen-est.js?v=11';
-import { renderSearchTab } from './screen-order.js?v=11';
-import { renderSettingsTab } from './screen-settings.js?v=11';
+import { esc, local } from './util.js?v=12';
+import { icons } from './icons.js?v=12';
+import { toast, closeAllOverlays } from './ui.js?v=12';
+import { db, ready, collection, addDoc } from './firebase.js?v=12';
+import { startSubscriptions, onCacheChange, cache, createEstimate } from './store.js?v=12';
+import { renderHome, renderEstimatesTab } from './screen-home.js?v=12';
+import { renderEstScreen, openCoverPage } from './screen-est.js?v=12';
+import { renderSearchTab } from './screen-order.js?v=12';
+import { renderSettingsTab } from './screen-settings.js?v=12';
 
 const state = {
   staff: local.get('staff', ''),
@@ -45,7 +45,9 @@ let currentRoute = '';
 function parseRoute() {
   const h = location.hash.replace(/^#/, '');
   if (h.startsWith('est/')) return { kind: 'est', id: h.slice(4).split('/')[0] };
-  return { kind: 'tab', id: TABS.some((t) => t.id === h) ? h : 'home' };
+  if (TABS.some((t) => t.id === h)) return { kind: 'tab', id: h };
+  // ハッシュなし（アイコンから起動した直後）は表紙を出す
+  return { kind: 'cover', id: '' };
 }
 
 window.addEventListener('hashchange', () => { closeAllOverlays(); render(); });
@@ -136,12 +138,49 @@ function openStaffModal(closable = true) {
   });
 }
 
+// ---------- 起動の表紙 ----------
+// アプリを開いて最初の1枚。スプラッシュ（自動で消える）の後に出て、
+// 押すまで待つ。タブバーもヘッダーも出さない。
+// ※ 見積の「表紙の情報」ページ（openCoverPage）とは別物
+function renderStartCover(app) {
+  document.body.classList.remove('has-tabbar');
+  app.innerHTML = `
+    <div class="start-cover">
+      <div class="logo">
+        <div class="word">QUOTE</div>
+        <div class="rule"></div>
+      </div>
+      <div class="acts">
+        <button class="btn btn-block cover-primary" id="cv-new">あたらしい見積もり</button>
+        <button class="btn btn-block cover-ghost" id="cv-list">見積もり中</button>
+      </div>
+    </div>`;
+
+  app.querySelector('#cv-new').addEventListener('click', async (e) => {
+    const b = e.currentTarget;
+    b.disabled = true;
+    try {
+      const id = await createEstimate(local.get('staff', ''));
+      sessionStorage.setItem('openCover', id);   // 新規はまず見積の表紙情報を開く
+      location.hash = '#est/' + id;
+    } catch (err) {
+      console.error(err);
+      toast('作成できませんでした。電波を確認してください');
+      b.disabled = false;
+    }
+  });
+  app.querySelector('#cv-list').addEventListener('click', () => { location.hash = '#home'; });
+}
+
 // ---------- 描画 ----------
 function render() {
   if (cleanup) { cleanup(); cleanup = null; }
   const route = parseRoute();
   currentRoute = route.kind + '/' + route.id;
   const app = document.getElementById('app');
+
+  if (route.kind === 'cover') { renderStartCover(app); return; }
+  document.body.classList.add('has-tabbar');
 
   if (route.kind === 'est') {
     app.innerHTML = '<div id="est-root" style="flex:1;display:flex;flex-direction:column;min-height:0"></div>' + tabbarHtml('estimates');

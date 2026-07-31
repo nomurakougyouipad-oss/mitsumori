@@ -83,6 +83,29 @@ button { font-family: var(--font); }
 /* タブバーの高さ＋セーフエリアぶん、下に余白 */
 body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0px)); }
 
+/* ---------- 起動の表紙（開いて最初の1枚。押すまで待つ） ----------
+   ※ 見積の「表紙の情報」ページとは別物 */
+.start-cover {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 44px;
+  background: var(--navy);
+  padding: 32px 24px calc(32px + env(safe-area-inset-bottom, 0px));
+}
+.start-cover .logo { user-select: none; }
+.start-cover .word {
+  font-family: var(--mono); color: #fff; line-height: 1;
+  font-size: clamp(40px, 15vw, 64px); font-weight: 700; letter-spacing: .14em;
+  padding-left: .14em;   /* 字間で右に空くぶんを戻して中央に見せる */
+}
+.start-cover .rule { height: 7px; background: #fff; margin-top: 14px; }
+.start-cover .acts { width: 100%; max-width: 330px; display: flex; flex-direction: column; gap: 12px; }
+.start-cover .btn { height: 58px; font-size: 18px; }
+.cover-primary { background: #fff; border-color: #fff; color: var(--navy); }
+.cover-primary:active { background: #E3E9F0; }
+.cover-ghost { background: transparent; border: 2px solid rgba(255,255,255,.65); color: #fff; }
+.cover-ghost:active { background: rgba(255,255,255,.12); }
+
 /* ---------- 下部タブバー ---------- */
 .tabbar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
@@ -400,10 +423,12 @@ body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0
 .subtotal-row .lbl { font-size: 13px; font-weight: 700; color: #4A5A6B; }
 .subtotal-row .v { font-family: var(--mono); font-size: 20px; font-weight: 700; color: var(--navy); }
 
-.total-row { height: 56px; display: flex; align-items: center; justify-content: space-between;
+/* 金額は「表示」、確認へ進むのは「ボタン」。押せる所を見た目で分ける */
+.total-row { height: 52px; display: flex; align-items: center; justify-content: space-between;
   margin-top: 10px; border-top: 1px solid #E6EAEE; }
 .total-row .lbl { font-size: 14px; font-weight: 700; color: #4A5A6B; }
 .total-row .v { font-family: var(--mono); font-size: 30px; font-weight: 700; color: var(--navy); letter-spacing: -.01em; }
+#e-confirm { height: 50px; font-size: 16px; margin-top: 2px; }
 
 .recent-band { height: 38px; display: flex; align-items: center; gap: 6px; padding: 0 14px;
   border-bottom: 1px solid #E6EAEE; font-size: 12px; color: var(--muted);
