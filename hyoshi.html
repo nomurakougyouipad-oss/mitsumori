@@ -188,13 +188,23 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);padding:16px}
 #pageSimple .s-footer-co,#pageSeikyuS .s-footer-co{color:var(--g4);font-size:10px;font-weight:700;cursor:pointer}
 #pageSimple .s-footer-note,#pageSeikyuS .s-footer-note{color:#555;font-size:9px}
 
-/* ===== 印刷 ===== */
+/* ===== 印刷 =====
+   iPhoneのAirPrint/共有シートは「縮小して合わせる」をしないため、
+   コンテンツ幅を画面用のpxのままにするとA4からはみ出して切れる。
+   印刷時はA4実寸で幅を確定する:
+   ・縦（ビジネス版・請求書縦）: 190mm（A4幅210mm − 余白10mm×2）
+   ・横（シンプル版・請求書横）: 277mm（A4高297mm − 余白10mm×2）
+   余白10mmは @page で確定（ブラウザのURL・日付ヘッダー印字も防ぐ）。
+   人に用紙の向きを選ばせない（@pageのsizeで指定。切替はdynPageStyle） */
 @media print{
   *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
-  body{background:#fff;padding:0}
+  html,body{background:#fff;padding:0;margin:0}
   .toolbar,.upload-zone,.status{display:none!important}
-  .page{box-shadow:none;border-radius:0;max-width:100%;margin-bottom:0}
+  .page{box-shadow:none;border-radius:0;margin:0 auto;width:190mm;max-width:190mm;margin-bottom:0}
+  #pageSimple,#pageSeikyuS{width:277mm;max-width:277mm}
   .page.show + .page.show{page-break-before:always}
+  /* 2枚目（明細書）は必ず新しいページから */
+  #pageBiz2.show{page-break-before:always;break-before:page}
   .biz-stripe,.s-stripe{display:block!important}
   #pageBiz.show{display:flex!important;flex-direction:column;min-height:277mm}
   #pageBiz.show .biz-body{flex:1;display:flex;flex-direction:column;justify-content:center}
@@ -236,6 +246,122 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);padding:16px}
 #pageSeikyu .biz-footer{background:linear-gradient(90deg,var(--ink) 0%,#2e2e2e 100%);padding:11px 36px;display:flex;justify-content:space-between;align-items:center}
 #pageSeikyu .biz-footer-co{color:var(--g4);font-size:10px;font-weight:700;cursor:pointer}
 #pageSeikyu .biz-footer-note{color:#555;font-size:9px}
+
+/* ============================================================
+   ===== 画面表示用（@media screen）=====
+   紙のレイアウト（A4・9〜11pxの小さな文字）をそのまま画面に出すと
+   スマホでは読めず、PCでは中央に紙が1枚あるだけで幅が余る。
+   ここで画面用の見た目を作る。印刷は上の @media print が担当し、
+   互いに影響しない（このブロックは印刷には一切効かない）。
+   ============================================================ */
+@media screen{
+  /* --- 紙の縮尺に引きずられない、画面で読める文字サイズ ---
+     元CSSが #pageBiz .xxx のようにID付きで書かれているため、
+     打ち消すにはこちらも同じ強さ（ID付き）で書く必要がある */
+  #pageBiz .biz-meta-lbl,#pageSeikyu .biz-meta-lbl,
+  #pageSimple .s-meta-lbl,#pageSeikyuS .s-meta-lbl,
+  .client-lbl,.biz-note-ttl,.detail-tbl th{font-size:11px}
+  #pageBiz .biz-co-name,#pageSeikyu .biz-co-name,
+  #pageSimple .s-co-name,#pageSeikyuS .s-co-name{font-size:15px}
+  #pageBiz .biz-co-info,#pageSeikyu .biz-co-info,
+  #pageSimple .s-co-info,#pageSeikyuS .s-co-info,#pageSeikyu .sk-reg{font-size:11.5px;line-height:1.9}
+  .meta-input{font-size:15px}
+  .client-input{font-size:21px}
+  #pageBiz .biz-greeting,#pageSeikyu .biz-greeting{font-size:13px}
+  #pageBiz .biz-amount-lbl,#pageSeikyu .biz-amount-lbl{font-size:12px;letter-spacing:.1em}
+  #pageBiz .biz-amount-val,#pageSeikyu .biz-amount-val{font-size:32px}
+  #pageBiz .biz-amount-val .yen,#pageSeikyu .biz-amount-val .yen{font-size:17px}
+  .biz-totals-tbl{font-size:15px}
+  .biz-totals-tbl td{padding:13px 14px}
+  .biz-totals-tbl .total-row td{font-size:17px!important}
+  .biz-note-area{font-size:13px;min-height:70px}
+  #pageBiz .biz-footer-co,#pageSeikyu .biz-footer-co,#pageBiz2 .footer-co,
+  #pageSimple .s-footer-co,#pageSeikyuS .s-footer-co{font-size:12.5px}
+  #pageBiz .biz-footer-note,#pageSeikyu .biz-footer-note,#pageBiz2 .footer-note,
+  #pageSimple .s-footer-note,#pageSeikyuS .s-footer-note{font-size:11px}
+  #pageBiz2 .p2hdr h2{font-size:20px}
+  #pageBiz2 .p2hdr p{font-size:12px}
+  .sec-name{font-size:12px}
+  .sec-total{font-size:13px}
+  .detail-tbl{font-size:13px}
+  .detail-tbl td{padding:8px 7px}
+  .auto-fee-title{font-size:12px}
+  .auto-fee-note{font-size:10.5px}
+  .auto-fee-val{font-size:18px}
+  .grand-band-lbl{font-size:13px}
+  .grand-band-val{font-size:24px}
+  #pageSimple .s-amount-lbl,#pageSeikyuS .s-amount-lbl{font-size:13px}
+}
+
+/* --- スマホ（〜480px）: 1カラム。金額を大きく、費目は縦に積む --- */
+@media screen and (max-width:480px){
+  body{padding:8px;overflow-x:hidden}
+  .toolbar{gap:6px}
+  .toolbar-title{font-size:12px;width:100%;flex:none}
+  .tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;width:100%}
+  .tab{padding:9px 6px;font-size:11px}
+  .btn{flex:1}
+  .page{max-width:100%;margin:0 0 14px;border-radius:8px}
+  #pageSimple,#pageSeikyuS{max-width:100%}
+
+  /* ヘッダー・宛先・メタは縦積み（横スクロールを出さない） */
+  #pageBiz .biz-top,#pageSeikyu .biz-top{flex-direction:column;gap:12px;padding:16px 16px 14px}
+  #pageBiz .biz-co,#pageSeikyu .biz-co{text-align:left}
+  .office-sel{justify-content:flex-start!important}
+  #pageBiz .biz-meta,#pageSeikyu .biz-meta,#pageSeikyu .biz-meta2{grid-template-columns:1fr}
+  #pageBiz .biz-meta-item,#pageSeikyu .biz-meta-item{
+    border-right:none;border-bottom:1px solid var(--line);padding:10px 16px}
+  #pageBiz .biz-meta-item:last-child,#pageSeikyu .biz-meta-item:last-child{border-bottom:none}
+  #pageBiz .biz-client-area,#pageSeikyu .biz-client-area{padding:14px 16px}
+  .client-input{min-width:0;width:100%}
+  #pageBiz .biz-body,#pageSeikyu .biz-body{padding:12px 16px 18px}
+  #pageBiz2 .p2hdr{padding:14px 16px}
+  #pageBiz2 .p2body{padding:14px 16px}
+
+  /* 御見積金額を大きく */
+  #pageBiz .biz-amount-band,#pageSeikyu .biz-amount-band{
+    flex-direction:column;align-items:flex-start;gap:6px;padding:16px}
+  #pageBiz .biz-amount-val,#pageSeikyu .biz-amount-val{font-size:38px;line-height:1.1}
+  .grand-band{flex-direction:column;align-items:flex-start;gap:6px}
+  .grand-band-val{font-size:28px}
+
+  /* 明細テーブルは横に伸びるので、行ごとのカードに積み替える */
+  .detail-tbl thead{display:none}
+  .detail-tbl,.detail-tbl tbody,.detail-tbl tr,.detail-tbl td{display:block;width:auto}
+  .detail-tbl tr{padding:10px 2px;border-bottom:1px solid #eef2ef}
+  .detail-tbl td{padding:0;border:none;text-align:left!important}
+  .detail-tbl td:first-child{display:none}                       /* No. */
+  .detail-tbl td:nth-child(2){font-size:14px;font-weight:600;color:var(--ink);margin-bottom:5px}
+  .detail-tbl td:not(:first-child):not(:nth-child(2)):not(:last-child){
+    display:inline-block;font-size:12px;color:var(--ink3);margin-right:12px}
+  .detail-tbl td:last-child{font-size:17px;font-weight:700;color:var(--ink);text-align:right!important;margin-top:4px}
+  .detail-tbl td.no-data{display:block!important;text-align:center!important;font-size:12px}
+
+  /* 諸経費・法定福利費・損料／備考も縦に積む */
+  .auto-fee-row{grid-template-columns:1fr!important}
+  .auto-fee-item{border-right:none!important;border-bottom:1px solid var(--line)}
+  .auto-fee-item:last-child{border-bottom:none}
+  .auto-fee-val{text-align:left}
+  .biz-note-row{grid-template-columns:1fr!important}
+  .s-body{grid-template-columns:1fr!important}
+  .s-left,.s-right{padding:18px 16px!important;border-right:none!important}
+  .s-hdr,.s-footer{padding-left:16px!important;padding-right:16px!important}
+  .s-hdr-inner{flex-direction:column;gap:10px}
+  .s-co{text-align:left!important}
+  .s-meta-row{flex-direction:column;gap:12px!important}
+  .s-meta-item{flex:none!important}
+  .s-amount-val{font-size:38px!important}
+}
+
+/* --- PC（1024px〜）: 幅を活かす。ビジネス版は1枚目と2枚目を横に並べる --- */
+@media screen and (min-width:1024px){
+  body{max-width:1500px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+  .toolbar,.upload-zone,.status{grid-column:1/-1;max-width:none;margin-left:0;margin-right:0}
+  .page{max-width:none;margin:0}
+  .page:not(.show){display:none}
+  /* 横向きの版と請求書は1枚で幅いっぱいに使う */
+  #pageSimple.show,#pageSeikyuS.show,#pageSeikyu.show{grid-column:1/-1;max-width:1100px;margin:0 auto}
+}
 
 @page{size:A4 portrait;margin:10mm}
 </style>
@@ -763,8 +889,10 @@ function updateFooters(){
 }
 
 function doPrint(){
-  if(currentTab==='simple'||currentTab==='seikyuS') showStatus('💡 印刷ダイアログで「用紙の向き：横」を選択してください','ok');
-  setTimeout(()=>window.print(),300);
+  // 用紙サイズ・向き・余白は @page（switchTabのdynPageStyle）でCSS側が確定させる。
+  // 「印刷ダイアログで向きを選んでください」という運用注意には頼らない
+  //（iPhoneの共有シート→プリントでは向きを選べないため）
+  window.print();
 }
 
 function handleDrop(e){

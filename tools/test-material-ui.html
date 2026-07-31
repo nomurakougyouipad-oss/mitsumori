@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>材料を追加 画面テスト（開発用）</title>
-<link rel="stylesheet" href="../app.css?v=5">
+<link rel="stylesheet" href="../app.css?v=6">
 <style>#stat{position:fixed;top:2px;right:4px;z-index:9999;font:11px monospace;background:#ff0;padding:2px 6px}</style>
 </head>
 <body>
@@ -13,8 +13,8 @@
 <div id="toast-root"></div>
 <div id="stat">loading...</div>
 <script type="module">
-import { cache, startSubscriptions } from '../js/store.js?v=5';
-import { openMaterialPage } from '../js/screen-material.js?v=5';
+import { cache, startSubscriptions } from '../js/store.js?v=6';
+import { openMaterialPage } from '../js/screen-material.js?v=6';
 
 const stat = document.getElementById('stat');
 startSubscriptions();

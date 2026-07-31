@@ -2,23 +2,23 @@
 // 見積画面 — 明細一覧（費目タブ）・表紙の情報・見積の確認
 // ============================================================
 
-import { esc, YEN, fmtDateJa, local } from './util.js?v=5';
-import { icons } from './icons.js?v=5';
-import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=5';
+import { esc, YEN, fmtDateJa, local } from './util.js?v=6';
+import { icons } from './icons.js?v=6';
+import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=6';
 import {
   cache, subscribeEstimate, subscribeLines, updateEstimate,
   addLine, deleteLine, saveSummary, addNamed,
-} from './store.js?v=5';
-import { totals, lineAmount, excelRound } from './calc.js?v=5';
+} from './store.js?v=6';
+import { totals, lineAmount, excelRound } from './calc.js?v=6';
 import {
   db, doc, updateDoc, deleteDoc, getDocs, collection, Timestamp, arrayUnion, arrayRemove,
   storageRef, uploadBytes, getDownloadURL, deleteObject, storage,
-} from './firebase.js?v=5';
+} from './firebase.js?v=6';
 import {
   openMaterialPage, openManualPage, openPendingPage,
   openLaborPage, openTravelPage, openSubcontractPage,
-} from './screen-material.js?v=5';
-import { exportEstimateCsv } from './export.js?v=5';
+} from './screen-material.js?v=6';
+import { exportEstimateCsv } from './export.js?v=6';
 
 const KINDS = ['材料', '労務', '移動', '外注'];
 const KIND_LABEL = { 材料: '材料費', 労務: '労務費', 移動: '移動費', 外注: '外注費' };
@@ -651,7 +651,8 @@ export function openConfirmPage(estId) {
       mov: by('移動').map((l) => ({ desc: l.name || '', ppl: l.persons || 0, hrs: l.hours || 0, km: l.km || 0, amt: amt(l) })),
       subcon: by('外注').map((l) => ({ vendor: l.supplier || '', content: l.name || '', amt: l.amount || 0 })),
     };
-    const url = 'hyoshi.html#app=' + encodeURIComponent(JSON.stringify(payload));
+    // ?v= を付けて、端末に残った古い表紙HTMLが使われないようにする
+    const url = 'hyoshi.html?v=6#app=' + encodeURIComponent(JSON.stringify(payload));
     const w = window.open(url, '_blank');
     if (!w) location.assign(url);
   }
