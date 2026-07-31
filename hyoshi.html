@@ -206,15 +206,23 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);padding:16px}
   /* 2枚目（明細書）は必ず新しいページから */
   #pageBiz2.show{page-break-before:always;break-before:page}
   .biz-stripe,.s-stripe{display:block!important}
-  #pageBiz.show{display:flex!important;flex-direction:column;min-height:277mm}
+  /* 各ページの高さは内容なりに任せる。
+     以前は min-height:277mm（＝A4縦の印刷可能高ちょうど）で用紙いっぱいに
+     引き伸ばしていたが、余裕が0mmのため、ブラウザが独自の既定余白を使うと
+     数mm溢れて次の用紙へ流れ、明細書が3枚目に押し出されていた
+     （iPhoneのプリントプレビューで発生）。用紙下端まで伸ばさないことで
+     「表紙1枚＋明細1枚」の2枚に確実に収める。 */
+  #pageBiz.show{display:flex!important;flex-direction:column}
   #pageBiz.show .biz-body{flex:1;display:flex;flex-direction:column;justify-content:center}
   #pageBiz.show .biz-footer{margin-top:auto}
-  #pageSimple.show,#pageSeikyuS.show{display:flex!important;flex-direction:column;min-height:190mm}
+  #pageSimple.show,#pageSeikyuS.show{display:flex!important;flex-direction:column}
   #pageSimple.show .s-body,#pageSeikyuS.show .s-body{flex:1;align-content:center}
   #pageSimple.show .s-footer,#pageSeikyuS.show .s-footer{margin-top:auto}
-  #pageSeikyu.show{display:flex!important;flex-direction:column;min-height:277mm}
+  #pageSeikyu.show{display:flex!important;flex-direction:column}
   #pageSeikyu.show .biz-body{flex:1;display:flex;flex-direction:column;justify-content:center}
   #pageSeikyu.show .biz-footer{margin-top:auto}
+  /* 最後のページの後ろに空ページを作らせない */
+  .page.show:last-of-type{page-break-after:auto;break-after:auto}
   .grand-band,.auto-fee-row{break-inside:avoid;page-break-inside:avoid}
   .detail-tbl tr{break-inside:avoid;page-break-inside:avoid}
   .sec-hdr{break-after:avoid;page-break-after:avoid}
