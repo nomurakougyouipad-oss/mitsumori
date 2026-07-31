@@ -4,18 +4,18 @@
 // 単価マスター・取引先・仕入先・常設注番／集計表読み込み／書き戻しCSV
 // ============================================================
 
-import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=9';
-import { openOverlay, openNumpad, toast, confirmDialog, bindSearch } from './ui.js?v=9';
+import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=10';
+import { openOverlay, openNumpad, toast, confirmDialog, bindSearch } from './ui.js?v=10';
 import {
   cache, searchItems, isStale, updateEstimate, saveSummary, addNamed,
-  norm, DEFAULT_SYNONYMS, splitTerms,
-} from './store.js?v=9';
-import { totals } from './calc.js?v=9';
+  norm, DEFAULT_SYNONYMS, splitTerms, isTooShortTerm,
+} from './store.js?v=10';
+import { totals } from './calc.js?v=10';
 import {
   db, doc, collection, addDoc, updateDoc, deleteDoc, getDocs, setDoc,
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
-} from './firebase.js?v=9';
-import { openTallyPage } from './screen-tally.js?v=9';
+} from './firebase.js?v=10';
+import { openTallyPage } from './screen-tally.js?v=10';
 
 const RATE_DEFS = [
   ['material', '材料費 上乗せ%', '原価に対して'],
@@ -55,7 +55,7 @@ export function renderSettingsTab(container) {
       <div class="card" id="st-standing" style="cursor:pointer"><div class="ttl" style="font-size:14px">常設注番 ${cache.standingOrders.length}件</div>
         <div class="meta">工場・区分ごとの受け皿</div></div>
       <div class="card" id="st-synonyms" style="cursor:pointer"><div class="ttl" style="font-size:14px">言葉の言い換え（材料検索）</div>
-        <div class="meta">「パイプ」でSGPが出るようにする。現場の言葉のまま打てる</div></div>
+        <div class="meta">「配管」でSGPが出るようにする。現場の言葉のまま打てる</div></div>
       <div class="sec-head"><span class="ttl">集計表とExcel</span><span class="rule"></span></div>
       <div class="card" id="st-tally" style="cursor:pointer"><div class="ttl" style="font-size:14px">集計表を読み込む</div>
         <div class="meta">事務員さんの「納品書 材料集計表」から単価マスターを育てる</div></div>
@@ -342,8 +342,11 @@ function openSynonymsPage() {
         <div class="card" style="margin-bottom:10px">
           <div style="font-size:13px;line-height:1.7;color:var(--muted)">
             現場の言葉で打っても、マスターの表記で探しにいきます。<br>
-            例：<b>パイプ 25A</b> → SGP・STK・STPG・丸ﾊﾟｲﾌﾟ の 25A を探す。<br>
-            <span style="color:var(--muted2)">※ 集計表の別名辞書とは別物です（あちらは品目ごと、こちらは言葉ごと）</span>
+            例：<b>配管 25A</b> → SGP・STK・STPG の 25A を探す。<br>
+            <span style="color:var(--muted2)">
+              ※ そのまま打って出る言葉は入れなくて大丈夫です（ボルト・角パイプ等）。<br>
+              ※ C・L・FBのような1〜2文字は、関係ない品目まで出るので入れられません。<br>
+              ※ 集計表の別名辞書とは別物です（あちらは品目ごと、こちらは言葉ごと）</span>
           </div>
         </div>
         ${list.map((r, i) => `
@@ -392,6 +395,12 @@ function editSynonym(r, onDone) {
     const terms = back.querySelector('#sy-terms').value.trim();
     if (!word) { toast('言葉を入れてください'); return; }
     if (!terms && !r?.builtin) { toast('マスターの言葉を入れてください'); return; }
+    // C・L・FB のような1〜2文字は、無関係な品目まで拾うので入れさせない
+    const tooShort = splitTerms(terms).filter(isTooShortTerm);
+    if (tooShort.length) {
+      toast(`「${tooShort.join('、')}」は短すぎて関係ない品目まで出ます。3文字以上か日本語で入れてください`);
+      return;
+    }
     // 同じ言葉が既にあるなら、増やさずそこを直す
     const exist = r?.doc || cache.synonyms.find((s) => norm(s.name) === norm(word));
     try {
