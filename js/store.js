@@ -7,8 +7,8 @@
 import {
   db, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDoc, onSnapshot, query, orderBy, serverTimestamp,
-} from './firebase.js?v=10';
-import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=10';
+} from './firebase.js?v=11';
+import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=11';
 
 // ---------- 検索の正規化 ----------
 // ひらがな→カタカナ、全角→半角(NFKC)、大文字→小文字、記号ゆれ(×→x等)を吸収
@@ -29,10 +29,12 @@ export function norm(s) {
 // この初期セットはコードに持つ（初回から設定なしで効く）。
 // 追加・変更は Firestore の synonyms コレクションが上書きする（設定画面から編集）。
 //
-// 【この8件だけにしている理由】2026-08-01に実データ1,567件で確認して確定。
+// 【この9件だけにしている理由】2026-08-01に実データ1,567件で確認して確定。
 // ・入れたのは「そのまま打つと0件になる言葉」だけ
-// ・パイプは入れない … 今は角パイプ42件が正しく出る。SGPを足すと165件になり
-//   角パイプが探しにくくなる。配管の方で拾う
+// ・配管には TP-A（小野建SUS・信栄のステンレス配管42件）も含める
+// ・TPA … ハイフンを飛ばして打つと0件になるので TP-A に寄せる
+// ・パイプは入れない … 今は角パイプ42件が正しく出る。SGPを足すと角パイプが
+//   探しにくくなる。配管の方で拾う
 // ・ボルト/ナット/ビス/ネジ/アンカー/寸切/角パイプ/丸棒/ｱﾝｸﾞﾙ/平鋼/チェッカーは
 //   そのまま打てば出るので不要
 // ・ステン→SUS304、鉄→SS400 は該当が659件・123件と多すぎて選べない。
@@ -40,7 +42,8 @@ export function norm(s) {
 // ・C・L・FB のような1〜2文字への置き換えは誤ヒットするため入れない（下の guard 参照）
 // ※ 半角の「ﾁｬﾝﾈﾙ」は norm() が全角に揃えるので「チャンネル」1件で両方に効く。
 export const DEFAULT_SYNONYMS = [
-  ['配管', ['SGP', 'STK', 'STPG']],
+  ['配管', ['SGP', 'STK', 'STPG', 'TP-A']],
+  ['TPA', ['TP-A']],
   ['丸鋼', ['丸棒']],
   ['山形鋼', ['ｱﾝｸﾞﾙ']],
   ['フラットバー', ['平鋼']],
