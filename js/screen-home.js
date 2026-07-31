@@ -2,12 +2,12 @@
 // ホーム — 自分の工事／会社全体。状態3分類のカード
 // ============================================================
 
-import { esc, YEN, fmtDateJa, local } from './util.js?v=12';
-import { icons } from './icons.js?v=12';
-import { toast } from './ui.js?v=12';
-import { cache, createEstimate } from './store.js?v=12';
-import { openOrderWaitPage } from './screen-order.js?v=12';
-import { openPendingPricePage, openReviewsPage } from './screen-settings.js?v=12';
+import { esc, YEN, fmtDateJa, local } from './util.js?v=13';
+import { icons } from './icons.js?v=13';
+import { toast } from './ui.js?v=13';
+import { cache, createEstimate } from './store.js?v=13';
+import { openOrderWaitPage, confirmDeleteEstimate } from './screen-order.js?v=13';
+import { openPendingPricePage, openReviewsPage } from './screen-settings.js?v=13';
 
 const STATUSES = ['見積中', '発注待ち', '進行中'];
 
@@ -22,8 +22,9 @@ export function renderHome(container, opts = {}) {
     const priceWait = all.filter((e) => (e.pendingCount || 0) > 0).length;
 
     const card = (e) => `
-      <div class="card" data-est="${e.id}" style="cursor:pointer">
-        <div class="ttl">${esc(e.projectName || '（工事名なし）')}</div>
+      <div class="card" data-est="${e.id}" style="cursor:pointer;position:relative">
+        <button class="card-del corner" data-del="${e.id}" aria-label="この見積を削除">🗑</button>
+        <div class="ttl" style="padding-right:46px">${esc(e.projectName || '（工事名なし）')}</div>
         ${e.customer ? `<div class="meta">${esc(e.customer)}</div>` : ''}
         <div class="meta num" style="margin-top:2px">${e.orderNo ? '注番 ' + esc(e.orderNo) : ''}</div>
         <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-top:8px">
@@ -75,6 +76,10 @@ export function renderHome(container, opts = {}) {
     }));
     container.querySelectorAll('[data-est]').forEach((el) => el.addEventListener('click', () => {
       location.hash = '#est/' + el.dataset.est;
+    }));
+    container.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async (ev) => {
+      ev.stopPropagation();   // カードを開かない
+      await confirmDeleteEstimate(cache.estimates.find((x) => x.id === b.dataset.del));
     }));
     container.querySelector('#new-estimate').addEventListener('click', async () => {
       try {

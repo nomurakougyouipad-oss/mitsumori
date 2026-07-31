@@ -2,11 +2,11 @@
 // 発注待ち一覧（事務所の主戦場）と 案件をさがす
 // ============================================================
 
-import { esc, YEN, fmtDateJa, toDate, local } from './util.js?v=12';
-import { openOverlay, toast, confirmDialog, bindSearch } from './ui.js?v=12';
-import { cache, norm, updateEstimate, createEstimate, addLine } from './store.js?v=12';
-import { db, collection, getDocs } from './firebase.js?v=12';
-import { exportEstimateCsv } from './export.js?v=12';
+import { esc, YEN, fmtDateJa, toDate, local } from './util.js?v=13';
+import { openOverlay, toast, confirmDialog, bindSearch } from './ui.js?v=13';
+import { cache, norm, updateEstimate, createEstimate, addLine, deleteEstimateDeep } from './store.js?v=13';
+import { db, collection, getDocs } from './firebase.js?v=13';
+import { exportEstimateCsv } from './export.js?v=13';
 
 // 仕入先名 → 発注メール統合名（小野建／小野建 SUS／小野建（継手）→ 小野建）
 function mergeNameOf(supplierName) {
@@ -120,6 +120,24 @@ export function openOrderWaitPage() {
 }
 
 // ============================================================
+// 見積の削除（ホームと「案件をさがす」で共用）
+// 明細ごと消えて元に戻せないので、工事名と金額を見せて必ず確認をとる。
+// 状態（見積中／発注待ち／進行中）は問わない — テストで作ったものも消せるように。
+// ============================================================
+export async function confirmDeleteEstimate(est) {
+  if (!est) return false;
+  const name = est.projectName || '（工事名なし）';
+  const msg = `「${name}」\n${YEN(est.totalFinal || 0)}（税込）${est.orderNo ? '　注番 ' + est.orderNo : ''}\n\n`
+    + 'この見積を削除しますか?\n明細も含めて完全に消えます。元に戻せません。';
+  if (!(await confirmDialog(msg, '削除する'))) return false;
+  try {
+    await deleteEstimateDeep(est.id);
+    toast(`「${name}」を削除しました`);
+    return true;
+  } catch (e) { console.error(e); toast('削除できませんでした'); return false; }
+}
+
+// ============================================================
 // 案件をさがす（50件枠なし・揺れに強い検索・コピーして新規）
 // ============================================================
 export function renderSearchTab(container) {
@@ -155,15 +173,21 @@ export function renderSearchTab(container) {
                 <span style="font-size:11.5px;color:var(--muted2);flex:none">${esc(e.status || '')}</span>
               </div>
               <div class="meta">${esc(e.customer || '')}　<span class="num">${e.orderNo ? '注番 ' + esc(e.orderNo) : ''}</span>　担当：${esc(e.staff || '—')}</div>
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px">
                 <span class="num" style="font-weight:700;color:var(--navy)">${YEN(e.totalFinal || 0)}</span>
-                <button class="btn btn-sm" data-copy="${e.id}">コピーして新規</button>
+                <div style="display:flex;align-items:center;gap:8px;flex:none">
+                  <button class="btn btn-sm" data-copy="${e.id}">コピーして新規</button>
+                  <button class="card-del" data-del="${e.id}" aria-label="この見積を削除">🗑</button>
+                </div>
               </div>
             </div>`).join('') || '<div class="empty">見つかりませんでした</div>'}
           ${hits.length > 50 ? '<div style="text-align:center;font-size:12px;color:var(--muted2);padding:8px">50件まで表示。検索で絞ってください</div>' : ''}`;
 
     listEl.querySelectorAll('[data-open]').forEach((el) => el.addEventListener('click', () => {
       location.hash = '#est/' + el.dataset.open;
+    }));
+    listEl.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+      if (await confirmDeleteEstimate(cache.estimates.find((x) => x.id === b.dataset.del))) paint();
     }));
     listEl.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
       const src = cache.estimates.find((x) => x.id === b.dataset.copy);

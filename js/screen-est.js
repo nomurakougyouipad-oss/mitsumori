@@ -2,23 +2,23 @@
 // 見積画面 — 明細一覧（費目タブ）・表紙の情報・見積の確認
 // ============================================================
 
-import { esc, YEN, fmtDateJa, local } from './util.js?v=12';
-import { icons } from './icons.js?v=12';
-import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=12';
+import { esc, YEN, fmtDateJa, local } from './util.js?v=13';
+import { icons } from './icons.js?v=13';
+import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=13';
 import {
   cache, subscribeEstimate, subscribeLines, updateEstimate,
   addLine, deleteLine, saveSummary, addNamed,
-} from './store.js?v=12';
-import { totals, lineAmount, excelRound } from './calc.js?v=12';
+} from './store.js?v=13';
+import { totals, lineAmount, excelRound } from './calc.js?v=13';
 import {
   db, doc, updateDoc, deleteDoc, getDocs, collection, Timestamp, arrayUnion, arrayRemove,
   storageRef, uploadBytes, getDownloadURL, deleteObject, storage,
-} from './firebase.js?v=12';
+} from './firebase.js?v=13';
 import {
   openMaterialPage, openManualPage, openPendingPage,
   openLaborPage, openTravelPage, openSubcontractPage,
-} from './screen-material.js?v=12';
-import { exportEstimateCsv } from './export.js?v=12';
+} from './screen-material.js?v=13';
+import { exportEstimateCsv } from './export.js?v=13';
 
 const KINDS = ['材料', '労務', '移動', '外注'];
 const KIND_LABEL = { 材料: '材料費', 労務: '労務費', 移動: '移動費', 外注: '外注費' };
@@ -133,20 +133,17 @@ export function renderEstScreen(container, estId) {
     const mark = l.pendingPrice ? '<span class="mark">⏱</span>' : (l.handwritten ? '<span class="mark">✎</span>' : '');
     const qtyPill = l.kind === '材料'
       ? `<span class="qty-pill" data-qty="${l.id}"><b>${l.qty ?? 0}</b><span>${esc(l.unit || '')}</span></span>` : '';
+    // 複製・削除は常時表示のボタン（左スワイプは指に付いてこないのでやめた）
     return `
-      <div class="swipe-wrap" data-line="${l.id}">
-        <div class="swipe-actions">
-          <button class="a-copy" data-copy="${l.id}">⧉<span>複製</span></button>
-          <button class="a-del" data-del="${l.id}">🗑<span>削除</span></button>
+      <div class="line-item" data-line="${l.id}">
+        <div class="line-row" data-open="${l.id}">
+          ${mark}
+          <span class="nm">${lineTitle(l)}</span>
+          ${qtyPill}
+          ${amtHtml}
         </div>
-        <div class="swipe-front">
-          <div class="line-row" data-open="${l.id}">
-            ${mark}
-            <span class="nm">${lineTitle(l)}</span>
-            ${qtyPill}
-            ${amtHtml}
-          </div>
-        </div>
+        <button class="row-btn copy" data-copy="${l.id}" aria-label="この行を複製">⧉</button>
+        <button class="row-btn del" data-del="${l.id}" aria-label="この行を削除">🗑</button>
       </div>`;
   }
 
@@ -221,8 +218,6 @@ export function renderEstScreen(container, estId) {
         } catch (err) { console.error(err); toast('削除できませんでした'); }
       });
     });
-    // 左スワイプで複製/削除を出す
-    container.querySelectorAll('.swipe-wrap').forEach(attachSwipe);
   }
 
   function openAddForKind(k, prefill) {
@@ -234,42 +229,6 @@ export function renderEstScreen(container, estId) {
     } else if (k === '労務') openLaborPage(estId, est, opts);
     else if (k === '移動') openTravelPage(estId, est, opts);
     else openSubcontractPage(estId, est, opts);
-  }
-
-  function attachSwipe(wrap) {
-    const front = wrap.querySelector('.swipe-front');
-    const W = 152;
-    let startX = null, startY = null, open = false, dragging = false;
-    wrap.addEventListener('pointerdown', (e) => { startX = e.clientX; startY = e.clientY; dragging = false; });
-    wrap.addEventListener('pointermove', (e) => {
-      if (startX == null) return;
-      const dx = e.clientX - startX, dy = e.clientY - startY;
-      if (!dragging && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) dragging = true;
-      if (dragging) {
-        front.style.transition = 'none';
-        const base = open ? -W : 0;
-        front.style.transform = `translateX(${Math.max(-W, Math.min(0, base + dx))}px)`;
-      }
-    });
-    const end = (e) => {
-      if (startX == null) return;
-      const dx = e.clientX - startX;
-      front.style.transition = '';
-      if (dragging) {
-        const base = open ? -W : 0;
-        open = (base + dx) < -W / 2;
-        front.style.transform = `translateX(${open ? -W : 0}px)`;
-        // スワイプ直後の行タップ（編集）を抑止
-        if (Math.abs(dx) > 12) {
-          const block = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
-          front.addEventListener('click', block, { capture: true, once: true });
-          setTimeout(() => front.removeEventListener('click', block, { capture: true }), 300);
-        }
-      }
-      startX = null;
-    };
-    wrap.addEventListener('pointerup', end);
-    wrap.addEventListener('pointercancel', end);
   }
 
   return () => { unsubEst(); unsubLines(); };
@@ -653,7 +612,7 @@ export function openConfirmPage(estId) {
       subcon: by('外注').map((l) => ({ vendor: l.supplier || '', content: l.name || '', amt: l.amount || 0 })),
     };
     // ?v= を付けて、端末に残った古い表紙HTMLが使われないようにする
-    const url = 'hyoshi.html?v=12#app=' + encodeURIComponent(JSON.stringify(payload));
+    const url = 'hyoshi.html?v=13#app=' + encodeURIComponent(JSON.stringify(payload));
     const w = window.open(url, '_blank');
     if (!w) location.assign(url);
   }

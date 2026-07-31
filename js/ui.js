@@ -2,7 +2,7 @@
 // 共通UI部品 — 全画面オーバーレイ・テンキー・トースト
 // ============================================================
 
-import { esc } from './util.js?v=12';
+import { esc } from './util.js?v=13';
 
 // ---------- トースト ----------
 let toastTimer = null;
@@ -116,7 +116,7 @@ export function confirmDialog(message, okLabel = 'OK') {
     back.innerHTML = `
       <div class="modal">
         <div class="modal-body" style="padding-top:22px">
-          <div style="font-size:15px;line-height:1.7">${esc(message)}</div>
+          <div style="font-size:15px;line-height:1.7;white-space:pre-line">${esc(message)}</div>
           <div style="display:flex;gap:8px;margin-top:4px">
             <button class="btn" style="flex:1" data-r="0">やめる</button>
             <button class="btn btn-primary" style="flex:1" data-r="1">${esc(okLabel)}</button>
