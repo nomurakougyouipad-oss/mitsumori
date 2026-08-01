@@ -5,7 +5,7 @@
 // （zaiko-shohin から流用）
 // ============================================================
 
-const VERSION = 'v24';
+const VERSION = 'v25';
 const CACHE = 'mitsumori-' + VERSION;
 
 // アプリシェル（オフラインでも起動できる最小セット）
@@ -14,24 +14,25 @@ const CACHE = 'mitsumori-' + VERSION;
 const SHELL = [
   './',
   './index.html',
-  './app.css?v=20',
+  './app.css?v=21',
   './manifest.webmanifest',
-  './firebase-config.js?v=20',
-  './js/app.js?v=20',
-  './js/util.js?v=20',
-  './js/icons.js?v=20',
-  './js/firebase.js?v=20',
-  './js/calc.js?v=20',
-  './js/store.js?v=20',
-  './js/ui.js?v=20',
-  './js/screen-home.js?v=20',
-  './js/screen-est.js?v=20',
-  './js/screen-material.js?v=20',
-  './js/catalog.js?v=20',
-  './js/screen-order.js?v=20',
-  './js/screen-settings.js?v=20',
-  './js/screen-tally.js?v=20',
-  './js/export.js?v=20',
+  './firebase-config.js?v=21',
+  './js/app.js?v=21',
+  './js/util.js?v=21',
+  './js/icons.js?v=21',
+  './js/firebase.js?v=21',
+  './js/calc.js?v=21',
+  './js/store.js?v=21',
+  './js/ui.js?v=21',
+  './js/screen-home.js?v=21',
+  './js/screen-est.js?v=21',
+  './js/screen-material.js?v=21',
+  './js/catalog.js?v=21',
+  './js/jis-sizes.js?v=21',
+  './js/screen-order.js?v=21',
+  './js/screen-settings.js?v=21',
+  './js/screen-tally.js?v=21',
+  './js/export.js?v=21',
   './icons/icon-48.png',
   './icons/icon-120.png',
   './icons/icon-180.png',

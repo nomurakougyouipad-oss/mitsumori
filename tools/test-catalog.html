@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>カタログ検証（開発用）</title>
+<style>
+body{font:13px/1.6 system-ui;margin:16px;color:#22303C}
+table{border-collapse:collapse;margin-bottom:20px;font-size:12px}
+th,td{border:1px solid #ccc;padding:3px 7px;text-align:left;vertical-align:top}
+th{background:#eef2f6}
+.num{font-family:Consolas,monospace}
+h2{font-size:15px;margin:18px 0 6px}
+.warn{color:#B00}
+</style>
+</head>
+<body>
+<h1>カタログ検証</h1>
+<div id="out">読み込み中…</div>
+<script type="module">
+import { cache, startSubscriptions } from '../js/store.js?v=21';
+import { buildCatalog, catalogKinds, catalogMaterials, shapeName, buildNameIndex, lookupName } from '../js/catalog.js?v=21';
+
+const out = document.getElementById('out');
+startSubscriptions();
+for (let i = 0; i < 120 && !cache.itemsLoaded; i++) await new Promise((r) => setTimeout(r, 500));
+
+const cat = buildCatalog(cache.items);
+const idx = buildNameIndex(cache.items);
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+let html = `<p>単価マスター ${cache.items.length} 件</p>`;
+
+for (const k of catalogKinds(cat)) {
+  html += `<h2>${esc(k.label)} <small>(${k.count}件)</small></h2><table>
+    <tr><th>材質</th><th>先頭語</th><th>型</th><th>長さ分離</th><th>形パターン</th>
+        <th>形の数<br>(マ/JIS/両)</th><th>長さ</th><th>見本（形→品名）</th></tr>`;
+  for (const g of catalogMaterials(cat, k.key)) {
+    const sh = g.shapes || [];
+    const onlyM = sh.filter((s) => s.master.length && !s.jis).length;
+    const onlyJ = sh.filter((s) => !s.master.length && s.jis).length;
+    const both = sh.filter((s) => s.master.length && s.jis).length;
+    let sample = '—';
+    if (g.hasLength && sh.length && g.lengths.length) {
+      const s = sh[Math.floor(sh.length / 2)];
+      const rows = g.lengths.slice(0, 3).map((L) => {
+        const nm = shapeName(g, s, L.value);
+        const hit = lookupName(idx, nm);
+        return `${esc(nm)} → ${hit ? '¥' + hit.cost : '<b class="warn">単価待ち</b>'}`;
+      });
+      sample = `<span class="num">${esc(s.label)}</span><br>` + rows.join('<br>');
+    }
+    html += `<tr><td>${esc(g.label)}</td><td>${esc(g.head)}</td>
+      <td class="num">${esc(g.pattern)}</td>
+      <td>${g.hasLength ? 'あり' : '<span class="warn">なし</span>'}</td>
+      <td class="num">${esc(g.shapePattern || '—')} + ${esc(g.lengthPattern || '—')}</td>
+      <td>${onlyM}/${onlyJ}/${both}</td>
+      <td class="num" style="max-width:180px">${(g.lengths || []).map((L) => esc(L.label)).join(' ')}</td>
+      <td>${sample}</td></tr>`;
+  }
+  html += '</table>';
+}
+out.innerHTML = html;
+</script>
+</body>
+</html>

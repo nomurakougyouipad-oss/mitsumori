@@ -3,15 +3,15 @@
 // 「入力は1件1ページ。保存して次へで画面は移動しない」（README第4章）
 // ============================================================
 
-import { esc, YEN, local } from './util.js?v=20';
-import { icons } from './icons.js?v=20';
-import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=20';
-import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=20';
-import { excelRound } from './calc.js?v=20';
+import { esc, YEN, local } from './util.js?v=21';
+import { icons } from './icons.js?v=21';
+import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=21';
+import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=21';
+import { excelRound } from './calc.js?v=21';
 import {
   buildCatalog, catalogKinds, catalogMaterials,
-  fillPattern, makeName, findItemByName,
-} from './catalog.js?v=20';
+  fillPattern, makeName, shapeName, buildNameIndex, lookupName,
+} from './catalog.js?v=21';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
@@ -215,8 +215,9 @@ export function openCatalogPage(estimateId, est, opts = {}) {
   const editingLineId = p.lineId || null;
   const recent = [];
   const cat = buildCatalog(cache.items);
+  const nameIndex = buildNameIndex(cache.items);    // 品名→単価マスター（毎回1,567件なめない）
 
-  let kindKey = '', matLabel = '', picked = null;   // picked: {name, unit, cost, itemId}
+  let kindKey = '', matLabel = '', shapeKey = '', lenKey = '', picked = null;  // picked: {name, unit, cost, itemId}
   let composing = false, values = [];
   let qty = p.qty ?? 1;
 
@@ -229,7 +230,7 @@ export function openCatalogPage(estimateId, est, opts = {}) {
   };
 
   function pickSize(s) {
-    picked = { name: s.name, unit: s.unit, cost: s.cost ?? null, itemId: s.id };
+    picked = { name: s.name, unit: s.unit, cost: s.cost ?? null, itemId: s.id, supplier: s.supplier || '' };
     composing = false;
     paint();
   }
@@ -244,13 +245,125 @@ export function openCatalogPage(estimateId, est, opts = {}) {
     const g = group();
     const name = composedName();
     if (!name || name.includes('?')) { toast('寸法をすべて入れてください'); return; }
-    // 同じ品名がマスターにあれば、その単価を使う（単価待ちにしない）
-    const hit = findItemByName(cache.items, name);
+    pickName(g, name);
+  }
+
+  // 組み立てた品名を選ぶ。同じ品名がマスターにあれば、その単価を使う（単価待ちにしない）
+  function pickName(g, name) {
+    const hit = lookupName(nameIndex, name);
     picked = hit
-      ? { name: hit.name, unit: hit.unit || g.unit, cost: hit.cost ?? null, itemId: hit.id }
-      : { name, unit: g.unit, cost: null, itemId: null };
+      ? { name: hit.name, unit: hit.unit || g.unit, cost: hit.cost ?? null, itemId: hit.id, supplier: hit.supplier || '' }
+      : { name, unit: g.unit, cost: null, itemId: null, supplier: '' };
     composing = false;
     paint();
+  }
+
+  const shape = () => {
+    const g = group();
+    if (!g || !g.hasLength) return null;
+    return g.shapes.find((s) => s.key === shapeKey) || null;
+  };
+
+  // マスターの品目をそのまま並べる（形×長さに割れない材質・変則表記用）
+  function sizeListHtml(sizes) {
+    if (!sizes.length) return '';
+    return `<div style="border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#fff">
+      ${sizes.map((s) => `
+        <div class="cand" data-size="${esc(s.id)}" style="border-top:1px solid #E6EAEE">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="nm" style="flex:1">${esc(s.dims)}${s.mods.length ? `<small style="color:var(--muted2)"> ${esc(s.mods.join('・'))}</small>` : ''}</span>
+            <span class="num" style="font-weight:700;color:${num(s.cost) != null ? 'var(--navy)' : 'var(--accent)'}">
+              ${num(s.cost) != null ? YEN(s.cost) : '単価待ち'}</span>
+          </div>
+        </div>`).join('')}
+    </div>`;
+  }
+
+  // ③ 形（長さを除いた寸法）。過去に買った形を上に、JIS標準はその下にまとめる。
+  // 形の一覧は長いので、選んだら畳んで④を見せる
+  function shapeStepHtml(g) {
+    const sel = shape();
+    if (sel) return `
+      <div class="field" style="margin-top:14px"><label>③ 形（${esc(g.head)}）</label>
+        <div class="cand" style="border:1px solid var(--line);border-radius:6px;background:#EDF3FA">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="nm num" style="flex:1;font-weight:700">${esc(sel.label)}</span>
+            <button class="btn" id="cg-reshape" style="min-height:44px;padding:0 14px">形を変える</button>
+          </div>
+        </div>
+      </div>`;
+
+    const mine = g.shapes.filter((s) => s.master.length);
+    const jis = g.shapes.filter((s) => !s.master.length);
+    const row = (s) => `
+      <div class="cand" data-shape="${esc(s.key)}" style="border-top:1px solid #E6EAEE">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="nm num" style="flex:1;font-weight:600">${esc(s.label)}</span>
+          <span style="font-size:11.5px;color:var(--muted2);text-align:right">
+            ${s.master.length ? `買った実績 ${s.master.length}件` : 'JIS標準'}
+            ${s.kgm != null ? `<br>${s.kgm}kg/m` : ''}</span>
+        </div>
+      </div>`;
+    const box = (rows) => `<div style="border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#fff;max-height:320px;overflow-y:auto">${rows}</div>`;
+    return `
+      <div class="field" style="margin-top:14px"><label>③ 形（${esc(g.head)}）</label>
+        ${mine.length ? box(mine.map(row).join('')) : ''}
+        ${jis.length ? `
+          <div style="font-size:11.5px;color:var(--muted);margin:${mine.length ? '10px' : '0'} 0 4px">
+            JIS標準サイズ（買った実績は無い形）</div>
+          ${box(jis.map(row).join(''))}` : ''}
+      </div>`;
+  }
+
+  // 形×長さでは出せないもの（変則表記）と、最後の手段の組み立て
+  function otherStepHtml(g) {
+    return `
+      <div class="field" style="margin-top:14px">
+        ${g.oddSizes && g.oddSizes.length ? `
+          <label>書き方が違うもの</label>
+          ${sizeListHtml(g.oddSizes)}` : ''}
+        <button class="btn btn-block" id="cg-compose" style="margin-top:8px">＋ 一覧に無いサイズを組み立てる</button>
+      </div>`;
+  }
+
+  // その形×長さで実在するマスター行（修飾付きの品名も拾える）
+  const lenRows = (s, val) => (s && s.byLen && s.byLen.get(val)) || [];
+
+  // ④ 長さ。実在する行があればその単価を、無ければ単価待ちと出す
+  function lengthStepHtml(g) {
+    const s = shape();
+    if (!s) return '';
+    return `
+      <div class="field" style="margin-top:14px"><label>④ 長さ</label>
+        <div class="chips" style="flex-wrap:wrap">
+          ${g.lengths.map((L) => {
+            const rows = lenRows(s, L.value);
+            const hit = rows.length === 1 ? rows[0] : (rows.length ? null : lookupName(nameIndex, shapeName(g, s, L.value)));
+            const on = lenKey === L.value;
+            const sub = rows.length > 1 ? `${rows.length}件から選ぶ`
+              : (hit && num(hit.cost) != null ? YEN(hit.cost) : '単価待ち');
+            return `<div class="chip ${on ? 'on' : ''}" data-len="${esc(L.value)}"
+              style="flex:none;display:block;text-align:center;line-height:1.35;padding:8px 12px">
+              <b>${esc(L.label)}</b><br>
+              <small style="color:${on ? 'inherit' : (hit || rows.length > 1 ? 'var(--navy)' : 'var(--accent)')}">
+                ${esc(sub)}</small></div>`;
+          }).join('')}
+        </div>
+        ${s.kgm != null ? `<div style="font-size:11.5px;color:var(--muted);margin-top:6px">
+          参考重量 ${s.kgm}kg/m（JIS）。金額の計算には使っていません</div>` : ''}
+      </div>
+      ${lenPickHtml()}`;
+  }
+
+  // 同じ寸法でマスターに複数ある場合（引抜／No1 など修飾違い）は選ばせる。
+  // 値段が違うので、こちらで勝手に決めない
+  function lenPickHtml() {
+    const s = shape();
+    const rows = lenRows(s, lenKey);
+    if (rows.length < 2) return '';
+    return `<div class="field" style="margin-top:14px">
+      <label>⑤ どれにしますか（同じ寸法で${rows.length}件あります）</label>
+      ${sizeListHtml(rows)}</div>`;
   }
 
   function paint() {
@@ -282,18 +395,11 @@ export function openCatalogPage(estimateId, est, opts = {}) {
                 style="flex:none">${esc(m.label)}<small style="color:var(--muted2);margin-left:4px">${m.sizes.length}</small></div>`).join('')}
             </div></div>` : ''}
 
-        ${g && !composing ? `
+        ${g && !composing && g.hasLength ? shapeStepHtml(g) + lengthStepHtml(g) + otherStepHtml(g) : ''}
+
+        ${g && !composing && !g.hasLength ? `
           <div class="field" style="margin-top:14px"><label>③ 寸法（${esc(g.head)}）</label>
-            <div style="border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#fff">
-              ${g.sizes.map((s, i) => `
-                <div class="cand" data-size="${i}" style="border-top:${i ? '1px solid #E6EAEE' : '0'}">
-                  <div style="display:flex;align-items:center;gap:8px">
-                    <span class="nm" style="flex:1">${esc(s.dims)}${s.mods.length ? `<small style="color:var(--muted2)"> ${esc(s.mods.join('・'))}</small>` : ''}</span>
-                    <span class="num" style="font-weight:700;color:${num(s.cost) != null ? 'var(--navy)' : 'var(--accent)'}">
-                      ${num(s.cost) != null ? YEN(s.cost) : '単価待ち'}</span>
-                  </div>
-                </div>`).join('')}
-            </div>
+            ${sizeListHtml(g.sizes)}
             <button class="btn btn-block" id="cg-compose" style="margin-top:8px">＋ 一覧に無いサイズを組み立てる</button>
           </div>` : ''}
 
@@ -356,16 +462,32 @@ export function openCatalogPage(estimateId, est, opts = {}) {
 
     ov.el.querySelector('#cg-close').addEventListener('click', ov.close);
     ov.el.querySelectorAll('[data-kind]').forEach((el) => el.addEventListener('click', () => {
-      kindKey = el.dataset.kind; matLabel = ''; composing = false; picked = null;
+      kindKey = el.dataset.kind; matLabel = ''; shapeKey = ''; lenKey = ''; composing = false; picked = null;
       const ms = catalogMaterials(cat, kindKey);
       if (ms.length === 1) matLabel = ms[0].label;   // 材質が1つなら選ばせない
       paint();
     }));
     ov.el.querySelectorAll('[data-mat]').forEach((el) => el.addEventListener('click', () => {
-      matLabel = el.dataset.mat; composing = false; picked = null; paint();
+      matLabel = el.dataset.mat; shapeKey = ''; lenKey = ''; composing = false; picked = null; paint();
+    }));
+    ov.el.querySelectorAll('[data-shape]').forEach((el) => el.addEventListener('click', () => {
+      shapeKey = el.dataset.shape; lenKey = ''; picked = null; paint();
+    }));
+    ov.el.querySelector('#cg-reshape')?.addEventListener('click', () => {
+      shapeKey = ''; lenKey = ''; picked = null; paint();
+    });
+    ov.el.querySelectorAll('[data-len]').forEach((el) => el.addEventListener('click', () => {
+      const g = group(), s = shape();
+      if (!g || !s) return;
+      lenKey = el.dataset.len;
+      const rows = lenRows(s, lenKey);
+      if (rows.length === 1) pickSize(rows[0]);          // 実在する行をそのまま使う
+      else if (rows.length > 1) { picked = null; paint(); }  // 修飾違いが複数 → ⑤で選ばせる
+      else pickName(g, shapeName(g, s, lenKey));         // 無ければ組み立てて単価待ち
     }));
     ov.el.querySelectorAll('[data-size]').forEach((el) => el.addEventListener('click', () => {
-      pickSize(group().sizes[+el.dataset.size]);
+      const s = group().sizes.find((x) => x.id === el.dataset.size);
+      if (s) pickSize(s);
     }));
     ov.el.querySelector('#cg-compose')?.addEventListener('click', () => {
       // 初期値は、その材質で実際に使われているサイズ（型と桁数が合うもの）

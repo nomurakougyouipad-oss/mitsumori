@@ -16,9 +16,17 @@
 //
 // 単価はカタログからは入れない（README/②）。マスターに同じ品名があればその単価を使い、
 // 無ければ単価待ち（時計マーク）にして事務所が業者に聞いて入れる。
+//
+// 寸法は「形」と「長さ」に分けて選ばせる。
+//  ・形（L-6x65x65 など）… マスターにある形 ＋ JIS標準サイズ表の形
+//  ・長さ（6000 など）  … マスターで使われた長さ ＋ 定尺
+// こうすると、マスターに1本も無いサイズでも「形×長さ」の組み合わせで選べる。
+// JIS表は数字だけを持ち、L-や□-の付け方は種類×材質ごとの「型」に流し込む
+// （jis-sizes.js のコメント参照）。JISの重量(kg/m)は参考表示のみ。金額には一切使わない。
 // ============================================================
 
-import { norm } from './store.js?v=20';
+import { norm } from './store.js?v=21';
+import { JIS_SIZES, JIS_LENGTHS } from './jis-sizes.js?v=21';
 
 // 画面に出す種類。heads はマスターの品名の先頭語（実データの表記に合わせる）
 export const CATALOG_KINDS = [
@@ -48,6 +56,7 @@ const SLOT_LABELS = {
   '平板': ['板厚', '幅', '長さ'],
   'ﾁｪｯｶｰﾌﾟﾚｰﾄ': ['板厚', '幅', '長さ'],
   'SGP': ['呼び径A', '長さm'],
+  'TP-A': ['呼び径A', 'スケジュール', '長さ'],
 };
 
 // 品名を「先頭語・（修飾）・（材質）・寸法」に割る。
@@ -99,6 +108,31 @@ export function makeName(head, material, dims) {
   return material ? `${head}(${material}) ${dims}` : `${head} ${dims}`;
 }
 
+// 型を「形の部分」と「長さの部分」に割る。
+// L-{}x{}x{}x{} → 形 L-{}x{}x{} ／ 長さ {}
+// {}Ax{}m       → 形 {}A        ／ 長さ {}m
+function splitPattern(pattern) {
+  const idx = String(pattern).lastIndexOf('{}');
+  if (idx <= 0) return { shape: '', tail: pattern };
+  // 形の末尾に残る区切り文字（x や -）は落とす。単位文字（A など）は残す
+  const shape = pattern.slice(0, idx).replace(/[x×X*\-\s]+$/, '');
+  return { shape, tail: pattern.slice(idx) };
+}
+
+// 数字の並びを比べる（大きい寸法ほど後ろ）。
+// 最大値で並べると、種類によらず「小さい材から大きい材へ」の自然な順になる
+// （H形鋼は高さ、アングルは辺、平鋼は幅が最大値になる）
+function cmpNums(a, b) {
+  const ma = Math.max(...a.map(parseFloat));
+  const mb = Math.max(...b.map(parseFloat));
+  if (ma !== mb) return ma - mb;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (parseFloat(a[i]) || 0) - (parseFloat(b[i]) || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
 // ---------- カタログの組み立て ----------
 // items（単価マスター）から 種類 → 材質 → サイズ を作る。
 // 戻り値の sizes は「マスターに実在するサイズ」。品名は保存されているものをそのまま使う。
@@ -131,10 +165,12 @@ export function buildCatalog(items) {
       g.head = Object.entries(g.heads).sort((a, b) => b[1] - a[1])[0][0];
       g.pattern = dominantPattern(g.sizes.filter((s) => s.head === g.head).map((s) => s.dims));
       g.unit = dominantUnit(g.sizes);
-      g.labels = SLOT_LABELS[g.head] || [];
+      const n = slotCount(g.pattern);
+      // 見出しは桁数がぴったり合うときだけ使う。ずれたまま出すと嘘の見出しになる
+      const lab = SLOT_LABELS[g.head] || [];
+      g.labels = lab.length === n ? lab : [];
       // 各桁に「これまで使われた数字」を集める（新しいサイズを組むときの候補）
       g.slotValues = [];
-      const n = slotCount(g.pattern);
       for (let i = 0; i < n; i++) g.slotValues.push(new Set());
       for (const s of g.sizes) {
         if (dimPattern(s.dims) !== g.pattern) continue;
@@ -146,10 +182,88 @@ export function buildCatalog(items) {
       //（3桁しかない例外行を種にすると桁がずれるため）
       const seed = g.sizes.find((s) => dimPattern(s.dims) === g.pattern);
       g.seedValues = seed ? (seed.dims.match(/\d+(?:\.\d+)?/g) || []).slice(0, n) : new Array(n).fill('');
+
+      buildShapes(g, k, n);
     }
   }
   return byKind;
 }
+
+// 種類×材質ごとに「形の一覧」と「長さの一覧」を作る。
+// 形 = 長さを除いた寸法。マスターにある形と、JIS標準サイズ表の形を突き合わせる。
+function buildShapes(g, kindKey, n) {
+  g.hasLength = false; g.shapes = []; g.lengths = [];
+  if (n < 2) return;
+
+  const split = splitPattern(g.pattern);
+  g.shapePattern = split.shape;
+  g.lengthPattern = split.tail;
+
+  // 最後の桁が長さかどうか。見出しに「長さ」とあるか、実際の値が定尺(1000以上)か
+  const lastVals = g.slotValues[n - 1] || [];
+  const mmLike = lastVals.length > 0 &&
+    lastVals.filter((v) => parseFloat(v) >= 1000).length >= lastVals.length / 2;
+  g.hasLength = /長さ/.test(g.labels[n - 1] || '') || mmLike;
+  if (!g.hasLength || !g.shapePattern) { g.hasLength = false; return; }
+
+  const shapeSlots = n - 1;
+  const map = new Map();
+
+  // マスターにある形（型と桁数が合う行だけ。変則行を形の候補にはしない）
+  for (const s of g.sizes) {
+    if (dimPattern(s.dims) !== g.pattern) continue;
+    const nums = s.dims.match(/\d+(?:\.\d+)?/g) || [];
+    if (nums.length !== n) continue;
+    const key = nums.slice(0, shapeSlots).join('x');
+    let e = map.get(key);
+    if (!e) { e = { key, nums: nums.slice(0, shapeSlots), master: [], byLen: new Map(), jis: false, kgm: null }; map.set(key, e); }
+    e.master.push(s);
+    // 長さごとに実在の行を持っておく。
+    // マスターには「丸棒(引抜)(SUS304) 13φx4000」のように修飾が付く品名があり、
+    // 形＋長さから組み立てた名前とは一致しない。組み立て名で照合すると
+    // 実在するのに単価待ちになり、同じ物が別名でまた増える（それを防ぐのが目的）。
+    const lv = nums[shapeSlots];
+    e.byLen.set(lv, [...(e.byLen.get(lv) || []), s]);
+  }
+
+  // JIS標準サイズ。桁数が合うときだけ足す（合わないものは無理に混ぜない）
+  const jis = JIS_SIZES[kindKey];
+  if (jis && jis.length && jis[0].nums.length === shapeSlots) {
+    for (const r of jis) {
+      const nums = r.nums.map(String);
+      const key = nums.join('x');
+      let e = map.get(key);
+      if (!e) { e = { key, nums, master: [], byLen: new Map(), jis: true, kgm: null }; map.set(key, e); }
+      e.jis = true;
+      if (r.kgm != null) e.kgm = r.kgm;
+    }
+  }
+
+  g.shapes = [...map.values()].sort((a, b) => cmpNums(a.nums, b.nums));
+  for (const e of g.shapes) e.label = fillPattern(g.shapePattern, e.nums);
+
+  // 型から外れた行（「5x40xL=500」のような変則表記）。形×長さでは出せないので別枠で残す
+  g.oddSizes = g.sizes.filter((s) => dimPattern(s.dims) !== g.pattern);
+
+  // 長さ = マスターで使われた長さ ＋（mm表記なら）定尺
+  const lens = new Set(lastVals);
+  if (mmLike) for (const v of JIS_LENGTHS) lens.add(String(v));
+  g.lengths = [...lens].sort((a, b) => parseFloat(a) - parseFloat(b))
+    .map((v) => ({ value: v, label: fillPattern(g.lengthPattern, [v]) }));
+}
+
+// 形＋長さ から品名を組み立てる
+export function shapeName(g, shape, lenValue) {
+  return makeName(g.head, g.material, fillPattern(g.pattern, [...shape.nums, lenValue]));
+}
+
+// 品名 → 単価マスター行 の索引（1,567件を毎回なめないため）
+export function buildNameIndex(items) {
+  const m = new Map();
+  for (const it of items) { const k = norm(it.name); if (!m.has(k)) m.set(k, it); }
+  return m;
+}
+export function lookupName(index, name) { return index.get(norm(name)) || null; }
 
 // 種類の一覧（マスターに1件でもあるものだけ出す）
 export function catalogKinds(cat) {
@@ -166,8 +280,3 @@ export function catalogMaterials(cat, kindKey) {
     .sort((a, b) => b.sizes.length - a.sizes.length);
 }
 
-// 組み立てた品名が既にマスターにあるか探す（表記ゆれを吸収して照合）
-export function findItemByName(items, name) {
-  const key = norm(name);
-  return items.find((it) => norm(it.name) === key) || null;
-}
