@@ -3,15 +3,15 @@
 // ルート: #home / #estimates / #search / #settings / #est/{id}
 // ============================================================
 
-import { esc, local } from './util.js?v=27';
-import { icons } from './icons.js?v=27';
-import { toast, closeAllOverlays } from './ui.js?v=27';
-import { db, ready, collection, addDoc } from './firebase.js?v=27';
-import { startSubscriptions, onCacheChange, cache, createEstimate } from './store.js?v=27';
-import { renderHome, renderEstimatesTab } from './screen-home.js?v=27';
-import { renderEstScreen, openCoverPage, openConfirmPage } from './screen-est.js?v=27';
-import { renderSearchTab } from './screen-order.js?v=27';
-import { renderSettingsTab } from './screen-settings.js?v=27';
+import { esc, local } from './util.js?v=29';
+import { icons } from './icons.js?v=29';
+import { toast, closeAllOverlays } from './ui.js?v=29';
+import { ready } from './firebase.js?v=29';
+import { startSubscriptions, onCacheChange, cache, createEstimate, addStaff } from './store.js?v=29';
+import { renderHome, renderEstimatesTab } from './screen-home.js?v=29';
+import { renderEstScreen, openCoverPage, openConfirmPage } from './screen-est.js?v=29';
+import { renderSearchTab } from './screen-order.js?v=29';
+import { renderSettingsTab } from './screen-settings.js?v=29';
 
 const state = {
   staff: local.get('staff', ''),
@@ -85,10 +85,17 @@ let staffModalOpen = false;
 function openStaffModal(closable = true) {
   const root = document.getElementById('modal-root');
   staffModalOpen = true;
-  const listHtml = () => cache.staff.length
-    ? cache.staff.map((s) => `
+  // 一覧が届く前に追加させない。空の一覧を見て「まだ無い」と思って打つと重複が増える
+  const loaded = cache.staffLoaded;
+  const listHtml = () => (!loaded
+    ? '<div class="empty" style="padding:16px">読み込み中…</div>'
+    : (cache.staff.length
+      ? cache.staff.map((s) => `
         <div class="pick ${s.name === state.staff ? 'on' : ''}" data-name="${esc(s.name)}">${esc(s.name)}</div>`).join('')
-    : '<div class="empty" style="padding:16px">まだ登録がありません。下の欄から追加してください</div>';
+      : '<div class="empty" style="padding:16px">まだ登録がありません。下の欄から追加してください</div>'));
+
+  // 再描画（他のマスタが届くたびに起きる）で入力中の文字が消えないよう引き継ぐ
+  const typed = document.getElementById('staff-new')?.value || '';
 
   root.innerHTML = `
     <div class="modal-back" id="staff-back">
@@ -99,9 +106,11 @@ function openStaffModal(closable = true) {
           <div class="field">
             <label>名前を追加</label>
             <div style="display:flex;gap:8px">
-              <input class="input" id="staff-new" placeholder="例：野村" autocomplete="off">
-              <button class="btn" id="staff-add" style="flex:none">追加</button>
+              <input class="input" id="staff-new" placeholder="例：野村" autocomplete="off"
+                value="${esc(typed)}" ${loaded ? '' : 'disabled'}>
+              <button class="btn" id="staff-add" style="flex:none" ${loaded ? '' : 'disabled'}>追加</button>
             </div>
+            ${loaded ? '' : '<div class="search-hint">一覧を読み込んでいます。表示されるまでお待ちください</div>'}
           </div>
         </div>
       </div>
@@ -124,13 +133,22 @@ function openStaffModal(closable = true) {
     render();
   });
 
-  document.getElementById('staff-add').addEventListener('click', async () => {
+  const addBtn = document.getElementById('staff-add');
+  addBtn.addEventListener('click', async () => {
+    if (!cache.staffLoaded) { toast('一覧を読み込んでいます。少し待ってください'); return; }
     const input = document.getElementById('staff-new');
     const name = input.value.trim();
     if (!name) return;
     if (cache.staff.some((s) => s.name === name)) { toast('同じ名前がすでにあります'); return; }
+    // 二度押しでも2件作らないよう、問い合わせている間は押せなくする
+    addBtn.disabled = true;
     try {
-      await addDoc(collection(db, 'staff'), { name });
+      const id = await addStaff(name);
+      if (!id) {
+        toast('同じ名前がすでにあります');
+        addBtn.disabled = false;
+        return;
+      }
       state.staff = name;
       local.set('staff', name);
       close();
@@ -138,6 +156,7 @@ function openStaffModal(closable = true) {
       toast(`担当者「${name}」を登録しました`);
     } catch (err) {
       console.error(err);
+      addBtn.disabled = false;
       toast('登録に失敗しました。電波を確認してください');
     }
   });

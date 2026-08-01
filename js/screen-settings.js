@@ -4,18 +4,19 @@
 // 単価マスター・取引先・仕入先・常設注番／集計表読み込み／書き戻しCSV
 // ============================================================
 
-import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=27';
-import { openOverlay, openNumpad, openTextInput, toast, confirmDialog, bindSearch, isPc, onPcChange } from './ui.js?v=27';
+import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=29';
+import { openOverlay, openNumpad, openTextInput, toast, confirmDialog, bindSearch, isPc, onPcChange } from './ui.js?v=29';
 import {
   cache, searchItems, isStale, updateEstimate, saveSummary, addNamed,
+  addStaff, staffInUse,
   norm, DEFAULT_SYNONYMS, splitTerms, isTooShortTerm,
-} from './store.js?v=27';
-import { totals } from './calc.js?v=27';
+} from './store.js?v=29';
+import { totals } from './calc.js?v=29';
 import {
   db, doc, collection, addDoc, updateDoc, deleteDoc, getDocs, setDoc,
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
-} from './firebase.js?v=27';
-import { openTallyPage } from './screen-tally.js?v=27';
+} from './firebase.js?v=29';
+import { openTallyPage } from './screen-tally.js?v=29';
 
 const RATE_DEFS = [
   ['material', '材料費 上乗せ%', '原価に対して'],
@@ -54,6 +55,8 @@ export function renderSettingsTab(container) {
         <div class="meta">発注統合名・単価変動ありフラグ</div></div>
       <div class="card" id="st-standing" style="cursor:pointer"><div class="ttl" style="font-size:14px">常設注番 ${cache.standingOrders.length}件</div>
         <div class="meta">工場・区分ごとの受け皿</div></div>
+      <div class="card" id="st-staffm" style="cursor:pointer"><div class="ttl" style="font-size:14px">担当者 ${cache.staff.length}件</div>
+        <div class="meta">名前の直し・削除。使用中の担当者は消せない</div></div>
       <div class="card" id="st-synonyms" style="cursor:pointer"><div class="ttl" style="font-size:14px">言葉の言い換え（材料検索）</div>
         <div class="meta">「配管」でSGPが出るようにする。現場の言葉のまま打てる</div></div>
       <div class="sec-head"><span class="ttl">集計表とExcel</span><span class="rule"></span></div>
@@ -82,6 +85,7 @@ export function renderSettingsTab(container) {
   container.querySelector('#st-customers').addEventListener('click', () => openNamedMaster('customers', '取引先', [['email', 'メール'], ['noWelfare', '法定福利費なし', 'bool']]));
   container.querySelector('#st-suppliers').addEventListener('click', () => openNamedMaster('suppliers', '仕入先', [['email', 'メール'], ['mergeName', '発注統合名'], ['priceVolatile', '単価変動あり', 'bool']]));
   container.querySelector('#st-standing').addEventListener('click', () => openNamedMaster('standingOrders', '常設注番', [['orderNo', '注番'], ['staff', '担当者']]));
+  container.querySelector('#st-staffm').addEventListener('click', () => openNamedMaster('staff', '担当者', []));
   container.querySelector('#st-synonyms').addEventListener('click', openSynonymsPage);
   container.querySelector('#st-tally').addEventListener('click', openTallyPage);
   container.querySelector('#st-export').addEventListener('click', exportItemsCsv);
@@ -308,20 +312,27 @@ function editItem(it, onDone) {
   });
 }
 
-// ---------- 汎用マスタ（取引先・仕入先・常設注番） ----------
+// ---------- 汎用マスタ（取引先・仕入先・常設注番・担当者） ----------
 function openNamedMaster(col, title, fields) {
   const ov = openOverlay();
   function paint() {
     const list = cache[col === 'standingOrders' ? 'standingOrders' : col] || [];
+    // 担当者は一覧が届く前に追加させない（重複の作られ方は store.js の addStaff 参照）
+    const loaded = col !== 'staff' || cache.staffLoaded;
+    const meta = (m) => (col === 'staff'
+      ? (staffInUse(m.name) ? `見積 ${staffInUse(m.name)}件で使用中` : '未使用')
+      : (fields.map(([k, lbl, type]) => type === 'bool' ? (m[k] ? lbl : '') : (m[k] ? lbl + ': ' + esc(String(m[k])) : '')).filter(Boolean).join(' ／ ') || '—'));
     ov.el.innerHTML = `
       <div class="page-head"><div class="bar"><button class="icon-btn" id="n-back">←</button><span class="ttl">${title}マスター</span></div></div>
       <div class="page-body"><div style="padding:12px">
+        ${loaded ? '' : '<div class="empty" style="padding:16px">読み込み中…</div>'}
         ${list.map((m) => `
           <div class="card" style="margin-bottom:8px;cursor:pointer" data-id="${m.id}">
             <div class="ttl" style="font-size:14px">${esc(m.name)}${col === 'standingOrders' ? `　<span class="num" style="font-weight:500">${esc(m.orderNo || '')}</span>` : ''}</div>
-            <div class="meta">${fields.map(([k, lbl, type]) => type === 'bool' ? (m[k] ? lbl : '') : (m[k] ? lbl + ': ' + esc(String(m[k])) : '')).filter(Boolean).join(' ／ ') || '—'}</div>
+            <div class="meta">${meta(m)}</div>
           </div>`).join('')}
-        <button class="btn btn-block" id="n-add">＋ ${title}を追加</button>
+        <button class="btn btn-block" id="n-add" ${loaded ? '' : 'disabled'}>＋ ${title}を追加</button>
+        ${loaded ? '' : '<div class="search-hint" style="text-align:center">一覧を読み込んでいます</div>'}
       </div></div>`;
     ov.el.querySelector('#n-back').addEventListener('click', ov.close);
     ov.el.querySelector('#n-add').addEventListener('click', () => editNamed(col, title, fields, null, paint));
@@ -357,16 +368,39 @@ function editNamed(col, title, fields, m, onDone) {
     if (!name) { toast('名称を入れてください'); return; }
     const data = { name };
     for (const [k, , type] of fields) data[k] = type === 'bool' ? back.querySelector('#ne-' + k).checked : back.querySelector('#ne-' + k).value.trim();
+    const btn = back.querySelector('#ne-save');
+    btn.disabled = true;
     try {
-      if (m) await updateDoc(doc(db, col, m.id), data);
-      else await addNamed(col, data);
+      if (m) {
+        // 担当者の改名は、見積が名前で紐づいている以上マスターとの対応が切れる
+        if (col === 'staff' && name !== m.name) {
+          const used = staffInUse(m.name);
+          if (used) {
+            btn.disabled = false;
+            toast(`見積${used}件で使用中のため名前を変えられません`);
+            return;
+          }
+          if (cache.staff.some((s) => s.id !== m.id && s.name === name)) {
+            btn.disabled = false; toast('同じ名前がすでにあります'); return;
+          }
+        }
+        await updateDoc(doc(db, col, m.id), data);
+      } else if (col === 'staff') {
+        // キャッシュではなくサーバへ問い合わせて重複を止める
+        if (!(await addStaff(name))) { btn.disabled = false; toast('同じ名前がすでにあります'); return; }
+      } else await addNamed(col, data);
       toast('保存しました'); close(); setTimeout(onDone, 400);
-    } catch (e) { console.error(e); toast('保存できませんでした'); }
+    } catch (e) { console.error(e); btn.disabled = false; toast('保存できませんでした'); }
   });
   back.querySelector('#ne-del')?.addEventListener('click', async () => {
     // 使用中は削除させないガード（見積の宛先・担当者に使われていないか）
     if (col === 'customers' && cache.estimates.some((e) => e.customer === m.name)) { toast('見積で使用中のため削除できません'); return; }
     if (col === 'standingOrders' && cache.estimates.some((e) => e.orderNo === m.orderNo)) { toast('見積で使用中のため削除できません'); return; }
+    // estimates は担当者を名前で持つ。使用中の名前を消すと見積の担当者名がマスターに無くなる
+    if (col === 'staff') {
+      const used = staffInUse(m.name);
+      if (used) { toast(`見積${used}件で使用中のため削除できません`); return; }
+    }
     if (!(await confirmDialog(`「${m.name}」を削除しますか?`, '削除する'))) return;
     await deleteDoc(doc(db, col, m.id));
     toast('削除しました'); close(); setTimeout(onDone, 400);

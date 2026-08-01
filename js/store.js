@@ -6,9 +6,9 @@
 
 import {
   db, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
-  getDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp,
-} from './firebase.js?v=27';
-import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=27';
+  getDoc, getDocs, onSnapshot, query, where, orderBy, serverTimestamp,
+} from './firebase.js?v=29';
+import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=29';
 
 // ---------- 検索の正規化 ----------
 // ひらがな→カタカナ、全角→半角(NFKC)、大文字→小文字、記号ゆれ(×→x等)を吸収
@@ -102,6 +102,7 @@ export const cache = {
   items: [],          // 単価マスター（searchKey付き）
   itemsLoaded: false,
   staff: [],
+  staffLoaded: false,  // 一覧が一度でも届いたか。届く前に追加させると重複が作れてしまう
   customers: [],
   suppliers: [],
   standingOrders: [],
@@ -133,6 +134,7 @@ export function startSubscriptions() {
   for (const [col, key] of simple) {
     onSnapshot(query(collection(db, col), orderBy('name')), (snap) => {
       cache[key] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      if (key === 'staff') cache.staffLoaded = true;
       emit();
     }, (e) => console.error(col + '購読失敗:', e));
   }
@@ -295,4 +297,24 @@ export function subscribeEstimates(cb) {
 export async function addNamed(col, data) {
   const ref = await addDoc(collection(db, col), data);
   return ref.id;
+}
+
+// ---------- 担当者の追加（重複させない） ----------
+// 「野村」が2件できたのは、キャッシュだけを見て重複判定していたため。
+// 一覧がまだ届いていない端末では cache.staff が空で、判定が素通りする。
+// 書き込む直前にサーバへ問い合わせて、キャッシュの状態に関係なく止める。
+// 戻り値: 追加できたら id、すでに在れば null
+export async function addStaff(name) {
+  const nm = String(name || '').trim();
+  if (!nm) return null;
+  const snap = await getDocs(query(collection(db, 'staff'), where('name', '==', nm)));
+  if (!snap.empty) return null;
+  const ref = await addDoc(collection(db, 'staff'), { name: nm });
+  return ref.id;
+}
+
+// 担当者が見積で使われているか。estimates は担当者をIDではなく名前で持つため、
+// 使用中の名前を消すとマスターと見積の名前が食い違う（「本山」が実例）。
+export function staffInUse(name) {
+  return cache.estimates.filter((e) => e.staff === name).length;
 }
