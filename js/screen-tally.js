@@ -6,12 +6,12 @@
 // ・穴は指摘するだけで、止めない
 // ============================================================
 
-import { esc, YEN, fmtDate } from './util.js?v=13';
-import { openOverlay, toast } from './ui.js?v=13';
-import { cache, norm } from './store.js?v=13';
+import { esc, YEN, fmtDate } from './util.js?v=15';
+import { openOverlay, toast } from './ui.js?v=15';
+import { cache, norm } from './store.js?v=15';
 import {
   db, doc, collection, addDoc, updateDoc, Timestamp, serverTimestamp, arrayUnion,
-} from './firebase.js?v=13';
+} from './firebase.js?v=15';
 
 // SheetJSを必要なときだけCDNから読む（事務所PCはオンライン前提）
 let sheetJs = null;
@@ -298,20 +298,26 @@ export function openTallyPage() {
             ${result.issues.length ? `<div style="margin-top:8px;font-size:12.5px;color:#8A560F;line-height:1.7">⚠ ${result.issues.map(esc).join('<br>⚠ ')}<br><span style="color:var(--muted2)">（指摘するだけで、止めません）</span></div>` : ''}
             ${!applied ? `<button class="btn btn-primary btn-block" style="margin-top:10px" id="t-apply">自動分をマスターへ反映（${result.auto.length}件）</button>` : '<div style="margin-top:8px;font-size:13px;color:var(--green);font-weight:700">✓ 自動分は反映済み</div>'}
           </div>
+          ${/* PCは 左＝集計表の生表記／右＝候補ボタン の2カラム（tl-row）。
+                キーボードだけで流せるよう、ボタンの並び順は変えない */ ''}
           ${[...result.cand, ...result.none].map((row, i) => `
-            <div class="card" style="margin-top:8px">
-              <div class="ttl" style="font-size:14px">${esc(row.name)}</div>
-              <div class="meta">${esc([row.material, row.spec].filter(Boolean).join(' ／ '))}　${row.price != null ? `<b class="num">${YEN(row.price)}</b>／${row.isKg ? 'kg' : esc(row.unit || '個')}` : '単価なし'}　<span class="num">${esc(row.orderNo)}</span></div>
-              ${row.resolved ? `<div style="font-size:13px;color:var(--green);font-weight:700;margin-top:6px">✓ ${esc(row.resolved)}</div>` : `
-                <div style="font-size:12px;font-weight:700;color:var(--muted);margin-top:8px">これですか?</div>
-                <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
-                  ${(row.match.candidates || []).map((c, ci) => `<button class="btn btn-sm" style="justify-content:flex-start" data-pick="${i}|${ci}">${esc(c.name)}（${c.cost != null ? YEN(c.cost) : '—'}）</button>`).join('')}
-                  <div style="display:flex;gap:6px;flex-wrap:wrap">
-                    <button class="btn btn-sm" data-new="${i}">マスターに無い→新規</button>
-                    <button class="btn btn-sm" data-skip1="${i}">加工品・購入品（登録しない）</button>
-                    <button class="btn btn-sm" data-skip2="${i}">工具・消耗品（対象外）</button>
-                  </div>
-                </div>`}
+            <div class="card tl-row" style="margin-top:8px">
+              <div class="tl-left">
+                <div class="ttl" style="font-size:14px">${esc(row.name)}</div>
+                <div class="meta">${esc([row.material, row.spec].filter(Boolean).join(' ／ '))}　${row.price != null ? `<b class="num">${YEN(row.price)}</b>／${row.isKg ? 'kg' : esc(row.unit || '個')}` : '単価なし'}　<span class="num">${esc(row.orderNo)}</span></div>
+              </div>
+              <div class="tl-right">
+                ${row.resolved ? `<div style="font-size:13px;color:var(--green);font-weight:700">✓ ${esc(row.resolved)}</div>` : `
+                  <div style="font-size:12px;font-weight:700;color:var(--muted)">これですか?</div>
+                  <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+                    ${(row.match.candidates || []).map((c, ci) => `<button class="btn btn-sm" style="justify-content:flex-start" data-pick="${i}|${ci}">${esc(c.name)}（${c.cost != null ? YEN(c.cost) : '—'}）</button>`).join('')}
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                      <button class="btn btn-sm" data-new="${i}">マスターに無い→新規</button>
+                      <button class="btn btn-sm" data-skip1="${i}">加工品・購入品（登録しない）</button>
+                      <button class="btn btn-sm" data-skip2="${i}">工具・消耗品（対象外）</button>
+                    </div>
+                  </div>`}
+              </div>
             </div>`).join('')}
         `}
       </div></div>`;

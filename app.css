@@ -526,3 +526,154 @@ body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0
   .tabbar { max-width: 560px; left: 50%; transform: translateX(-50%); }
   .fullpage, .numpad-back, .photo-view { max-width: 560px; left: 50%; transform: translateX(-50%); right: auto; width: 100%; }
 }
+
+/* ============================================================
+   ここから下は「幅で見た目を変える」ぶん。
+   上の基本ルールを打ち消す必要があるので、必ずファイルの末尾に置くこと。
+   ============================================================ */
+/* ============================================================
+   画面幅の使い分け
+     〜767px    スマホ … 現場（見積入力・材料を追加）が主
+     768〜1023  タブレット
+     1024px〜   PC   … 事務所（発注メール・単価の判断・集計表・Excel渡し）が主
+   事務員さんが長時間見るので、PCでは文字を小さくしない。
+   ============================================================ */
+@media (min-width: 1024px) {
+  html, body { font-size: 15px; }
+
+  /* 上の「PC（従）: 中央560pxに寄せる」を解除して、画面幅を使い切る。
+     事務所の作業（発注待ち・判断待ち・集計表・単価マスター）はPCが主なので、
+     560pxの枠に押し込めない */
+  #app { max-width: none; margin: 0; border-left: 0; border-right: 0; }
+  .fullpage { max-width: none; left: 0; right: 0; width: auto; transform: none; }
+
+  /* 画面下に固定されたタブはPCでは不自然なので、左のサイドメニューにする */
+  .tabbar {
+    max-width: none; left: 0; transform: none;
+    top: 0; bottom: 0; right: auto; width: 210px;
+    flex-direction: column; justify-content: flex-start; gap: 4px;
+    border-top: 0; border-right: 1px solid var(--line);
+    padding: 14px 10px;
+  }
+  .tabbar a {
+    flex: none; height: 52px; flex-direction: row; justify-content: flex-start;
+    gap: 12px; padding: 0 14px; border-radius: 8px; font-size: 15px;
+  }
+  .tabbar a svg { font-size: 22px; }
+  .tabbar a.on { background: #E9EFF6; }
+  body.has-tabbar #app { padding-bottom: 0; padding-left: 210px; }
+}
+
+/* ---------- 発注待ち一覧（事務所・PCが主） ----------
+   スマホ: 1件＝1カード（縦積み）／PC: 1行＝1案件の一覧表 */
+.ow-head { display: none; }
+#ow-list { padding: 12px; }        /* スマホはカード表示なので左右に余白を残す */
+.ow-row {
+  background: #fff; border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px 14px; margin-bottom: 10px;
+}
+.ow-row .lb { font-size: 11.5px; color: var(--muted2); margin-right: 6px; }
+.ow-row .c-name .nm { font-size: 15px; font-weight: 700; }
+.ow-row .c-name .sub { font-size: 12.5px; color: var(--muted); margin-left: 6px; }
+.ow-row .c-staff, .ow-row .c-order, .ow-row .c-place, .ow-row .c-due {
+  font-size: 13px; color: var(--text); margin-top: 4px;
+}
+.ow-row .c-sup { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0; }
+.ow-row .sup-count { font-family: var(--mono); font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.sup-chip {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  border: 1px solid var(--navy); border-radius: 6px; padding: 8px 10px; font-size: 13.5px;
+  min-height: 44px;
+}
+.sup-chip input { width: 18px; height: 18px; }
+.sup-chip.on { border-color: var(--line2); background: #F3F5F8; color: var(--muted2); }
+.ow-row .c-sup .none { font-size: 12.5px; color: var(--muted2); }
+.ow-row .c-elapsed { font-size: 12px; font-weight: 700; margin-top: 4px; }
+.ow-row .c-act { margin-top: 10px; }
+
+@media (min-width: 1024px) {
+  #ow-list { padding: 0; }          /* PCは表として詰める */
+  .ow-head, .ow-row {
+    display: grid; align-items: center; gap: 14px;
+    grid-template-columns:
+      minmax(200px, 2fr) 80px 110px minmax(240px, 2.4fr) 120px 110px 80px 130px;
+  }
+  .ow-head {
+    padding: 10px 16px; background: #F3F5F8; border-bottom: 1px solid var(--line);
+    font-size: 12px; font-weight: 700; color: var(--muted); position: sticky; top: 0; z-index: 1;
+  }
+  .ow-row {
+    border: 0; border-bottom: 1px solid var(--line); border-radius: 0;
+    margin: 0; padding: 10px 16px;
+  }
+  .ow-row:nth-child(even) { background: #FAFBFC; }
+  .ow-row .lb { display: none; }            /* 見出しは表のヘッダーが担う */
+  .ow-row .c-name .sub { display: block; margin-left: 0; }
+  .ow-row .c-staff, .ow-row .c-order, .ow-row .c-place, .ow-row .c-due,
+  .ow-row .c-elapsed, .ow-row .c-act { margin-top: 0; }
+  .ow-row .c-sup { margin: 0; }
+  .sup-chip { min-height: 34px; padding: 4px 8px; font-size: 12.5px; }
+  .sup-chip input { width: 16px; height: 16px; }
+}
+
+/* ---------- 判断待ち: PCは左=一覧／右=詳細の2カラム ---------- */
+.rv-split { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(380px, 1fr); height: 100%; }
+.rv-list { overflow-y: auto; padding: 12px; border-right: 1px solid var(--line); }
+.rv-pane { overflow-y: auto; padding: 20px 24px; background: #fff; }
+.rv-card.on { outline: 2px solid var(--navy); outline-offset: -2px; background: #EAF0F6; }
+.rv-detail .nm { font-size: 19px; font-weight: 700; line-height: 1.4; }
+.rv-detail .reason { font-size: 13.5px; color: var(--accent); font-weight: 700; margin-top: 6px; }
+.rv-detail .price { font-size: 22px; margin-top: 14px; }
+.rv-meta { display: grid; grid-template-columns: 90px 1fr; gap: 8px 14px; margin: 20px 0 0; font-size: 13.5px; }
+.rv-meta dt { color: var(--muted); }
+.rv-meta dd { margin: 0; }
+.rv-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 24px; }
+.rv-actions .btn { height: 52px; font-size: 16px; }
+
+/* ---------- 単価マスター: PCは行を詰めた表 ---------- */
+.item-head { display: none; }
+.item-row .c-sup, .item-row .c-cost, .item-row .c-unit, .item-row .c-upd, .item-row .c-alias {
+  font-size: 12px; color: var(--muted);
+}
+.item-row .c-sup::after, .item-row .c-cost::after, .item-row .c-unit::after, .item-row .c-upd::after { content: ' ／ '; }
+.item-row .c-alias:empty, .item-row .c-unit:empty { display: none; }
+.item-row .c-cost { color: var(--text); font-weight: 700; }
+.item-row .nm .cand-badge { margin-left: 8px; }
+
+@media (min-width: 1024px) {
+  .item-head, .item-row {
+    display: grid; align-items: center; gap: 12px;
+    grid-template-columns: minmax(260px, 3fr) minmax(120px, 1.2fr) 100px 60px 110px 80px;
+  }
+  .item-head {
+    padding: 8px 16px; background: #F3F5F8; border-bottom: 1px solid var(--line);
+    font-size: 12px; font-weight: 700; color: var(--muted);
+    position: sticky; top: 0; z-index: 1;
+  }
+  .item-row { padding: 7px 16px; border-top: 0; border-bottom: 1px solid #EEF1F4; }
+  .item-row:hover { background: #F7FAFD; }
+  .item-row .nm { font-size: 14px; }
+  .item-row .c-sup::after, .item-row .c-cost::after,
+  .item-row .c-unit::after, .item-row .c-upd::after { content: ''; }
+  .item-row .c-cost { text-align: right; }
+  .item-row .c-alias:empty, .item-row .c-unit:empty { display: block; }
+}
+
+/* ---------- 集計表の「これですか?」: PCは左=生表記／右=候補 ---------- */
+@media (min-width: 1024px) {
+  .tl-row { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(360px, 1.1fr); gap: 20px; align-items: start; }
+  .tl-left { border-right: 1px solid var(--line); padding-right: 20px; }
+}
+
+/* ---------- 率の設定・時間単価: PCは入力欄を横に並べる ---------- */
+@media (min-width: 1024px) {
+  .form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; align-items: start; max-width: 980px; }
+  .form-2col > .sec-head, .form-2col > #r-hist, .form-2col > #r-example { grid-column: 1 / -1; }
+}
+
+/* ---------- 事務所の画面はPCで幅いっぱいに使う ---------- */
+@media (min-width: 1024px) {
+  .page-head .bar { height: 60px; }
+  .page-head .ttl { font-size: 19px; }
+}
+

@@ -4,18 +4,18 @@
 // 単価マスター・取引先・仕入先・常設注番／集計表読み込み／書き戻しCSV
 // ============================================================
 
-import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=13';
-import { openOverlay, openNumpad, toast, confirmDialog, bindSearch } from './ui.js?v=13';
+import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=15';
+import { openOverlay, openNumpad, toast, confirmDialog, bindSearch, isPc, onPcChange } from './ui.js?v=15';
 import {
   cache, searchItems, isStale, updateEstimate, saveSummary, addNamed,
   norm, DEFAULT_SYNONYMS, splitTerms, isTooShortTerm,
-} from './store.js?v=13';
-import { totals } from './calc.js?v=13';
+} from './store.js?v=15';
+import { totals } from './calc.js?v=15';
 import {
   db, doc, collection, addDoc, updateDoc, deleteDoc, getDocs, setDoc,
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
-} from './firebase.js?v=13';
-import { openTallyPage } from './screen-tally.js?v=13';
+} from './firebase.js?v=15';
+import { openTallyPage } from './screen-tally.js?v=15';
 
 const RATE_DEFS = [
   ['material', '材料費 上乗せ%', '原価に対して'],
@@ -96,7 +96,7 @@ function openRatesPage() {
   function paint() {
     ov.el.innerHTML = `
       <div class="page-head"><div class="bar"><button class="icon-btn" id="r-back">←</button><span class="ttl">率の設定（会社で1つ）</span></div></div>
-      <div class="page-body"><div class="form-page">
+      <div class="page-body"><div class="form-page form-2col">
         ${RATE_DEFS.map(([k, lbl, note]) => `
           <div class="rate-row"><span class="lb">${lbl}<br><small style="color:var(--muted2)">${note}</small></span>
             <div class="rate-input" data-rk="${k}"><b>${pctN(cache.rates[k])}</b><span>%</span></div></div>`).join('')}
@@ -146,7 +146,7 @@ function openUnitRatesPage() {
     const u = cache.unitRates;
     ov.el.innerHTML = `
       <div class="page-head"><div class="bar"><button class="icon-btn" id="u-back">←</button><span class="ttl">時間単価</span></div></div>
-      <div class="page-body"><div class="form-page">
+      <div class="page-body"><div class="form-page form-2col">
         ${(u.trades || []).map((t, i) => `
           <div class="rate-row"><span class="lb">${esc(t.name)}</span>
             <div class="rate-input" data-ti="${i}"><b>${t.rate.toLocaleString('ja-JP')}</b><span>円/h</span></div></div>`).join('')}
@@ -192,17 +192,21 @@ function openItemsPage() {
   bindSearch(ov.el.querySelector('#i-q'), (v) => { q = v; paint(); });
 
   function paint() {
-    const hits = searchItems(q, 30);
+    // PCは行を詰めた表形式（1画面に20行以上見えるように）。件数も多めに出す
+    const pc = isPc();
+    const hits = searchItems(q, pc ? 80 : 30);
     listEl.innerHTML = `
+        ${pc ? `<div class="item-head">
+          <span>品名・規格</span><span>仕入先</span><span>原価</span><span>単位</span><span>更新日</span><span>別名</span>
+        </div>` : ''}
         ${hits.map((it) => `
-          <div class="cand" data-id="${it.id}" style="padding-left:14px">
-            <div style="display:flex;align-items:center">
-              <div style="flex:1;min-width:0">
-                <div class="nm">${esc(it.name)}</div>
-                <div class="sub">${esc(it.supplier || '—')} ／ <b>${it.cost != null ? YEN(it.cost) : '—'}</b>／${esc(it.unit || '')} ／ 更新 ${it.updatedAt ? fmtDate(it.updatedAt) : esc(it.updatedAtRaw || '不明')}${(it.aliases || []).length ? ' ／ 別名' + it.aliases.length : ''}</div>
-              </div>
-              ${isStale(it) ? '<span class="cand-badge stale">単価が古い</span>' : ''}
-            </div>
+          <div class="cand item-row" data-id="${it.id}">
+            <span class="nm">${esc(it.name)}${isStale(it) ? '<span class="cand-badge stale">古い</span>' : ''}</span>
+            <span class="c-sup">${esc(it.supplier || '—')}</span>
+            <span class="c-cost num">${it.cost != null ? YEN(it.cost) : '—'}</span>
+            <span class="c-unit">${esc(it.unit || '')}</span>
+            <span class="c-upd">${it.updatedAt ? fmtDate(it.updatedAt) : esc(it.updatedAtRaw || '不明')}</span>
+            <span class="c-alias">${(it.aliases || []).length ? '別名' + it.aliases.length : ''}</span>
           </div>`).join('')}`;
     listEl.querySelectorAll('[data-id]').forEach((el) => el.addEventListener('click', () => editItem(cache.items.find((x) => x.id === el.dataset.id), paint)));
   }
@@ -475,31 +479,92 @@ export function openPendingPricePage() {
 }
 
 // ---------- 判断待ち（priceReviews） ----------
+// PCでは左に一覧・右に選んだ1件の詳細（2カラム）。
+// 1件ずつ画面が切り替わると6件でも疲れるため、決めながら次を選べる形にする。
 export function openReviewsPage() {
   const ov = openOverlay();
-  async function paint() {
+  let all = [];
+  let selId = null;          // 右ペインで開いている1件
+  const offBp = onPcChange(() => render());
+  const origClose = ov.close;
+  ov.close = () => { offBp(); origClose(); };
+
+  async function load() {
     const snap = await getDocs(query(collection(db, 'priceReviews'), orderBy('createdAt', 'desc')));
-    const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    render();
+  }
+
+  function diff(r) {
+    return `<b class="num">${r.currentCost != null ? YEN(r.currentCost) : '—'}</b>`
+      + ` → <b class="num" style="color:var(--navy)">${r.newCost != null ? YEN(r.newCost) : '—'}</b>`
+      + `${r.unitKind ? '／' + esc(r.unitKind) : ''}`;
+  }
+
+  // 右ペイン（PC）— 選んだ1件を大きく見せて、そこで決める
+  function detailHtml(r) {
+    if (!r) return '<div class="empty" style="padding-top:60px">左の一覧から1件選んでください</div>';
+    const decided = r.status !== '判断待ち';
+    return `
+      <div class="rv-detail">
+        <div class="nm">${esc(r.name || r.itemId || '')}</div>
+        <div class="reason">${esc(r.reason || '')}</div>
+        <div class="price">${diff(r)}</div>
+        <dl class="rv-meta">
+          <dt>出典</dt><dd>${esc(r.source || '—')}</dd>
+          <dt>単価の種類</dt><dd>${esc(r.unitKind || '—')}</dd>
+          <dt>備考</dt><dd>${esc(r.note || '—')}</dd>
+          <dt>状態</dt><dd>${esc(r.status)}${r.decidedAt ? '　' + fmtDate(r.decidedAt) : ''}</dd>
+        </dl>
+        ${decided ? '' : `
+          <div class="rv-actions">
+            <button class="btn btn-primary btn-block" data-ok="${r.id}">承認（マスターを更新）</button>
+            <button class="btn btn-block" data-keep="${r.id}">据え置き（記録だけ残す）</button>
+          </div>`}
+      </div>`;
+  }
+
+  function render() {
     const open = all.filter((r) => r.status === '判断待ち');
     const done = all.filter((r) => r.status !== '判断待ち').slice(0, 20);
+    const pc = isPc();
+    if (pc && !all.some((r) => r.id === selId)) selId = open.length ? open[0].id : null;
+
+    // 一覧の1行。PCは選択式（右に詳細）、スマホは行内にボタンを置く
     const row = (r, withBtns) => `
-      <div class="card" style="margin-bottom:8px">
+      <div class="card rv-card ${pc && r.id === selId ? 'on' : ''}" data-pick="${r.id}"
+           style="margin-bottom:8px${pc ? ';cursor:pointer' : ''}">
         <div class="ttl" style="font-size:14px">${esc(r.name || r.itemId || '')}</div>
-        <div class="meta">${esc(r.reason || '')}　<b class="num">${r.currentCost != null ? YEN(r.currentCost) : '—'}</b> → <b class="num" style="color:var(--navy)">${r.newCost != null ? YEN(r.newCost) : '—'}</b>${r.unitKind ? '／' + esc(r.unitKind) : ''}　<span style="color:var(--muted2)">${esc(r.source || '')}</span></div>
-        ${withBtns ? `<div style="display:flex;gap:8px;margin-top:8px">
+        <div class="meta">${esc(r.reason || '')}　${diff(r)}　<span style="color:var(--muted2)">${esc(r.source || '')}</span></div>
+        ${withBtns && !pc ? `<div style="display:flex;gap:8px;margin-top:8px">
           <button class="btn btn-sm" data-ok="${r.id}">承認（マスター更新）</button>
           <button class="btn btn-sm" data-keep="${r.id}">据え置き（記録だけ）</button></div>`
-        : `<div class="meta">${esc(r.status)}　${r.decidedAt ? fmtDate(r.decidedAt) : ''}</div>`}
+        : (withBtns ? '' : `<div class="meta">${esc(r.status)}　${r.decidedAt ? fmtDate(r.decidedAt) : ''}</div>`)}
       </div>`;
+
+    const listHtml = `
+      ${open.map((r) => row(r, true)).join('') || '<div class="empty">判断待ちはありません</div>'}
+      ${done.length ? `<div class="sec-head"><span class="ttl">決めたもの（据え置きも日付つきで残る）</span><span class="rule"></span></div>${done.map((r) => row(r, false)).join('')}` : ''}`;
+
     ov.el.innerHTML = `
       <div class="page-head"><div class="bar"><button class="icon-btn" id="rv-back">←</button><span class="ttl">単価の判断待ち ${open.length}件</span></div></div>
-      <div class="page-body"><div style="padding:12px">
-        ${open.map((r) => row(r, true)).join('') || '<div class="empty">判断待ちはありません</div>'}
-        ${done.length ? `<div class="sec-head"><span class="ttl">決めたもの（据え置きも日付つきで残る）</span><span class="rule"></span></div>${done.map((r) => row(r, false)).join('')}` : ''}
-      </div></div>`;
+      <div class="page-body">
+        ${pc ? `
+          <div class="rv-split">
+            <div class="rv-list">${listHtml}</div>
+            <div class="rv-pane">${detailHtml(all.find((r) => r.id === selId))}</div>
+          </div>`
+        : `<div style="padding:12px">${listHtml}</div>`}
+      </div>`;
+
     ov.el.querySelector('#rv-back').addEventListener('click', ov.close);
+    if (pc) {
+      ov.el.querySelectorAll('[data-pick]').forEach((el) => el.addEventListener('click', () => {
+        selId = el.dataset.pick; render();
+      }));
+    }
     ov.el.querySelectorAll('[data-ok]').forEach((b) => b.addEventListener('click', async () => {
-      const r = open.find((x) => x.id === b.dataset.ok);
+      const r = all.find((x) => x.id === b.dataset.ok);
       try {
         if (r.itemId) {
           const patch = { updatedAt: Timestamp.now() };
@@ -511,15 +576,22 @@ export function openReviewsPage() {
           await updateDoc(doc(db, 'items', r.itemId), patch);
         }
         await updateDoc(doc(db, 'priceReviews', r.id), { status: '承認', decidedAt: serverTimestamp() });
-        toast('承認してマスターを更新しました'); paint();
+        toast('承認してマスターを更新しました'); nextAfterDecide(r.id); load();
       } catch (e) { console.error(e); toast('保存できませんでした'); }
     }));
     ov.el.querySelectorAll('[data-keep]').forEach((b) => b.addEventListener('click', async () => {
       await updateDoc(doc(db, 'priceReviews', b.dataset.keep), { status: '据え置き', decidedAt: serverTimestamp() });
-      toast('据え置きで記録しました（次回また調べ直さないため）'); paint();
+      toast('据え置きで記録しました（次回また調べ直さないため）'); nextAfterDecide(b.dataset.keep); load();
     }));
   }
-  paint();
+
+  // 1件決めたら、右ペインは残りの先頭に送る（続けて片付けられるように）
+  function nextAfterDecide(decidedId) {
+    const rest = all.filter((r) => r.status === '判断待ち' && r.id !== decidedId);
+    selId = rest.length ? rest[0].id : null;
+  }
+
+  load();
 }
 
 // ---------- 単価マスターの書き戻しCSV（A〜K列） ----------

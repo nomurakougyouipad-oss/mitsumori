@@ -2,7 +2,7 @@
 // 共通UI部品 — 全画面オーバーレイ・テンキー・トースト
 // ============================================================
 
-import { esc } from './util.js?v=13';
+import { esc } from './util.js?v=15';
 
 // ---------- トースト ----------
 let toastTimer = null;
@@ -14,6 +14,17 @@ export function toast(msg, undoLabel = null, onUndo = null) {
     root.querySelector('.undo').addEventListener('click', () => { root.innerHTML = ''; onUndo(); });
   }
   toastTimer = setTimeout(() => { root.innerHTML = ''; }, 4000);
+}
+
+// ---------- 画面幅の判定（CSSのブレークポイントと同じ値を使うこと） ----------
+// 〜767px スマホ／768〜1023px タブレット／1024px〜 PC（事務所の作業が主）
+// レイアウトが根本から変わる画面（判断待ちの2カラム等）はJS側でも切り替える。
+export const PC_QUERY = window.matchMedia('(min-width: 1024px)');
+export const isPc = () => PC_QUERY.matches;
+// 幅が境界をまたいだら描き直す。戻り値を呼ぶと購読を解除する
+export function onPcChange(fn) {
+  PC_QUERY.addEventListener('change', fn);
+  return () => PC_QUERY.removeEventListener('change', fn);
 }
 
 // ---------- 検索入力の共通処理（iPhone対策） ----------
