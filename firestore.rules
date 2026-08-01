@@ -130,7 +130,8 @@ service cloud.firestore {
           && request.resource.data.get('qty', 0) is number
           && request.resource.data.get('cost', 0) is number
           && request.resource.data.get('handwritten', false) is bool
-          && request.resource.data.get('pendingPrice', false) is bool;
+          && request.resource.data.get('pendingPrice', false) is bool
+          && request.resource.data.get('catalog', false) is bool;
         allow delete: if signedIn();
       }
     }

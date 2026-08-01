@@ -21,7 +21,7 @@ import {
   getAuth, signInAnonymously, onAuthStateChanged,
 } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 
-import firebaseConfig from '../firebase-config.js?v=18';
+import firebaseConfig from '../firebase-config.js?v=20';
 
 export const app = initializeApp(firebaseConfig);
 
