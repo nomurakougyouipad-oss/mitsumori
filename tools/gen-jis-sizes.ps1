@@ -43,12 +43,16 @@ foreach ($e in $j.'SGP') {
     $null = $sb.AppendLine((Row (Nums $e.'呼び径') $e.'kg/m'))
 }
 $null = $sb.AppendLine('  ],')
-# TP-A: 呼び径 + Sch
-$null = $sb.AppendLine('  // TP-A（呼び径A ＋ スケジュール）')
+# TP-A: 呼び径 + 肉厚。
+# nums は「単価マスターの寸法に流し込む数字」なので、肉厚を入れる。
+# マスターの型は 100Ax3mmx4000（肉厚mm）であり、Schの番号ではない。
+# Sch は寸法ではなく規格の呼び名なので、別のフィールドに分けて持つ（mmは付けない）。
+$null = $sb.AppendLine('  // TP-A（呼び径A ＋ 肉厚mm。Sch は sch フィールドに分ける）')
 $null = $sb.AppendLine('  tpa: [')
 foreach ($e in $j.'TP-A') {
-    $nums = @(@(Nums $e.'呼び径')[0], @(Nums $e.'Sch')[0])
-    $null = $sb.AppendLine((Row $nums $e.'kg/m'))
+    $nom = @(Nums $e.'呼び径')[0]
+    $t = $e.'肉厚'
+    $null = $sb.AppendLine("    { nums: [$nom, $t], sch: '$($e.'Sch')', kgm: $($e.'kg/m') },")
 }
 $null = $sb.AppendLine('  ],')
 $null = $sb.AppendLine('};')

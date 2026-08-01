@@ -3,15 +3,15 @@
 // 「入力は1件1ページ。保存して次へで画面は移動しない」（README第4章）
 // ============================================================
 
-import { esc, YEN, local } from './util.js?v=22';
-import { icons } from './icons.js?v=22';
-import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=22';
-import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=22';
-import { excelRound } from './calc.js?v=22';
+import { esc, YEN, local } from './util.js?v=23';
+import { icons } from './icons.js?v=23';
+import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=23';
+import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=23';
+import { excelRound } from './calc.js?v=23';
 import {
   buildCatalog, catalogKinds, catalogMaterials,
   fillPattern, makeName, shapeName, buildNameIndex, lookupName,
-} from './catalog.js?v=22';
+} from './catalog.js?v=23';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
@@ -288,7 +288,8 @@ export function openCatalogPage(estimateId, est, opts = {}) {
       <div class="field" style="margin-top:14px"><label>③ 形（${esc(g.head)}）</label>
         <div class="cand" style="border:1px solid var(--line);border-radius:6px;background:#EDF3FA">
           <div style="display:flex;align-items:center;gap:8px">
-            <span class="nm num" style="flex:1;font-weight:700">${esc(sel.label)}</span>
+            <span class="nm num" style="flex:1;font-weight:700">${esc(sel.label)}${sel.sch
+              ? `<small style="color:var(--muted2);font-weight:400"> ／ Sch${esc(sel.sch)}</small>` : ''}</span>
             <button class="btn" id="cg-reshape" style="min-height:44px;padding:0 14px">形を変える</button>
           </div>
         </div>
@@ -296,10 +297,13 @@ export function openCatalogPage(estimateId, est, opts = {}) {
 
     const mine = g.shapes.filter((s) => s.master.length);
     const jis = g.shapes.filter((s) => !s.master.length);
+    // Sch（10S等）は規格の呼び名であって寸法ではないので、mm は付けない。
+    // 寸法の桁に出るのは肉厚のほうで、そちらにだけ mm が付く（TP-Aの品名は 100Ax3mm）
     const row = (s) => `
       <div class="cand" data-shape="${esc(s.key)}" style="border-top:1px solid #E6EAEE">
         <div style="display:flex;align-items:center;gap:8px">
-          <span class="nm num" style="flex:1;font-weight:600">${esc(s.label)}</span>
+          <span class="nm num" style="flex:1;font-weight:600">${esc(s.label)}${s.sch
+            ? `<small style="color:var(--muted2);font-weight:400"> ／ Sch${esc(s.sch)}</small>` : ''}</span>
           <span style="font-size:11.5px;color:var(--muted2);text-align:right">
             ${s.master.length ? `買った実績 ${s.master.length}件` : 'JIS標準'}
             ${s.kgm != null ? `<br>${s.kgm}kg/m` : ''}</span>

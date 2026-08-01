@@ -25,8 +25,8 @@
 // （jis-sizes.js のコメント参照）。JISの重量(kg/m)は参考表示のみ。金額には一切使わない。
 // ============================================================
 
-import { norm } from './store.js?v=22';
-import { JIS_SIZES, JIS_LENGTHS } from './jis-sizes.js?v=22';
+import { norm } from './store.js?v=23';
+import { JIS_SIZES, JIS_LENGTHS } from './jis-sizes.js?v=23';
 
 // 画面に出す種類。heads はマスターの品名の先頭語（実データの表記に合わせる）
 export const CATALOG_KINDS = [
@@ -56,7 +56,8 @@ const SLOT_LABELS = {
   '平板': ['板厚', '幅', '長さ'],
   'ﾁｪｯｶｰﾌﾟﾚｰﾄ': ['板厚', '幅', '長さ'],
   'SGP': ['呼び径A', '長さm'],
-  'TP-A': ['呼び径A', 'スケジュール', '長さ'],
+  // TP-Aの2桁目は肉厚mm（品名は 100Ax3mmx4000）。Schの番号ではない
+  'TP-A': ['呼び径A', '肉厚mm', '長さ'],
 };
 
 // 品名を「先頭語・（修飾）・（材質）・寸法」に割る。
@@ -221,7 +222,7 @@ function buildShapes(g, kindKey, n) {
     if (nums.length !== n) continue;
     const key = nums.slice(0, shapeSlots).join('x');
     let e = map.get(key);
-    if (!e) { e = { key, nums: nums.slice(0, shapeSlots), master: [], byLen: new Map(), jis: false, kgm: null }; map.set(key, e); }
+    if (!e) { e = { key, nums: nums.slice(0, shapeSlots), master: [], byLen: new Map(), jis: false, kgm: null, sch: '' }; map.set(key, e); }
     e.master.push(s);
     // 長さごとに実在の行を持っておく。
     // マスターには「丸棒(引抜)(SUS304) 13φx4000」のように修飾が付く品名があり、
@@ -238,9 +239,11 @@ function buildShapes(g, kindKey, n) {
       const nums = r.nums.map(String);
       const key = nums.join('x');
       let e = map.get(key);
-      if (!e) { e = { key, nums, master: [], byLen: new Map(), jis: true, kgm: null }; map.set(key, e); }
+      if (!e) { e = { key, nums, master: [], byLen: new Map(), jis: true, kgm: null, sch: '' }; map.set(key, e); }
       e.jis = true;
       if (r.kgm != null) e.kgm = r.kgm;
+      // Sch（10S等）は寸法ではなく規格の呼び名。寸法の桁には混ぜず、注記として持つ
+      if (r.sch) e.sch = r.sch;
     }
   }
 
