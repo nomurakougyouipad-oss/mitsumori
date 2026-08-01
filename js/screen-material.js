@@ -3,15 +3,15 @@
 // 「入力は1件1ページ。保存して次へで画面は移動しない」（README第4章）
 // ============================================================
 
-import { esc, YEN, local } from './util.js?v=27';
-import { icons } from './icons.js?v=27';
-import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=27';
-import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=27';
-import { excelRound } from './calc.js?v=27';
+import { esc, YEN, local } from './util.js?v=29';
+import { icons } from './icons.js?v=29';
+import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=29';
+import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=29';
+import { excelRound } from './calc.js?v=29';
 import {
   buildCatalog, catalogKinds, catalogMaterials,
   fillPattern, makeName, shapeName, buildNameIndex, lookupName,
-} from './catalog.js?v=27';
+} from './catalog.js?v=29';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
@@ -72,6 +72,10 @@ export function openMaterialPage(estimateId, est, opts = {}) {
           <input id="m-q" placeholder="アングル 65 のように部材と寸法で" value="${esc(query)}" autocomplete="off">
         </div>
         <div class="search-hint">ひらがな・カタカナ・全角半角は気にせず打てます</div>
+        <div class="entry-row">
+          <button class="entry-btn" id="m-manual">📐 規格から選ぶ</button>
+          <button class="entry-btn" id="m-pending">⏱ 単価がわからない<span>（あとで事務所が入れる）</span></button>
+        </div>
       </div>
       <div class="page-body" id="m-body"></div>
       <div class="bottom-bar">
@@ -83,6 +87,10 @@ export function openMaterialPage(estimateId, est, opts = {}) {
 
     // inputは再生成しないので、変換中でもフォーカスとIME状態はそのまま保たれる
     bindSearch(ov.el.querySelector('#m-q'), (v) => { query = v; paintBody(); });
+    // 手打ち行は例外ではなく本線（README v2 第4章）。候補が0件でも長くても
+    // 同じ位置に出るよう、再描画されない検索ブロック側に置く。
+    ov.el.querySelector('#m-manual').addEventListener('click', () => { ov.close(); openCatalogPage(estimateId, est, {}); });
+    ov.el.querySelector('#m-pending').addEventListener('click', () => { ov.close(); openPendingPage(estimateId, est, {}); });
     ov.el.querySelector('#m-close').addEventListener('click', ov.close);
     ov.el.querySelector('#m-next').addEventListener('click', () => save(true));
     ov.el.querySelector('#m-back')?.addEventListener('click', () => save(false));
@@ -136,15 +144,7 @@ export function openMaterialPage(estimateId, est, opts = {}) {
                   ${isStale(it) ? '<span class="cand-badge stale">単価が古い</span>' : ((it.useCount || 0) > 3 ? '<span class="cand-badge">よく使う</span>' : '')}
                 </div>
               </div>`).join('')}
-          </div>` : (query ? '<div class="empty" style="padding:24px">見つかりませんでした</div>' : '')}
-        <div style="padding:14px 0 4px;text-align:center">
-          <span id="m-pending" style="font-size:13.5px;color:#4A5A6B;text-decoration:underline;text-underline-offset:3px;cursor:pointer">
-            ⏱ 単価がわからない（あとで事務所が入れる）</span>
-        </div>
-        <div style="padding:6px 0 16px;text-align:center">
-          <span id="m-manual" style="font-size:13.5px;color:#4A5A6B;text-decoration:underline;text-underline-offset:3px;cursor:pointer">
-            📐 マスターに無いものを規格から選んで入れる</span>
-        </div>`;
+          </div>` : (query ? '<div class="empty" style="padding:24px">見つかりませんでした</div>' : '')}`;
 
     // --- 可変部分のイベント（#m-body内だけ。検索inputと下部ボタンはrenderShellで配線済み） ---
     body.querySelectorAll('.cand').forEach((el) => el.addEventListener('click', () => {
@@ -160,8 +160,6 @@ export function openMaterialPage(estimateId, est, opts = {}) {
     body.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
       qty = (num(qty) || 0) + Number(b.dataset.add); paintBody();
     }));
-    body.querySelector('#m-pending').addEventListener('click', () => { ov.close(); openPendingPage(estimateId, est, {}); });
-    body.querySelector('#m-manual').addEventListener('click', () => { ov.close(); openCatalogPage(estimateId, est, {}); });
 
     updateBottom();
   }

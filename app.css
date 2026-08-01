@@ -329,6 +329,17 @@ body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0
 .search-box svg { color: var(--navy); font-size: 22px; flex: none; }
 .search-hint { font-size: 11.5px; color: var(--muted2); margin-top: 6px; }
 
+/* 手打ち行への入口。候補の下だとスクロールしないと見えないため検索欄の直下に置く */
+.entry-row { display: flex; gap: 8px; margin-top: 10px; }
+.entry-btn {
+  flex: 1; min-height: 44px; padding: 6px 10px; border-radius: 6px;
+  border: 1px solid #B9C4CF; background: #F4F7FA; color: var(--navy);
+  font-family: var(--font); font-size: 14px; font-weight: 700;
+  line-height: 1.3; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.entry-btn:active { background: #E4EBF2; }
+.entry-btn span { display: block; font-size: 11px; font-weight: 400; color: var(--muted); }
+
 .cand-head { font-size: 12px; font-weight: 700; color: var(--muted); padding: 10px 14px 4px; }
 .cand { padding: 11px 14px 11px 18px; border-top: 1px solid #E6EAEE; background: #fff; cursor: pointer; }
 .cand.on { border-left: 4px solid var(--navy); background: #EAF0F6; padding-left: 14px; }
