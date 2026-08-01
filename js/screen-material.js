@@ -3,15 +3,15 @@
 // 「入力は1件1ページ。保存して次へで画面は移動しない」（README第4章）
 // ============================================================
 
-import { esc, YEN, local } from './util.js?v=31';
-import { icons } from './icons.js?v=31';
-import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=31';
-import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=31';
-import { excelRound } from './calc.js?v=31';
+import { esc, YEN, local } from './util.js?v=32';
+import { icons } from './icons.js?v=32';
+import { openOverlay, openNumpad, toast, bindSearch, setHtmlKeepScroll } from './ui.js?v=32';
+import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=32';
+import { excelRound } from './calc.js?v=32';
 import {
   buildCatalog, catalogKinds, catalogMaterials,
   fillPattern, makeName, shapeName, buildNameIndex, lookupName,
-} from './catalog.js?v=31';
+} from './catalog.js?v=32';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
@@ -378,7 +378,8 @@ export function openCatalogPage(estimateId, est, opts = {}) {
     const amount = base != null ? base * (1 + rate) : null;
     const waiting = picked && num(picked.cost) == null;
 
-    ov.el.innerHTML = `
+    // 選ぶたびに全部作り直すので、見ていた位置を保ったまま入れ替える
+    setHtmlKeepScroll(ov.el, `
       <div class="page-head"><div class="bar">
         <span class="ttl">${editingLineId ? '規格から選び直す' : '規格から選ぶ'}</span>
         <button class="icon-btn" id="cg-close">✕</button>
@@ -465,7 +466,7 @@ export function openCatalogPage(estimateId, est, opts = {}) {
         <button class="btn btn-primary btn-block btn-big" id="cg-next" ${picked ? '' : 'disabled'}>
           ${editingLineId ? '保存して戻る' : '保存して次へ'}</button>
         ${editingLineId ? '' : `<button class="btn btn-block" id="cg-back" style="margin-top:8px" ${picked ? '' : 'disabled'}>保存して戻る</button>`}
-      </div>`;
+      </div>`);
 
     ov.el.querySelector('#cg-close').addEventListener('click', ov.close);
     ov.el.querySelectorAll('[data-kind]').forEach((el) => el.addEventListener('click', () => {

@@ -2,7 +2,7 @@
 // 共通UI部品 — 全画面オーバーレイ・テンキー・トースト
 // ============================================================
 
-import { esc } from './util.js?v=31';
+import { esc } from './util.js?v=32';
 
 // ---------- トースト ----------
 let toastTimer = null;
@@ -14,6 +14,21 @@ export function toast(msg, undoLabel = null, onUndo = null) {
     root.querySelector('.undo').addEventListener('click', () => { root.innerHTML = ''; onUndo(); });
   }
   toastTimer = setTimeout(() => { root.innerHTML = ''; }, 4000);
+}
+
+// ---------- 作り直してもスクロール位置を保つ ----------
+// 選択のたびに ov.el.innerHTML を丸ごと入れ替える画面が多い。
+// 入れ替えると、実際にスクロールしている要素（.page-body）ごと作り直されるので
+// 位置が先頭に戻る。下の方の項目を選ぶたびに画面が上に飛んでしまう。
+// 入れ替えの前後で scrollTop を持ち回って、見ていた場所に留める。
+// ※ 中身が短くなったときはブラウザが自動で詰めるので、それ以上の調整はしない
+export function setHtmlKeepScroll(root, html) {
+  const prev = root.querySelector('.page-body')?.scrollTop || 0;
+  root.innerHTML = html;
+  if (prev) {
+    const body = root.querySelector('.page-body');
+    if (body) body.scrollTop = prev;
+  }
 }
 
 // ---------- 画面幅の判定（CSSのブレークポイントと同じ値を使うこと） ----------
