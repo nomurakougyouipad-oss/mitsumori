@@ -4,18 +4,18 @@
 // 単価マスター・取引先・仕入先・常設注番／集計表読み込み／書き戻しCSV
 // ============================================================
 
-import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=23';
-import { openOverlay, openNumpad, toast, confirmDialog, bindSearch, isPc, onPcChange } from './ui.js?v=23';
+import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=24';
+import { openOverlay, openNumpad, toast, confirmDialog, bindSearch, isPc, onPcChange } from './ui.js?v=24';
 import {
   cache, searchItems, isStale, updateEstimate, saveSummary, addNamed,
   norm, DEFAULT_SYNONYMS, splitTerms, isTooShortTerm,
-} from './store.js?v=23';
-import { totals } from './calc.js?v=23';
+} from './store.js?v=24';
+import { totals } from './calc.js?v=24';
 import {
   db, doc, collection, addDoc, updateDoc, deleteDoc, getDocs, setDoc,
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
-} from './firebase.js?v=23';
-import { openTallyPage } from './screen-tally.js?v=23';
+} from './firebase.js?v=24';
+import { openTallyPage } from './screen-tally.js?v=24';
 
 const RATE_DEFS = [
   ['material', '材料費 上乗せ%', '原価に対して'],
@@ -180,28 +180,38 @@ function openUnitRatesPage() {
 function openItemsPage() {
   const ov = openOverlay();
   let q = '';
+  let showStopped = false;   // 使用停止も表示するか
+  const stoppedCount = () => cache.items.filter((x) => x.discontinued).length;
   // iPhone対策: 検索inputは一度だけ生成し、絞り込みでは結果リストだけ描き直す
   //（詳細は ui.js の bindSearch のコメント参照）
   ov.el.innerHTML = `
     <div class="page-head"><div class="bar"><button class="icon-btn" id="i-back">←</button><span class="ttl">単価マスター ${cache.items.length}件</span></div></div>
     <div class="search-block"><div class="search-box" style="height:48px">
-      <input id="i-q" placeholder="品名・仕入先・材質で検索" style="font-size:16px" autocomplete="off"></div></div>
+      <input id="i-q" placeholder="品名・仕入先・材質で検索" style="font-size:16px" autocomplete="off"></div>
+      <label style="display:flex;align-items:center;gap:8px;padding:8px 2px 0;font-size:13.5px;min-height:44px">
+        <input type="checkbox" id="i-stopped" style="width:20px;height:20px">
+        使用停止も表示<span id="i-stopped-n" style="color:var(--muted2)"></span></label>
+    </div>
     <div class="page-body" id="i-list"></div>`;
   ov.el.querySelector('#i-back').addEventListener('click', ov.close);
   const listEl = ov.el.querySelector('#i-list');
   bindSearch(ov.el.querySelector('#i-q'), (v) => { q = v; paint(); });
+  ov.el.querySelector('#i-stopped').addEventListener('change', (e) => { showStopped = e.target.checked; paint(); });
 
   function paint() {
     // PCは行を詰めた表形式（1画面に20行以上見えるように）。件数も多めに出す
     const pc = isPc();
-    const hits = searchItems(q, pc ? 80 : 30);
+    const hits = searchItems(q, pc ? 80 : 30, { withDiscontinued: showStopped });
+    const nEl = ov.el.querySelector('#i-stopped-n');
+    if (nEl) nEl.textContent = `（${stoppedCount()}件）`;
     listEl.innerHTML = `
         ${pc ? `<div class="item-head">
           <span>品名・規格</span><span>仕入先</span><span>原価</span><span>単位</span><span>更新日</span><span>別名</span>
         </div>` : ''}
         ${hits.map((it) => `
-          <div class="cand item-row" data-id="${it.id}">
-            <span class="nm">${esc(it.name)}${isStale(it) ? '<span class="cand-badge stale">古い</span>' : ''}</span>
+          <div class="cand item-row" data-id="${it.id}" ${it.discontinued ? 'style="opacity:.6"' : ''}>
+            <span class="nm">${esc(it.name)}${it.discontinued
+              ? '<span class="cand-badge stale">使用停止</span>' : ''}${isStale(it) ? '<span class="cand-badge stale">古い</span>' : ''}</span>
             <span class="c-sup">${esc(it.supplier || '—')}</span>
             <span class="c-cost num">${it.cost != null ? YEN(it.cost) : '—'}</span>
             <span class="c-unit">${esc(it.unit || '')}</span>
@@ -225,6 +235,10 @@ function editItem(it, onDone) {
       <div class="rate-row"><span class="lb">原価</span><div class="rate-input" id="ie-cost"><b>${it.cost != null ? it.cost.toLocaleString('ja-JP') : '—'}</b><span>円</span></div></div>
       ${it.kgPrice != null ? `<div class="rate-row"><span class="lb">kg単価（原価を自動再計算）</span><div class="rate-input" id="ie-kg"><b>${it.kgPrice}</b><span>円/kg</span></div></div>` : ''}
       ${(it.aliases || []).length ? `<div style="font-size:12px;color:var(--muted)">別名: ${it.aliases.map(esc).join(' ／ ')}</div>` : ''}
+      ${it.discontinued ? `<div style="font-size:12.5px;color:#8A560F;line-height:1.7;margin-top:6px">
+        ⛔ 使用停止中。検索と規格の一覧には出ません。過去の見積と集計表の突き合わせは今まで通りです</div>` : ''}
+      <button class="btn btn-block" id="ie-stop" style="min-height:44px;margin-top:8px">
+        ${it.discontinued ? '使用停止をやめる（また使う）' : 'この品目を使用停止にする'}</button>
       <button class="btn btn-danger btn-block" id="ie-del">この品目を削除</button>
     </div></div>`;
   root.appendChild(back);
@@ -244,6 +258,13 @@ function editItem(it, onDone) {
       await updateDoc(doc(db, 'items', it.id), patch);
       toast('kg単価を更新しました' + (patch.cost != null ? `（原価 ${YEN(patch.cost)}）` : '')); close(); onDone();
     } }));
+  // 使用停止の切り替え。消さずに候補から外すだけなので、確認は軽くでよい
+  back.querySelector('#ie-stop').addEventListener('click', async () => {
+    const to = !it.discontinued;
+    await updateDoc(doc(db, 'items', it.id), { discontinued: to, updatedAt: Timestamp.now() });
+    toast(to ? '使用停止にしました' : '使用停止をやめました');
+    close(); onDone();
+  });
   back.querySelector('#ie-del').addEventListener('click', async () => {
     if ((it.useCount || 0) > 0) { toast('見積で使用中のため削除できません'); return; }
     if (!(await confirmDialog(`「${it.name}」を削除しますか?`, '削除する'))) return;

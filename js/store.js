@@ -7,8 +7,8 @@
 import {
   db, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp,
-} from './firebase.js?v=23';
-import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=23';
+} from './firebase.js?v=24';
+import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=24';
 
 // ---------- 検索の正規化 ----------
 // ひらがな→カタカナ、全角→半角(NFKC)、大文字→小文字、記号ゆれ(×→x等)を吸収
@@ -155,11 +155,19 @@ export function startSubscriptions() {
 
 // ---------- 品目検索 ----------
 // 「アングル 65」→ 全トークンを含む品目。よく使う順→更新日新しい順
-export function searchItems(q, max = 30) {
+//
+// 使用停止（discontinued）の品目は候補に出さない。もう発注しない物なので
+// 現場に選ばせない。ただし消しはしない:
+//  ・過去の見積は itemId でこの行を指している
+//  ・集計表の突き合わせ（screen-tally.js）は今まで通り当てる必要がある
+// そのため cache.items からは外さず、ここ（検索）と規格カタログでだけ除く。
+// 設定 > 単価マスター の「使用停止も表示」で見られる。
+export function searchItems(q, max = 30, opts = {}) {
+  const pool = opts.withDiscontinued ? cache.items : cache.items.filter((it) => !it.discontinued);
   const tokens = norm(q).split(' ').filter(Boolean);
   if (!tokens.length) {
     // 空検索: よく使う順に上位を出す
-    return [...cache.items]
+    return [...pool]
       .sort((a, b) => (b.useCount || 0) - (a.useCount || 0))
       .slice(0, max);
   }
@@ -172,7 +180,7 @@ export function searchItems(q, max = 30) {
     return alts ? [t, ...alts] : [t];
   });
   const hits = [];
-  for (const it of cache.items) {
+  for (const it of pool) {
     if (groups.every((g) => g.some((t) => termHit(it.searchKey, t)))) hits.push(it);
   }
   hits.sort((a, b) =>

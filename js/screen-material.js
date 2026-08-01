@@ -3,15 +3,15 @@
 // 「入力は1件1ページ。保存して次へで画面は移動しない」（README第4章）
 // ============================================================
 
-import { esc, YEN, local } from './util.js?v=23';
-import { icons } from './icons.js?v=23';
-import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=23';
-import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=23';
-import { excelRound } from './calc.js?v=23';
+import { esc, YEN, local } from './util.js?v=24';
+import { icons } from './icons.js?v=24';
+import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=24';
+import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=24';
+import { excelRound } from './calc.js?v=24';
 import {
   buildCatalog, catalogKinds, catalogMaterials,
   fillPattern, makeName, shapeName, buildNameIndex, lookupName,
-} from './catalog.js?v=23';
+} from './catalog.js?v=24';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 

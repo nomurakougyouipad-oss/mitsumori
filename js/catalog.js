@@ -25,8 +25,8 @@
 // （jis-sizes.js のコメント参照）。JISの重量(kg/m)は参考表示のみ。金額には一切使わない。
 // ============================================================
 
-import { norm } from './store.js?v=23';
-import { JIS_SIZES, JIS_LENGTHS } from './jis-sizes.js?v=23';
+import { norm } from './store.js?v=24';
+import { JIS_SIZES, JIS_LENGTHS } from './jis-sizes.js?v=24';
 
 // 画面に出す種類。heads はマスターの品名の先頭語（実データの表記に合わせる）
 export const CATALOG_KINDS = [
@@ -147,6 +147,7 @@ export function buildCatalog(items) {
   for (const def of CATALOG_KINDS) byKind[def.key] = { def, materials: {} };
 
   for (const it of items) {
+    if (it.discontinued) continue;                // 使用停止の品目は規格の一覧に出さない
     const p = parseItemName(it.name);
     const def = CATALOG_KINDS.find((d) => d.heads.includes(p.head));
     if (!def) continue;
@@ -266,9 +267,15 @@ export function shapeName(g, shape, lenValue) {
 }
 
 // 品名 → 単価マスター行 の索引（1,567件を毎回なめないため）
+// 使用停止の行は入れない。入れると、組み立てた品名がたまたま停止中の行と
+// 一致したときに、その単価を拾って復活させてしまう
 export function buildNameIndex(items) {
   const m = new Map();
-  for (const it of items) { const k = norm(it.name); if (!m.has(k)) m.set(k, it); }
+  for (const it of items) {
+    if (it.discontinued) continue;
+    const k = norm(it.name);
+    if (!m.has(k)) m.set(k, it);
+  }
   return m;
 }
 export function lookupName(index, name) { return index.get(norm(name)) || null; }

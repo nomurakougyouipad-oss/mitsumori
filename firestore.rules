@@ -101,7 +101,8 @@ service cloud.firestore {
         && request.resource.data.get('cost', 0) is number
         && request.resource.data.get('useCount', 0) is number
         && request.resource.data.get('aliases', []) is list
-        && request.resource.data.get('prevNames', []) is list;   // 品名を統一したときの旧品名
+        && request.resource.data.get('prevNames', []) is list     // 品名を統一したときの旧品名
+        && request.resource.data.get('discontinued', false) is bool;  // 使用停止（もう発注しない）
       allow delete: if signedIn();
     }
 
