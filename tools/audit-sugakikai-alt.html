@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>菅機械の停止分に代わりがあるか（開発用）</title>
+<style>
+body{font:13px/1.7 system-ui;margin:16px;color:#22303C}
+h1{font-size:18px} h2{font-size:15px;margin:22px 0 6px;border-bottom:2px solid #ccd;padding-bottom:3px}
+table{border-collapse:collapse;font-size:12.5px;margin:8px 0}
+th,td{border:1px solid #ccc;padding:4px 8px;text-align:left;vertical-align:top;white-space:nowrap}
+th{background:#eef2f6}
+td.wrap{white-space:normal;max-width:420px}
+.num{font-family:Consolas,monospace;text-align:right}
+.A{color:#0A6B2E;font-weight:700} .B{color:#B00;font-weight:700} .C{color:#A15C00;font-weight:700}
+tr.rB{background:#FFF3F3} tr.rC{background:#FFF8EC}
+.small{font-size:11.5px;color:#666}
+pre{background:#f6f8fa;padding:8px;overflow:auto;font-size:11px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>菅機械の停止分に代わりがあるか</h1>
+<p class="small"><b>読み取りだけ。何も書き換えない。</b><br>
+品名の完全一致では判定しない（菅機械と小野建で同じ物の書き方が違うため）。
+<b>材質記号 ＋ 呼び径 ＋ Sch ＋ 長さ</b> で突き合わせる。</p>
+<div id="out">読み込み中…</div>
+<script type="module">
+import { cache, startSubscriptions } from '../js/store.js?v=26';
+
+const esc = (x) => String(x ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const han = (x) => String(x).replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+
+startSubscriptions();
+for (let i = 0; i < 120 && !cache.itemsLoaded; i++) await new Promise((r) => setTimeout(r, 500));
+const lines = await fetch('../tmp-est-lines.json').then((r) => (r.ok ? r.json() : [])).catch(() => []);
+const useById = new Map(), useByName = new Map();
+for (const l of lines) {
+  if (l.itemId) { if (!useById.has(l.itemId)) useById.set(l.itemId, new Map()); useById.get(l.itemId).set(l.est, l.updatedAt); }
+  if (l.name) { if (!useByName.has(l.name)) useByName.set(l.name, new Map()); useByName.get(l.name).set(l.est, l.updatedAt); }
+}
+
+// ---- 規格の読み取り ----
+// 材質記号は枝番を落として比べる。SGPの黒/白（亜鉛メッキ）は別物なので区分として残し、
+// 突き合わせは通すが注記を出す
+function spec(name) {
+  const n = han(name);
+  let mat = null, kubun = '';
+  if (/^SGP/.test(n)) {
+    mat = 'SGP';
+    kubun = /\(黒\)/.test(n) ? '黒' : (/\(白\)/.test(n) ? '白' : (/\(高炉品\)/.test(n) ? '高炉品'
+      : (/\(溶協品\)/.test(n) ? '溶協品' : (/\(W\)/.test(n) ? 'W' : ''))));
+  } else if (/STPG370/.test(n)) { mat = 'STPG370'; kubun = (/STPG370(\w+)/.exec(n) || [])[1] || ''; }
+  else if (/STPT370/.test(n)) { mat = 'STPT370'; kubun = (/STPT370(\w*)/.exec(n) || [])[1] || ''; }
+  else if (/STKM13A/.test(n)) { mat = 'STKM13A'; }
+  else if (/FF-/.test(n) && /SS400/.test(n)) { mat = 'SS400-FF'; }
+  else if (/異径ﾁｰｽﾞ/.test(n)) { mat = '異径ﾁｰｽﾞ' + ((/\((SUS[^)]*|SS400)\)/.exec(n) || [])[1] || ''); }
+  const nom = (/(\d+)A/.exec(n) || [])[1] || null;          // 呼び径
+  const sch = (/s(\d+)/i.exec(n) || [])[1] || '';           // Sch
+  // 「50Axx80」のように s が抜けた打ち間違いがある。読み替えはせず、印だけ付けて
+  // 判定できない扱いにする（勝手に s80 と読むと、無い物を「代わりがある」と言ってしまう）
+  const schTypo = !sch && /A\s*xx\s*\d+/i.test(n);
+  const kg = (/(\d+)k/.exec(n) || [])[1] || '';             // フランジの呼び圧力
+  const nom2 = [...n.matchAll(/(\d+)A/g)].map((m) => m[1]); // 異径は呼び径が2つ
+  // 長さ（mmに揃える）
+  let len = '';
+  const m1 = /x\s*([\d.]+)\s*m\b/.exec(n);        // 5.5m
+  const m2 = /x\s*(\d{3,})(?!\s*A)/.exec(n);      // 4000
+  if (m1) len = String(Math.round(Number(m1[1]) * 1000));
+  else if (m2) len = m2[1];
+  return { mat, kubun, nom, sch, kg, nom2, len, schTypo };
+}
+const keyOf = (s) => {
+  if (!s.mat) return null;
+  if (s.mat === 'SS400-FF') return s.kg && s.nom ? `SS400-FF|${s.kg}k|${s.nom}A` : null;
+  if (s.mat.startsWith('異径ﾁｰｽﾞ')) return s.nom2.length >= 2 ? `${s.mat}|${s.nom2.join('x')}` : null;
+  if (s.mat === 'STKM13A') return null;                       // 寸法の書き方が特殊 → 判定できない
+  if (s.schTypo) return null;                                 // Schが打ち間違いで読めない → 判定できない
+  return s.nom ? `${s.mat}|${s.nom}A|s${s.sch || '-'}|${s.len || '-'}` : null;
+};
+
+const stopped = cache.items.filter((x) => x.discontinued && /菅機械/.test(x.supplier || ''));
+const live = cache.items.filter((x) => !x.discontinued);
+const liveKeys = new Map();
+for (const x of live) {
+  const k = keyOf(spec(x.name));
+  if (!k) continue;
+  if (!liveKeys.has(k)) liveKeys.set(k, []);
+  liveKeys.get(k).push(x);
+}
+
+const rows = stopped.map((x) => {
+  const s = spec(x.name);
+  const k = keyOf(s);
+  const alts = k ? (liveKeys.get(k) || []) : [];
+  const ests = new Map([...(useById.get(x.id) || []), ...(useByName.get(x.name) || [])]);
+  const last = [...ests.values()].filter(Boolean).sort().pop();
+  // 黒/白は亜鉛メッキの有無で別物。代わりが別区分ならその旨を出す
+  const caveat = alts.length && s.mat === 'SGP' && s.kubun
+    ? alts.some((a) => spec(a.name).kubun !== s.kubun) ? '※SGPの区分が違う（黒＝黒管／白＝亜鉛メッキ）。現物確認' : ''
+    : (alts.length && s.mat === 'STPG370' && alts.some((a) => spec(a.name).kubun !== s.kubun)
+      ? '※STPG370の枝番が違う（SH／E）' : '');
+  return {
+    x, s, k,
+    判定: !k ? 'C' : (alts.length ? 'A' : 'B'),
+    alts, caveat, ests,
+    last: last ? String(last).slice(0, 7).replace('-', '/') : '',
+  };
+});
+const order = { B: 0, C: 1, A: 2 };
+rows.sort((a, b) => order[a.判定] - order[b.判定] || a.x.name.localeCompare(b.x.name, 'ja'));
+
+const T = (r) => [
+  r.x.name,
+  r.k ? r.k.replace(/\|/g, ' / ')
+    : (r.s.schTypo ? '（品名の打ち間違い「Axx80」でSchが読めない）' : '（規格を読み取れない）'),
+  r.判定,
+  r.alts.map((a) => `${a.name}【${a.supplier}】¥${a.cost}`).join('／') + (r.caveat ? ` ${r.caveat}` : ''),
+  r.x.useCount ?? 0, r.ests.size, r.last || (r.x.updatedAtRaw ? r.x.updatedAtRaw.slice(0, 7) + '（単価の更新日）' : ''),
+];
+const HEAD = ['品名', '規格の内訳（材質記号 / 呼び径 / Sch / 長さ）', '判定', '代わりの品名と仕入先',
+  'useCount', '使用中の見積件数', '直近で使われた年月'];
+
+const n = (j) => rows.filter((r) => r.判定 === j).length;
+document.getElementById('out').innerHTML = `
+<table style="width:auto">
+<tr><th>判定</th><th>件数</th><th>意味</th></tr>
+<tr><td class="A">A</td><td class="num">${n('A')}</td><td>別の仕入先に同じ規格がある（品名は違ってよい）</td></tr>
+<tr><td class="B">B</td><td class="num">${n('B')}</td><td>他に無い＝買える行がゼロになる</td></tr>
+<tr><td class="C">C</td><td class="num">${n('C')}</td><td>規格を機械で読み取れず判定できない</td></tr>
+</table>
+<table>
+<tr>${HEAD.map((h) => `<th>${esc(h)}</th>`).join('')}</tr>
+${rows.map((r) => `<tr class="r${r.判定}">${T(r).map((v, i) => {
+  if (i === 2) return `<td class="${v}">${v}</td>`;
+  if (i === 3) return `<td class="wrap small">${esc(v) || '—'}</td>`;
+  return `<td class="${[4, 5].includes(i) ? 'num' : (i === 1 ? 'num small' : '')}">${esc(v)}</td>`;
+}).join('')}</tr>`).join('')}
+</table>
+<h2>貼り付け用（TSV）</h2>
+<pre id="tsv">${esc([HEAD.join('\t'), ...rows.map((r) => T(r).join('\t'))].join('\n'))}</pre>`;
+
+window.__ALT = { rows: rows.map((r) => ({ id: r.x.id, name: r.x.name, key: r.k, 判定: r.判定,
+  alts: r.alts.map((a) => `${a.name}【${a.supplier}】¥${a.cost}`), cost: r.x.cost })) };
+</script>
+</body>
+</html>
