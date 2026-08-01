@@ -6,12 +6,12 @@
 // ・穴は指摘するだけで、止めない
 // ============================================================
 
-import { esc, YEN, fmtDate } from './util.js?v=26';
-import { openOverlay, toast } from './ui.js?v=26';
-import { cache, norm } from './store.js?v=26';
+import { esc, YEN, fmtDate } from './util.js?v=27';
+import { openOverlay, toast } from './ui.js?v=27';
+import { cache, norm } from './store.js?v=27';
 import {
   db, doc, collection, addDoc, updateDoc, Timestamp, serverTimestamp, arrayUnion,
-} from './firebase.js?v=26';
+} from './firebase.js?v=27';
 
 // SheetJSを必要なときだけCDNから読む（事務所PCはオンライン前提）
 let sheetJs = null;
@@ -64,10 +64,15 @@ export const atomize = (s) => norm(s)
 // 品目側の照合キー: アトム列を空白区切りで並べたもの（境界判定のため）
 // prevNames は品名を統一したときの旧品名。集計表は業者の書き方で来るため
 // （豫洲のTP-Aは外径27.2x2.0で来る）、旧品名を残さないと統一した品目に当たらなくなる。
+// aliases も混ぜる。用途が2つある:
+//  ① 一度つないだ集計表の表記（名称｜材質｜形格）… 次から確実に当たるようにする
+//  ② 取引が終わった仕入先の品名（例 小野建の行に「SGP(黒) 25Ax5.5m」）…
+//     過去の納品書には菅機械の書き方が残るため、無いと新規材料として扱われる
+// aliases は「その品目を指す言い方」しか入らないので、混ぜても誤接続は増えない。
 export function matchKeyOf(it) {
   if (!it._mk) {
-    it._mk = ' ' + atomize([it.name, ...(it.prevNames || []), it.category, it.material, it.spec, it.supplier]
-      .join(' ')).join(' ') + ' ';
+    it._mk = ' ' + atomize([it.name, ...(it.prevNames || []), ...(it.aliases || []),
+      it.category, it.material, it.spec, it.supplier].join(' ')).join(' ') + ' ';
   }
   return it._mk;
 }

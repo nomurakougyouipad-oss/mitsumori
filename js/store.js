@@ -7,8 +7,8 @@
 import {
   db, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp,
-} from './firebase.js?v=26';
-import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=26';
+} from './firebase.js?v=27';
+import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=27';
 
 // ---------- 検索の正規化 ----------
 // ひらがな→カタカナ、全角→半角(NFKC)、大文字→小文字、記号ゆれ(×→x等)を吸収
