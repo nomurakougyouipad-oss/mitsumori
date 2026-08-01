@@ -62,8 +62,11 @@ function spec(name) {
   const nom2 = [...n.matchAll(/(\d+)A/g)].map((m) => m[1]); // 異径は呼び径が2つ
   // 長さ（mmに揃える）
   let len = '';
-  const m1 = /x\s*([\d.]+)\s*m\b/.exec(n);        // 5.5m
-  const m2 = /x\s*(\d{3,})(?!\s*A)/.exec(n);      // 4000
+  // 「x5.5m」も「x定尺5.5m」も同じ長さ。「定尺」の2文字で読み落とさないよう先に外す。
+  // m は必須にしておく（外すと「□-9x200x200x560」の200を長さと誤読する）
+  const nn = n.replace(/定尺/g, '');
+  const m1 = /x\s*([\d.]+)\s*m\b/.exec(nn);       // 5.5m
+  const m2 = /x\s*(\d{3,})(?!\s*A)/.exec(nn);     // 4000
   if (m1) len = String(Math.round(Number(m1[1]) * 1000));
   else if (m2) len = m2[1];
   return { mat, kubun, nom, sch, kg, nom2, len, schTypo };
