@@ -3,15 +3,15 @@
 // ルート: #home / #estimates / #search / #settings / #est/{id}
 // ============================================================
 
-import { esc, local } from './util.js?v=16';
-import { icons } from './icons.js?v=16';
-import { toast, closeAllOverlays } from './ui.js?v=16';
-import { db, ready, collection, addDoc } from './firebase.js?v=16';
-import { startSubscriptions, onCacheChange, cache, createEstimate } from './store.js?v=16';
-import { renderHome, renderEstimatesTab } from './screen-home.js?v=16';
-import { renderEstScreen, openCoverPage } from './screen-est.js?v=16';
-import { renderSearchTab } from './screen-order.js?v=16';
-import { renderSettingsTab } from './screen-settings.js?v=16';
+import { esc, local } from './util.js?v=18';
+import { icons } from './icons.js?v=18';
+import { toast, closeAllOverlays } from './ui.js?v=18';
+import { db, ready, collection, addDoc } from './firebase.js?v=18';
+import { startSubscriptions, onCacheChange, cache, createEstimate } from './store.js?v=18';
+import { renderHome, renderEstimatesTab } from './screen-home.js?v=18';
+import { renderEstScreen, openCoverPage, openConfirmPage } from './screen-est.js?v=18';
+import { renderSearchTab } from './screen-order.js?v=18';
+import { renderSettingsTab } from './screen-settings.js?v=18';
 
 const state = {
   staff: local.get('staff', ''),
@@ -44,7 +44,12 @@ let currentRoute = '';
 
 function parseRoute() {
   const h = location.hash.replace(/^#/, '');
-  if (h.startsWith('est/')) return { kind: 'est', id: h.slice(4).split('/')[0] };
+  // #est/{id} … 明細一覧 ／ #est/{id}/confirm … 確認画面を開いた状態で入る
+  //（見積書のページから「アプリへ戻る」で帰ってくるときに使う）
+  if (h.startsWith('est/')) {
+    const parts = h.slice(4).split('/');
+    return { kind: 'est', id: parts[0], sub: parts[1] || '' };
+  }
   if (TABS.some((t) => t.id === h)) return { kind: 'tab', id: h };
   // ハッシュなし（アイコンから起動した直後）は表紙を出す
   return { kind: 'cover', id: '' };
@@ -185,6 +190,13 @@ function render() {
   if (route.kind === 'est') {
     app.innerHTML = '<div id="est-root" style="flex:1;display:flex;flex-direction:column;min-height:0"></div>' + tabbarHtml('estimates');
     cleanup = renderEstScreen(document.getElementById('est-root'), route.id);
+    // 見積書（表紙HTML）から「アプリへ戻る」で帰ってきたら、確認画面を開き直す
+    //（ホームやトップに飛ばさず、出ていった場所に戻す）
+    if (route.sub === 'confirm') {
+      openConfirmPage(route.id);
+      // URLは #est/{id} に戻しておく（再描画は起こさない）
+      history.replaceState(null, '', '#est/' + route.id);
+    }
     // 新規作成直後は表紙から
     if (sessionStorage.getItem('openCover') === route.id) {
       sessionStorage.removeItem('openCover');

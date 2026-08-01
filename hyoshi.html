@@ -385,7 +385,9 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);padding:16px}
 <body>
 
 <div class="toolbar">
-  <button class="btn" id="btnBackApp" style="display:none;background:#5a7a6a;color:#fff" onclick="history.back()">‹ アプリへ戻る</button>
+  <!-- PWAはブラウザの戻るが無く、ここが唯一の出口。指で押せるよう44px以上にする -->
+  <button class="btn" id="btnBackApp" onclick="backToApp()"
+    style="display:none;background:var(--g1);color:#fff;min-height:44px;font-size:14px;padding:10px 18px">‹ アプリへ戻る</button>
   <span class="toolbar-title">🍀 よつば建設工業　御見積書・御請求書</span>
   <div class="tabs">
     <button class="tab active" id="tab-biz" onclick="switchTab('biz')">ビジネス版（縦2枚）</button>
@@ -1130,8 +1132,20 @@ function showStatus(msg,type){
    ============================================================ */
 const escHtml = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
+// アプリへ戻る。PWAは全画面でブラウザの戻るが無く、ここが唯一の出口なので確実に効かせる。
+// history.back() は使わない —— 別ウィンドウで開かれた場合、1つ前は空白ページなので
+// 戻ったつもりが真っ白な行き止まりになる（iPhoneのPWAで実際に起きた）。
+// 見積の確認画面のURLへ直接移動する。アプリ側は sessionStorage の印を見て
+// 確認画面を開き直すので、出ていった場所に戻る。
+let backEstId = '';
+function backToApp(){
+  // 「/confirm」を付けて、どの画面に戻るかをURL自体に持たせる
+  location.replace(backEstId ? './#est/' + backEstId + '/confirm' : './');
+}
+
 function applyAppData(d){
   switchTab('biz');
+  backEstId = d.estId || '';
   document.getElementById('btnBackApp').style.display='inline-block';
 
   // ---- ヘッダー ----

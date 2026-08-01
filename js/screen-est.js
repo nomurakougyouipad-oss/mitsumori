@@ -2,23 +2,23 @@
 // 見積画面 — 明細一覧（費目タブ）・表紙の情報・見積の確認
 // ============================================================
 
-import { esc, YEN, fmtDateJa, local } from './util.js?v=16';
-import { icons } from './icons.js?v=16';
-import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=16';
+import { esc, YEN, fmtDateJa, local } from './util.js?v=18';
+import { icons } from './icons.js?v=18';
+import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=18';
 import {
   cache, subscribeEstimate, subscribeLines, updateEstimate,
   addLine, deleteLine, saveSummary, addNamed,
-} from './store.js?v=16';
-import { totals, lineAmount, excelRound } from './calc.js?v=16';
+} from './store.js?v=18';
+import { totals, lineAmount, excelRound } from './calc.js?v=18';
 import {
   db, doc, updateDoc, deleteDoc, getDocs, collection, Timestamp, arrayUnion, arrayRemove,
   storageRef, uploadBytes, getDownloadURL, deleteObject, storage,
-} from './firebase.js?v=16';
+} from './firebase.js?v=18';
 import {
   openMaterialPage, openManualPage, openPendingPage,
   openLaborPage, openTravelPage, openSubcontractPage,
-} from './screen-material.js?v=16';
-import { exportEstimateCsv } from './export.js?v=16';
+} from './screen-material.js?v=18';
+import { exportEstimateCsv } from './export.js?v=18';
 
 const KINDS = ['材料', '労務', '移動', '外注'];
 const KIND_LABEL = { 材料: '材料費', 労務: '労務費', 移動: '移動費', 外注: '外注費' };
@@ -595,6 +595,7 @@ export function openConfirmPage(estId) {
     const amt = (l) => excelRound(lineAmount(l, r, u) || 0);
     const by = (k) => lines.filter((l) => l.kind === k);
     const payload = {
+      estId,                                   // 表紙から戻るときの行き先
       work: est.projectName || '', loc: est.site || '', client: est.customer || '',
       orderNo: est.orderNo || '', tanto: est.staff || '',
       welfareOn: est.welfareOn !== false, approx: !!approx,
@@ -612,9 +613,12 @@ export function openConfirmPage(estId) {
       subcon: by('外注').map((l) => ({ vendor: l.supplier || '', content: l.name || '', amt: l.amount || 0 })),
     };
     // ?v= を付けて、端末に残った古い表紙HTMLが使われないようにする
-    const url = 'hyoshi.html?v=16#app=' + encodeURIComponent(JSON.stringify(payload));
-    const w = window.open(url, '_blank');
-    if (!w) location.assign(url);
+    const url = 'hyoshi.html?v=19#app=' + encodeURIComponent(JSON.stringify(payload));
+    // 必ず「同じ画面」で開く。別タブ/別ウィンドウ（window.open）にすると、
+    // iPhoneのPWAでは表紙がSafari側に開いて履歴が繋がらず、
+    // 「アプリへ戻る」も効かない行き止まりになる。
+    // 戻り先（#est/{id}/confirm）は表紙側がURLで持つので、ここでは印を残さない。
+    location.assign(url);
   }
 
   function doExport(approx) {
