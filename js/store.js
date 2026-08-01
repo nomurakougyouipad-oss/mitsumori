@@ -7,8 +7,8 @@
 import {
   db, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp,
-} from './firebase.js?v=25';
-import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=25';
+} from './firebase.js?v=26';
+import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=26';
 
 // ---------- 検索の正規化 ----------
 // ひらがな→カタカナ、全角→半角(NFKC)、大文字→小文字、記号ゆれ(×→x等)を吸収
@@ -191,11 +191,32 @@ export function searchItems(q, max = 30, opts = {}) {
 
 function tsMillis(v) { return v && v.toMillis ? v.toMillis() : 0; }
 
-// 更新日が半年以上前（または不明）の品目に色をつける判定
+// 単価が古い品目に色をつける判定。
+//
+// 適用日(effectiveDate)＝業者がその単価を答えた日。入っていればこれを見る。
+// **空欄は「古い」とみなさない。** 分からないものを警告に混ぜると、
+// 警告そのものが見られなくなるため（2026/8に決めた運用）。
+// 適用日が空のときだけ、従来どおり updatedAt（アプリでの更新時刻）で見る。
+const HALF_YEAR = 183 * 24 * 3600 * 1000;
 export function isStale(item) {
+  const eff = parseEffectiveDate(item.effectiveDate);
+  if (eff != null) return Date.now() - eff > HALF_YEAR;
+  if (item.effectiveDate) return false;   // 日付として読めない文字が入っている → 判定しない
+  // updatedAt が無い行（31件。あべ工房の樹脂板など）は、従来どおり「古い」に含める。
+  // 適用日の運用が回り始めたら、ここも「分からないものは警告に混ぜない」に
+  // 揃えるかどうかを決める
   const ms = tsMillis(item.updatedAt);
   if (!ms) return true;
-  return Date.now() - ms > 183 * 24 * 3600 * 1000;
+  return Date.now() - ms > HALF_YEAR;
+}
+
+// 「2026/08/01」「2026/8/1」どちらでも読む。読めなければ null
+function parseEffectiveDate(v) {
+  if (!v) return null;
+  const m = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/.exec(String(v).trim());
+  if (!m) return null;
+  const t = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+  return isFinite(t) ? t : null;
 }
 
 export async function bumpUseCount(itemId) {

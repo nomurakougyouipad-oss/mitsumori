@@ -2,7 +2,7 @@
 // 共通UI部品 — 全画面オーバーレイ・テンキー・トースト
 // ============================================================
 
-import { esc } from './util.js?v=25';
+import { esc } from './util.js?v=26';
 
 // ---------- トースト ----------
 let toastTimer = null;
@@ -118,6 +118,37 @@ export function openNumpad({ title = '数量', value = '', unit = '', allowDecim
     }
     if (e.target.closest('.np-cancel') || e.target === back) back.remove();
   });
+}
+
+// ---------- 文字入力ダイアログ ----------
+// 数字は openNumpad、文字は こちら。メモや日付など短い文字列を入れる。
+// iOS対策として input は一度だけ作り、描き直さない（ui.js の bindSearch と同じ理由）。
+export function openTextInput({ title = '入力', value = '', placeholder = '', hint = '', multiline = false, onDone }) {
+  const root = document.getElementById('modal-root');
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = `
+    <div class="modal"><div class="modal-head">${esc(title)}<button class="x" id="ti-x">×</button></div>
+    <div class="modal-body">
+      ${multiline
+        ? `<textarea id="ti-v" rows="4" placeholder="${esc(placeholder)}"
+             style="width:100%;font-size:16px;padding:10px;border:1px solid var(--line);border-radius:6px;line-height:1.6"></textarea>`
+        : `<input id="ti-v" placeholder="${esc(placeholder)}" autocomplete="off"
+             style="width:100%;font-size:16px;padding:12px;border:1px solid var(--line);border-radius:6px">`}
+      ${hint ? `<div style="font-size:12px;color:var(--muted);line-height:1.7">${esc(hint)}</div>` : ''}
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button class="btn" style="flex:1;min-height:44px" id="ti-cancel">やめる</button>
+        <button class="btn btn-primary" style="flex:1;min-height:44px" id="ti-ok">決定</button>
+      </div>
+    </div></div>`;
+  root.appendChild(back);
+  const input = back.querySelector('#ti-v');
+  input.value = value ?? '';
+  const close = () => back.remove();
+  back.querySelector('#ti-x').addEventListener('click', close);
+  back.querySelector('#ti-cancel').addEventListener('click', close);
+  back.querySelector('#ti-ok').addEventListener('click', () => { const v = input.value.trim(); close(); onDone(v); });
+  setTimeout(() => input.focus(), 30);
 }
 
 // ---------- 確認ダイアログ ----------

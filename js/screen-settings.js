@@ -4,18 +4,18 @@
 // 単価マスター・取引先・仕入先・常設注番／集計表読み込み／書き戻しCSV
 // ============================================================
 
-import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=25';
-import { openOverlay, openNumpad, toast, confirmDialog, bindSearch, isPc, onPcChange } from './ui.js?v=25';
+import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=26';
+import { openOverlay, openNumpad, openTextInput, toast, confirmDialog, bindSearch, isPc, onPcChange } from './ui.js?v=26';
 import {
   cache, searchItems, isStale, updateEstimate, saveSummary, addNamed,
   norm, DEFAULT_SYNONYMS, splitTerms, isTooShortTerm,
-} from './store.js?v=25';
-import { totals } from './calc.js?v=25';
+} from './store.js?v=26';
+import { totals } from './calc.js?v=26';
 import {
   db, doc, collection, addDoc, updateDoc, deleteDoc, getDocs, setDoc,
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
-} from './firebase.js?v=25';
-import { openTallyPage } from './screen-tally.js?v=25';
+} from './firebase.js?v=26';
+import { openTallyPage } from './screen-tally.js?v=26';
 
 const RATE_DEFS = [
   ['material', '材料費 上乗せ%', '原価に対して'],
@@ -234,6 +234,11 @@ function editItem(it, onDone) {
       <div style="font-size:14px;font-weight:700">${esc(it.name)}</div>
       <div class="rate-row"><span class="lb">原価</span><div class="rate-input" id="ie-cost"><b>${it.cost != null ? it.cost.toLocaleString('ja-JP') : '—'}</b><span>円</span></div></div>
       ${it.kgPrice != null ? `<div class="rate-row"><span class="lb">kg単価（原価を自動再計算）</span><div class="rate-input" id="ie-kg"><b>${it.kgPrice}</b><span>円/kg</span></div></div>` : ''}
+      <div class="rate-row"><span class="lb">適用日<br><small style="color:var(--muted2)">業者の回答日</small></span>
+        <div class="rate-input" id="ie-eff" style="min-width:130px"><b>${esc(it.effectiveDate || '未記入')}</b></div></div>
+      <div class="rate-row"><span class="lb">メモ<br><small style="color:var(--muted2)">重量の出どころなど</small></span>
+        <div class="rate-input" id="ie-note" style="min-width:130px;text-align:left">
+          <b style="font-weight:400;font-size:12.5px">${esc(it.note || '（なし）')}</b></div></div>
       ${(it.aliases || []).length ? `<div style="font-size:12px;color:var(--muted)">別名: ${it.aliases.map(esc).join(' ／ ')}</div>` : ''}
       ${it.discontinued ? `<div style="font-size:12.5px;color:#8A560F;line-height:1.7;margin-top:6px">
         ⛔ 使用停止中。検索と規格の一覧には出ません。過去の見積と集計表の突き合わせは今まで通りです
@@ -245,19 +250,41 @@ function editItem(it, onDone) {
   root.appendChild(back);
   const close = () => back.remove();
   back.querySelector('#ie-x').addEventListener('click', close);
+  // 単価を触ったら適用日も必ず入れる（運用で忘れないよう、その場で今日を入れる）。
+  // 適用日が入っていないと「いつの単価か分からない」ままになり、古さの判断ができない
+  const today = () => {
+    const d = new Date();
+    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+  };
   back.querySelector('#ie-cost').addEventListener('click', () => openNumpad({
     title: '原価', value: it.cost ?? '', unit: '円', onDone: async (n) => {
       if (n == null) return;
-      await updateDoc(doc(db, 'items', it.id), { cost: n, updatedAt: Timestamp.now() });
-      toast('原価を更新しました'); close(); onDone();
+      await updateDoc(doc(db, 'items', it.id), { cost: n, effectiveDate: today(), updatedAt: Timestamp.now() });
+      toast('原価を更新しました（適用日 ' + today() + '）'); close(); onDone();
     } }));
   back.querySelector('#ie-kg')?.addEventListener('click', () => openNumpad({
     title: 'kg単価', value: it.kgPrice ?? '', unit: '円/kg', onDone: async (n) => {
       if (n == null) return;
-      const patch = { kgPrice: n, updatedAt: Timestamp.now() };
+      const patch = { kgPrice: n, effectiveDate: today(), updatedAt: Timestamp.now() };
       if (it.weight != null) patch.cost = Math.round(it.weight * n);
       await updateDoc(doc(db, 'items', it.id), patch);
       toast('kg単価を更新しました' + (patch.cost != null ? `（原価 ${YEN(patch.cost)}）` : '')); close(); onDone();
+    } }));
+  // 適用日は業者の回答日を入れるので、今日とは限らない。手で直せるようにする
+  back.querySelector('#ie-eff').addEventListener('click', () => openTextInput({
+    title: '適用日', value: it.effectiveDate || today(), placeholder: 'YYYY/MM/DD',
+    hint: '業者が単価を答えた日を入れる。空のままでも構わないが、その行は古さの判定に出てこない',
+    onDone: async (v) => {
+      await updateDoc(doc(db, 'items', it.id), { effectiveDate: v, updatedAt: Timestamp.now() });
+      toast(v ? '適用日を入れました' : '適用日を空にしました'); close(); onDone();
+    } }));
+  back.querySelector('#ie-note').addEventListener('click', () => openTextInput({
+    title: 'メモ', value: it.note || '', multiline: true,
+    placeholder: '例: 重量は業者回答の値／重量はJIS表から計算',
+    hint: '重量をどこから取ったかなど、あとで見て分かるように残す',
+    onDone: async (v) => {
+      await updateDoc(doc(db, 'items', it.id), { note: v, updatedAt: Timestamp.now() });
+      toast('メモを保存しました'); close(); onDone();
     } }));
   // 使用停止の切り替え。消さずに候補から外すだけなので、確認は軽くでよい。
   // いつ・どうして止めたか分からなくならないよう、経緯を必ず残す

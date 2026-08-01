@@ -2,12 +2,12 @@
 // ホーム — 自分の工事／会社全体。状態3分類のカード
 // ============================================================
 
-import { esc, YEN, fmtDateJa, local } from './util.js?v=25';
-import { icons } from './icons.js?v=25';
-import { toast } from './ui.js?v=25';
-import { cache, createEstimate } from './store.js?v=25';
-import { openOrderWaitPage, confirmDeleteEstimate } from './screen-order.js?v=25';
-import { openPendingPricePage, openReviewsPage } from './screen-settings.js?v=25';
+import { esc, YEN, fmtDateJa, local } from './util.js?v=26';
+import { icons } from './icons.js?v=26';
+import { toast } from './ui.js?v=26';
+import { cache, createEstimate } from './store.js?v=26';
+import { openOrderWaitPage, confirmDeleteEstimate } from './screen-order.js?v=26';
+import { openPendingPricePage, openReviewsPage } from './screen-settings.js?v=26';
 
 const STATUSES = ['見積中', '発注待ち', '進行中'];
 
