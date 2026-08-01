@@ -340,6 +340,20 @@ body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0
 .entry-btn:active { background: #E4EBF2; }
 .entry-btn span { display: block; font-size: 11px; font-weight: 400; color: var(--muted); }
 
+/* 規格から選ぶ ①種類。文字数がばらつく（「丸棒」〜「縞板（チェッカープレート）」）ので
+   幅なりに並べると段がずれる。2列固定にして大きさを揃える。
+   長い名前は13pxで2行に折り返す。呼び名そのものは変えない */
+.kind-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.kind-btn {
+  min-height: 52px; padding: 8px 10px; border-radius: 6px;   /* 2行になるものに合わせて全部同じ高さ */
+  border: 1px solid #B9C4CF; background: #fff; color: #4A5A6B;
+  font-family: var(--font); font-size: 13px; font-weight: 600;
+  line-height: 1.3; text-align: center; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.kind-btn.on { background: var(--navy); color: #fff; border-color: var(--navy); font-weight: 700; }
+
 .cand-head { font-size: 12px; font-weight: 700; color: var(--muted); padding: 10px 14px 4px; }
 .cand { padding: 11px 14px 11px 18px; border-top: 1px solid #E6EAEE; background: #fff; cursor: pointer; }
 .cand.on { border-left: 4px solid var(--navy); background: #EAF0F6; padding-left: 14px; }

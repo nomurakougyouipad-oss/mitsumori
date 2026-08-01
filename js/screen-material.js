@@ -3,15 +3,15 @@
 // 「入力は1件1ページ。保存して次へで画面は移動しない」（README第4章）
 // ============================================================
 
-import { esc, YEN, local } from './util.js?v=29';
-import { icons } from './icons.js?v=29';
-import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=29';
-import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=29';
-import { excelRound } from './calc.js?v=29';
+import { esc, YEN, local } from './util.js?v=30';
+import { icons } from './icons.js?v=30';
+import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=30';
+import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=30';
+import { excelRound } from './calc.js?v=30';
 import {
   buildCatalog, catalogKinds, catalogMaterials,
   fillPattern, makeName, shapeName, buildNameIndex, lookupName,
-} from './catalog.js?v=29';
+} from './catalog.js?v=30';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
@@ -386,17 +386,21 @@ export function openCatalogPage(estimateId, est, opts = {}) {
       <div class="page-body"><div style="padding:14px 12px">
 
         <div class="field"><label>① 種類</label>
-          <div class="chips" style="flex-wrap:wrap">
-            ${kinds.map((k) => `<div class="chip ${kindKey === k.key ? 'on' : ''}" data-kind="${k.key}"
-              style="flex:none">${esc(k.label)}</div>`).join('')}
+          <div class="kind-grid">
+            ${kinds.map((k) => `<button class="kind-btn ${kindKey === k.key ? 'on' : ''}"
+              data-kind="${k.key}">${esc(k.label)}</button>`).join('')}
           </div></div>
 
-        ${kindKey ? `
+        ${kindKey ? (mats.length === 1 ? `
+          <div class="field" style="margin-top:14px"><label>② 材質</label>
+            <div style="font-size:13px;color:var(--muted)">
+              <b class="num" style="color:var(--text)">${esc(mats[0].label)}</b>
+              しかないので選ばれています（${mats[0].sizes.length}件）</div></div>` : `
           <div class="field" style="margin-top:14px"><label>② 材質</label>
             <div class="chips" style="flex-wrap:wrap">
               ${mats.map((m) => `<div class="chip ${matLabel === m.label ? 'on' : ''}" data-mat="${esc(m.label)}"
                 style="flex:none">${esc(m.label)}<small style="color:var(--muted2);margin-left:4px">${m.sizes.length}</small></div>`).join('')}
-            </div></div>` : ''}
+            </div></div>`) : ''}
 
         ${g && !composing && g.hasLength ? shapeStepHtml(g) + lengthStepHtml(g) + otherStepHtml(g) : ''}
 
@@ -467,7 +471,9 @@ export function openCatalogPage(estimateId, est, opts = {}) {
     ov.el.querySelectorAll('[data-kind]').forEach((el) => el.addEventListener('click', () => {
       kindKey = el.dataset.kind; matLabel = ''; shapeKey = ''; lenKey = ''; composing = false; picked = null;
       const ms = catalogMaterials(cat, kindKey);
-      if (ms.length === 1) matLabel = ms[0].label;   // 材質が1つなら選ばせない
+      // 材質が1つなら選ばせずそのまま③へ進む（TP-A・H形鋼。タップが1回無駄になるため）。
+      // 何が選ばれたかは②の欄に文字で出す
+      if (ms.length === 1) matLabel = ms[0].label;
       paint();
     }));
     ov.el.querySelectorAll('[data-mat]').forEach((el) => el.addEventListener('click', () => {

@@ -24,9 +24,9 @@ pre{background:#f6f8fa;padding:8px;overflow:auto;font-size:11px;max-height:400px
 <div id="out">読み込み中…</div>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script type="module">
-import { cache, startSubscriptions } from '../js/store.js?v=29';
-import { parseItemName } from '../js/catalog.js?v=29';
-import { parseSheet } from '../js/screen-tally.js?v=29';
+import { cache, startSubscriptions } from '../js/store.js?v=30';
+import { parseItemName } from '../js/catalog.js?v=30';
+import { parseSheet } from '../js/screen-tally.js?v=30';
 
 const esc = (x) => String(x ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const fmtTs = (v) => {
