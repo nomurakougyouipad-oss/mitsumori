@@ -9,8 +9,8 @@
 //   法定福利費オフの見積は E12=0 で渡す（Excel側が0円で計算するように）
 // ============================================================
 
-import { downloadCsv } from './util.js?v=21';
-import { lineAmount } from './calc.js?v=21';
+import { downloadCsv } from './util.js?v=22';
+import { lineAmount } from './calc.js?v=22';
 
 // Excel内訳書の行数の上限
 const LIMITS = { 材料: 15, 労務: 10, 移動: 7, 外注: 7 };

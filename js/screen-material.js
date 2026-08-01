@@ -3,15 +3,15 @@
 // 「入力は1件1ページ。保存して次へで画面は移動しない」（README第4章）
 // ============================================================
 
-import { esc, YEN, local } from './util.js?v=21';
-import { icons } from './icons.js?v=21';
-import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=21';
-import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=21';
-import { excelRound } from './calc.js?v=21';
+import { esc, YEN, local } from './util.js?v=22';
+import { icons } from './icons.js?v=22';
+import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=22';
+import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=22';
+import { excelRound } from './calc.js?v=22';
 import {
   buildCatalog, catalogKinds, catalogMaterials,
   fillPattern, makeName, shapeName, buildNameIndex, lookupName,
-} from './catalog.js?v=21';
+} from './catalog.js?v=22';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
@@ -271,7 +271,8 @@ export function openCatalogPage(estimateId, est, opts = {}) {
       ${sizes.map((s) => `
         <div class="cand" data-size="${esc(s.id)}" style="border-top:1px solid #E6EAEE">
           <div style="display:flex;align-items:center;gap:8px">
-            <span class="nm" style="flex:1">${esc(s.dims)}${s.mods.length ? `<small style="color:var(--muted2)"> ${esc(s.mods.join('・'))}</small>` : ''}</span>
+            <span class="nm" style="flex:1">${esc(s.dims)}${s.mods.length ? `<small style="color:var(--muted2)"> ${esc(s.mods.join('・'))}</small>` : ''}
+              ${s.supplier ? `<small style="color:var(--muted2);display:block">${esc(s.supplier)}</small>` : ''}</span>
             <span class="num" style="font-weight:700;color:${num(s.cost) != null ? 'var(--navy)' : 'var(--accent)'}">
               ${num(s.cost) != null ? YEN(s.cost) : '単価待ち'}</span>
           </div>

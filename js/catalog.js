@@ -25,8 +25,8 @@
 // （jis-sizes.js のコメント参照）。JISの重量(kg/m)は参考表示のみ。金額には一切使わない。
 // ============================================================
 
-import { norm } from './store.js?v=21';
-import { JIS_SIZES, JIS_LENGTHS } from './jis-sizes.js?v=21';
+import { norm } from './store.js?v=22';
+import { JIS_SIZES, JIS_LENGTHS } from './jis-sizes.js?v=22';
 
 // 画面に出す種類。heads はマスターの品名の先頭語（実データの表記に合わせる）
 export const CATALOG_KINDS = [
@@ -66,10 +66,15 @@ export function parseItemName(name) {
   const nm = String(name || '');
   const sp = nm.indexOf(' ');
   const left = sp < 0 ? nm : nm.slice(0, sp);
-  const dims = sp < 0 ? '' : nm.slice(sp + 1).trim();
+  let dims = sp < 0 ? '' : nm.slice(sp + 1).trim();
+  // 末尾の【仕入先】は寸法ではない。同じ物を複数業者から取るときの区別なので切り離す
+  //（付いたままだと寸法の型が別扱いになり、規格の一覧から外れてしまう）
+  const noteM = /\s*【([^】]*)】\s*(-\d+)?$/.exec(dims);
+  const note = noteM ? noteM[1] + (noteM[2] || '') : '';
+  if (noteM) dims = dims.slice(0, noteM.index).trim();
   const head = (/^([^(（]*)/.exec(left) || ['', ''])[1];
   const parens = [...left.matchAll(/[(（]([^)）]*)[)）]/g)].map((x) => x[1]);
-  return { head, mods: parens.slice(0, -1), material: parens[parens.length - 1] || '', dims };
+  return { head, mods: parens.slice(0, -1), material: parens[parens.length - 1] || '', dims, note };
 }
 
 // 寸法から「型」を作る（数字を {} に置き換える）。6x65x65x6000 → {}x{}x{}x{}

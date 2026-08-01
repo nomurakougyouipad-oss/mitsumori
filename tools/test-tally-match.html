@@ -23,8 +23,8 @@
 </main>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script type="module">
-import { cache, startSubscriptions } from '../js/store.js?v=21';
-import { matchRow, atomize, atomHit, matchKeyOf, parseSheet } from '../js/screen-tally.js?v=21';
+import { cache, startSubscriptions } from '../js/store.js?v=22';
+import { matchRow, atomize, atomHit, matchKeyOf, parseSheet } from '../js/screen-tally.js?v=22';
 
 const looksFab = (row) => /型切|角切|穴明|レーザー|ﾚｰｻﾞｰ|加工/.test(row.name + row.spec);
 
@@ -55,6 +55,11 @@ try {
   startSubscriptions();
   for (let i = 0; i < 120 && !cache.itemsLoaded; i++) await new Promise((r) => setTimeout(r, 500));
   if (!cache.itemsLoaded) throw new Error('itemsが読み込めませんでした');
+  // ?noprev=1 で旧品名(prevNames)を無効にして比べる。
+  // 品名を統一したとき、業者の書き方で来る集計表が当たり続けるかを確かめるため
+  if (new URLSearchParams(location.search).get('noprev')) {
+    for (const it of cache.items) { delete it.prevNames; delete it._mk; }
+  }
   const url = new URLSearchParams(location.search).get('url') || '../tally-test.xlsx';
   const res = await fetch(url);
   if (!res.ok) throw new Error('xlsxを取得できません: ' + res.status);

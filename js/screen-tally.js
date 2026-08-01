@@ -6,12 +6,12 @@
 // ・穴は指摘するだけで、止めない
 // ============================================================
 
-import { esc, YEN, fmtDate } from './util.js?v=21';
-import { openOverlay, toast } from './ui.js?v=21';
-import { cache, norm } from './store.js?v=21';
+import { esc, YEN, fmtDate } from './util.js?v=22';
+import { openOverlay, toast } from './ui.js?v=22';
+import { cache, norm } from './store.js?v=22';
 import {
   db, doc, collection, addDoc, updateDoc, Timestamp, serverTimestamp, arrayUnion,
-} from './firebase.js?v=21';
+} from './firebase.js?v=22';
 
 // SheetJSを必要なときだけCDNから読む（事務所PCはオンライン前提）
 let sheetJs = null;
@@ -62,8 +62,13 @@ export const atomize = (s) => norm(s)
   .map(canonAtom);
 
 // 品目側の照合キー: アトム列を空白区切りで並べたもの（境界判定のため）
+// prevNames は品名を統一したときの旧品名。集計表は業者の書き方で来るため
+// （豫洲のTP-Aは外径27.2x2.0で来る）、旧品名を残さないと統一した品目に当たらなくなる。
 export function matchKeyOf(it) {
-  if (!it._mk) it._mk = ' ' + atomize([it.name, it.category, it.material, it.spec, it.supplier].join(' ')).join(' ') + ' ';
+  if (!it._mk) {
+    it._mk = ' ' + atomize([it.name, ...(it.prevNames || []), it.category, it.material, it.spec, it.supplier]
+      .join(' ')).join(' ') + ' ';
+  }
   return it._mk;
 }
 
