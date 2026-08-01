@@ -4,18 +4,18 @@
 // 単価マスター・取引先・仕入先・常設注番／集計表読み込み／書き戻しCSV
 // ============================================================
 
-import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=24';
-import { openOverlay, openNumpad, toast, confirmDialog, bindSearch, isPc, onPcChange } from './ui.js?v=24';
+import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=25';
+import { openOverlay, openNumpad, toast, confirmDialog, bindSearch, isPc, onPcChange } from './ui.js?v=25';
 import {
   cache, searchItems, isStale, updateEstimate, saveSummary, addNamed,
   norm, DEFAULT_SYNONYMS, splitTerms, isTooShortTerm,
-} from './store.js?v=24';
-import { totals } from './calc.js?v=24';
+} from './store.js?v=25';
+import { totals } from './calc.js?v=25';
 import {
   db, doc, collection, addDoc, updateDoc, deleteDoc, getDocs, setDoc,
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
-} from './firebase.js?v=24';
-import { openTallyPage } from './screen-tally.js?v=24';
+} from './firebase.js?v=25';
+import { openTallyPage } from './screen-tally.js?v=25';
 
 const RATE_DEFS = [
   ['material', '材料費 上乗せ%', '原価に対して'],
@@ -236,7 +236,8 @@ function editItem(it, onDone) {
       ${it.kgPrice != null ? `<div class="rate-row"><span class="lb">kg単価（原価を自動再計算）</span><div class="rate-input" id="ie-kg"><b>${it.kgPrice}</b><span>円/kg</span></div></div>` : ''}
       ${(it.aliases || []).length ? `<div style="font-size:12px;color:var(--muted)">別名: ${it.aliases.map(esc).join(' ／ ')}</div>` : ''}
       ${it.discontinued ? `<div style="font-size:12.5px;color:#8A560F;line-height:1.7;margin-top:6px">
-        ⛔ 使用停止中。検索と規格の一覧には出ません。過去の見積と集計表の突き合わせは今まで通りです</div>` : ''}
+        ⛔ 使用停止中。検索と規格の一覧には出ません。過去の見積と集計表の突き合わせは今まで通りです
+        ${it.discontinuedNote ? `<div style="color:var(--muted);margin-top:4px">${esc(it.discontinuedNote)}</div>` : ''}</div>` : ''}
       <button class="btn btn-block" id="ie-stop" style="min-height:44px;margin-top:8px">
         ${it.discontinued ? '使用停止をやめる（また使う）' : 'この品目を使用停止にする'}</button>
       <button class="btn btn-danger btn-block" id="ie-del">この品目を削除</button>
@@ -258,10 +259,17 @@ function editItem(it, onDone) {
       await updateDoc(doc(db, 'items', it.id), patch);
       toast('kg単価を更新しました' + (patch.cost != null ? `（原価 ${YEN(patch.cost)}）` : '')); close(); onDone();
     } }));
-  // 使用停止の切り替え。消さずに候補から外すだけなので、確認は軽くでよい
+  // 使用停止の切り替え。消さずに候補から外すだけなので、確認は軽くでよい。
+  // いつ・どうして止めたか分からなくならないよう、経緯を必ず残す
   back.querySelector('#ie-stop').addEventListener('click', async () => {
     const to = !it.discontinued;
-    await updateDoc(doc(db, 'items', it.id), { discontinued: to, updatedAt: Timestamp.now() });
+    const d = new Date();
+    const stamp = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+    await updateDoc(doc(db, 'items', it.id), {
+      discontinued: to,
+      discontinuedNote: to ? `画面から使用停止にした（${stamp}）` : '',
+      updatedAt: Timestamp.now(),
+    });
     toast(to ? '使用停止にしました' : '使用停止をやめました');
     close(); onDone();
   });

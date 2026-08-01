@@ -2,11 +2,11 @@
 // 発注待ち一覧（事務所の主戦場）と 案件をさがす
 // ============================================================
 
-import { esc, YEN, fmtDateJa, toDate, local } from './util.js?v=24';
-import { openOverlay, toast, confirmDialog, bindSearch } from './ui.js?v=24';
-import { cache, norm, updateEstimate, createEstimate, addLine, deleteEstimateDeep } from './store.js?v=24';
-import { db, collection, getDocs } from './firebase.js?v=24';
-import { exportEstimateCsv } from './export.js?v=24';
+import { esc, YEN, fmtDateJa, toDate, local } from './util.js?v=25';
+import { openOverlay, toast, confirmDialog, bindSearch } from './ui.js?v=25';
+import { cache, norm, updateEstimate, createEstimate, addLine, deleteEstimateDeep } from './store.js?v=25';
+import { db, collection, getDocs } from './firebase.js?v=25';
+import { exportEstimateCsv } from './export.js?v=25';
 
 // 仕入先名 → 発注メール統合名（小野建／小野建 SUS／小野建（継手）→ 小野建）
 function mergeNameOf(supplierName) {
