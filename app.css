@@ -353,6 +353,13 @@ body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0
   -webkit-tap-highlight-color: transparent;
 }
 .kind-btn.on { background: var(--navy); color: #fff; border-color: var(--navy); font-weight: 700; }
+/* 手打ちで金額を入れずに保存すると単価待ちになる、を保存前に知らせる */
+.pending-note {
+  background: #FFF7E8; border: 1px solid #E8D3A8; border-radius: 6px;
+  padding: 10px 12px; font-size: 12.5px; line-height: 1.7; color: #8A560F;
+}
+.pending-note b { font-weight: 700; }
+
 /* ②材質の件数。本体の文字と重なって読めなくなるので、横に置かず下段に回す */
 .kind-btn small { display: block; margin-top: 2px; font-size: 11px; font-weight: 400; color: var(--muted2); }
 .kind-btn.on small { color: rgba(255, 255, 255, 0.8); }

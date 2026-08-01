@@ -3,15 +3,15 @@
 // 「入力は1件1ページ。保存して次へで画面は移動しない」（README第4章）
 // ============================================================
 
-import { esc, YEN, local } from './util.js?v=32';
-import { icons } from './icons.js?v=32';
-import { openOverlay, openNumpad, toast, bindSearch, setHtmlKeepScroll } from './ui.js?v=32';
-import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=32';
-import { excelRound } from './calc.js?v=32';
+import { esc, YEN, local } from './util.js?v=33';
+import { icons } from './icons.js?v=33';
+import { openOverlay, openNumpad, toast, bindSearch, setHtmlKeepScroll } from './ui.js?v=33';
+import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=33';
+import { excelRound } from './calc.js?v=33';
 import {
   buildCatalog, catalogKinds, catalogMaterials,
   fillPattern, makeName, shapeName, buildNameIndex, lookupName,
-} from './catalog.js?v=32';
+} from './catalog.js?v=33';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
@@ -569,9 +569,14 @@ export function openManualPage(estimateId, est, opts = {}) {
   const editingLineId = p.lineId || null;
   const recent = [];
 
+  // 0円は「まだ分からない」の結果としてしか生まれない（2026/8 に決めた運用）。
+  // 現場で0円を確定させず、事務所が承認した0円だけを0円にする。
+  const isPending = () => !(num(cost) > 0);
+
   function paint() {
     const rate = est.rates?.material ?? cache.rates.material;
     const amount = num(cost) != null ? qty * cost * (1 + rate) : null;
+    const pending = isPending();
     ov.el.innerHTML = `
       <div class="page-head"><div class="bar">
         <span class="ttl">✎ 手打ちで入れる</span>
@@ -588,18 +593,24 @@ export function openManualPage(estimateId, est, opts = {}) {
         </div>
         <div class="field"><label>単価（原価）</label>
           <div class="qty-box" id="mn-cost" style="width:100%"><b>${num(cost) != null ? cost.toLocaleString('ja-JP') : '—'}</b><span>円</span></div></div>
-        ${amount != null ? `<div class="amount-band"><div><div class="lbl">計上（上乗せ${Math.round(rate * 100)}%込み）</div>
-          <div class="v" style="font-size:24px;color:var(--navy)">${YEN(excelRound(amount))}</div></div></div>` : ''}
+        ${pending ? `
+          <div class="pending-note">⏱ このまま保存すると<b>単価待ち</b>になります。
+            事務所が業者に聞いて金額を入れます。金額はまだ入れなくて構いません</div>`
+    : `<div class="amount-band"><div><div class="lbl">計上（上乗せ${Math.round(rate * 100)}%込み）</div>
+          <div class="v" style="font-size:24px;color:var(--navy)">${YEN(excelRound(amount))}</div></div></div>`}
         <div class="field" style="margin-top:16px">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
             <input type="checkbox" id="mn-reg" ${registerToMaster ? 'checked' : ''} style="width:18px;height:18px">
             単価マスターに登録する（繰り返し買う材料のときだけ）</label>
-          <div style="font-size:11.5px;color:var(--muted2);margin-top:4px">加工品・一点物では押さないでください</div>
+          <div style="font-size:11.5px;color:var(--muted2);margin-top:4px">加工品・一点物では押さないでください${pending
+      ? '<br>単価が入っていないので、今チェックしても登録されません' : ''}</div>
         </div>
       </div></div>
       <div class="bottom-bar">
         ${recentBandHtml(recent)}
-        <button class="btn btn-primary btn-block btn-big" id="mn-next">${editingLineId ? '保存して戻る' : '保存して次へ'}</button>
+        <button class="btn btn-primary btn-block btn-big" id="mn-next">${pending
+      ? (editingLineId ? '⏱ 単価待ちで保存して戻る' : '⏱ 単価待ちで保存して次へ')
+      : (editingLineId ? '保存して戻る' : '保存して次へ')}</button>
         ${editingLineId ? '' : '<button class="btn btn-block" id="mn-back" style="margin-top:8px">保存して戻る</button>'}
       </div>`;
 
@@ -617,21 +628,30 @@ export function openManualPage(estimateId, est, opts = {}) {
 
   async function save(stay) {
     if (!name.trim()) { toast('品名を入れてください'); return; }
+    const pending = isPending();
     const line = {
       kind: '材料', itemId: null, name: name.trim(),
       qty: num(qty) || 0, unit, cost: num(cost) || 0, supplier: p.supplier || '',
-      handwritten: true, pendingPrice: false,
+      // 金額が空でも0でも単価待ちにする。0円で確定させるのは事務所だけ
+      //（設定 > 単価待ちの品目 で0を入れると確定する）
+      handwritten: true, pendingPrice: pending,
     };
     try {
       if (editingLineId) await updateLine(estimateId, editingLineId, line);
       else await addLine(estimateId, { ...line, order: Date.now() });
-      if (registerToMaster && num(cost) != null) {
+      // 単価が決まっていないものは台帳に入れない（0円の品目を作らない）
+      if (registerToMaster && !pending) {
         await addNamed('items', {
           category: '', supplier: '', name: name.trim(), unit, cost: num(cost),
           material: '', spec: '', type: '', useCount: 1, aliases: [],
           effectiveDate: null, updatedAt: new Date(), updatedAtRaw: '', needsReview: false,
         });
         toast('単価マスターにも登録しました');
+      } else if (registerToMaster) {
+        // 黙って登録しないと「登録したつもり」になるので必ず理由を出す
+        toast('単価が入っていないので単価マスターには登録していません');
+      } else if (pending) {
+        toast('単価待ちで保存しました');
       }
       recent.push({ name, qty, unit });
       if (stay && !editingLineId) {
@@ -950,7 +970,8 @@ export function openSubcontractPage(estimateId, est, opts = {}) {
     const line = {
       kind: '外注', name: content.trim(), supplier: supplier.trim(),
       amount: num(amount),
-      handwritten: false, pendingPrice: false,
+      // 手打ちと同じ扱い。0円は「まだ分からない」の結果としてしか生まれない
+      handwritten: false, pendingPrice: !(num(amount) > 0),
     };
     try {
       if (editingLineId) await updateLine(estimateId, editingLineId, line);

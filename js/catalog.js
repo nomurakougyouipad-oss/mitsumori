@@ -25,8 +25,8 @@
 // （jis-sizes.js のコメント参照）。JISの重量(kg/m)は参考表示のみ。金額には一切使わない。
 // ============================================================
 
-import { norm } from './store.js?v=32';
-import { JIS_SIZES, JIS_LENGTHS } from './jis-sizes.js?v=32';
+import { norm } from './store.js?v=33';
+import { JIS_SIZES, JIS_LENGTHS } from './jis-sizes.js?v=33';
 
 // 画面に出す種類。heads はマスターの品名の先頭語（実データの表記に合わせる）
 export const CATALOG_KINDS = [

@@ -2,23 +2,23 @@
 // 見積画面 — 明細一覧（費目タブ）・表紙の情報・見積の確認
 // ============================================================
 
-import { esc, YEN, fmtDateJa, local } from './util.js?v=32';
-import { icons } from './icons.js?v=32';
-import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=32';
+import { esc, YEN, fmtDateJa, local } from './util.js?v=33';
+import { icons } from './icons.js?v=33';
+import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=33';
 import {
   cache, subscribeEstimate, subscribeLines, updateEstimate,
   addLine, deleteLine, saveSummary, addNamed,
-} from './store.js?v=32';
-import { totals, lineAmount, excelRound } from './calc.js?v=32';
+} from './store.js?v=33';
+import { totals, lineAmount, excelRound } from './calc.js?v=33';
 import {
   db, doc, updateDoc, deleteDoc, getDocs, collection, Timestamp, arrayUnion, arrayRemove,
   storageRef, uploadBytes, getDownloadURL, deleteObject, storage,
-} from './firebase.js?v=32';
+} from './firebase.js?v=33';
 import {
   openMaterialPage, openManualPage, openPendingPage,
   openLaborPage, openTravelPage, openSubcontractPage, openCatalogPage,
-} from './screen-material.js?v=32';
-import { exportEstimateCsv } from './export.js?v=32';
+} from './screen-material.js?v=33';
+import { exportEstimateCsv } from './export.js?v=33';
 
 const KINDS = ['材料', '労務', '移動', '外注'];
 const KIND_LABEL = { 材料: '材料費', 労務: '労務費', 移動: '移動費', 外注: '外注費' };
@@ -160,9 +160,11 @@ export function renderEstScreen(container, estId) {
   function openEdit(l) {
     const prefill = { ...l, lineId: l.id };
     if (l.kind === '材料') {
+      // handwritten を pendingPrice より先に見ること。手打ちの0円行も単価待ちに
+      // なるので、順番を逆にするとレーザー加工品の仕様入力ページが開いてしまう
       if (l.catalog) openCatalogPage(estId, est, { prefill });
-      else if (l.pendingPrice) openPendingPage(estId, est, { prefill });
       else if (l.handwritten) openManualPage(estId, est, { prefill });
+      else if (l.pendingPrice) openPendingPage(estId, est, { prefill });
       else openMaterialPage(estId, est, { prefill });
     } else if (l.kind === '労務') openLaborPage(estId, est, { prefill });
     else if (l.kind === '移動') openTravelPage(estId, est, { prefill });
@@ -224,9 +226,10 @@ export function renderEstScreen(container, estId) {
   function openAddForKind(k, prefill) {
     const opts = { prefill };
     if (k === '材料') {
+      // 複製も編集と同じ順番にすること（openEdit のコメント参照）
       if (prefill.catalog) openCatalogPage(estId, est, opts);
-      else if (prefill.pendingPrice) openPendingPage(estId, est, opts);
       else if (prefill.handwritten) openManualPage(estId, est, opts);
+      else if (prefill.pendingPrice) openPendingPage(estId, est, opts);
       else openMaterialPage(estId, est, opts);
     } else if (k === '労務') openLaborPage(estId, est, opts);
     else if (k === '移動') openTravelPage(estId, est, opts);
@@ -615,7 +618,7 @@ export function openConfirmPage(estId) {
       subcon: by('外注').map((l) => ({ vendor: l.supplier || '', content: l.name || '', amt: l.amount || 0 })),
     };
     // ?v= を付けて、端末に残った古い表紙HTMLが使われないようにする
-    const url = 'hyoshi.html?v=32#app=' + encodeURIComponent(JSON.stringify(payload));
+    const url = 'hyoshi.html?v=33#app=' + encodeURIComponent(JSON.stringify(payload));
     // 必ず「同じ画面」で開く。別タブ/別ウィンドウ（window.open）にすると、
     // iPhoneのPWAでは表紙がSafari側に開いて履歴が繋がらず、
     // 「アプリへ戻る」も効かない行き止まりになる。

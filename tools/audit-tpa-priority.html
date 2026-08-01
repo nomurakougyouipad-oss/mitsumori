@@ -23,8 +23,8 @@ pre{background:#f6f8fa;padding:8px;overflow:auto;font-size:11px;white-space:pre-
 <div id="out">読み込み中…</div>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script type="module">
-import { cache, startSubscriptions } from '../js/store.js?v=32';
-import { parseSheet } from '../js/screen-tally.js?v=32';
+import { cache, startSubscriptions } from '../js/store.js?v=33';
+import { parseSheet } from '../js/screen-tally.js?v=33';
 
 const esc = (x) => String(x ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 // 「買える行が無い」は決め打ちにせず、実データ（停止していない行が0か）で判定する。
