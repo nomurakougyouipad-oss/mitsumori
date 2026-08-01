@@ -3,15 +3,15 @@
 // ルート: #home / #estimates / #search / #settings / #est/{id}
 // ============================================================
 
-import { esc, local } from './util.js?v=30';
-import { icons } from './icons.js?v=30';
-import { toast, closeAllOverlays } from './ui.js?v=30';
-import { ready } from './firebase.js?v=30';
-import { startSubscriptions, onCacheChange, cache, createEstimate, addStaff } from './store.js?v=30';
-import { renderHome, renderEstimatesTab } from './screen-home.js?v=30';
-import { renderEstScreen, openCoverPage, openConfirmPage } from './screen-est.js?v=30';
-import { renderSearchTab } from './screen-order.js?v=30';
-import { renderSettingsTab } from './screen-settings.js?v=30';
+import { esc, local } from './util.js?v=31';
+import { icons } from './icons.js?v=31';
+import { toast, closeAllOverlays } from './ui.js?v=31';
+import { ready } from './firebase.js?v=31';
+import { startSubscriptions, onCacheChange, cache, createEstimate, addStaff } from './store.js?v=31';
+import { renderHome, renderEstimatesTab } from './screen-home.js?v=31';
+import { renderEstScreen, openCoverPage, openConfirmPage } from './screen-est.js?v=31';
+import { renderSearchTab } from './screen-order.js?v=31';
+import { renderSettingsTab } from './screen-settings.js?v=31';
 
 const state = {
   staff: local.get('staff', ''),

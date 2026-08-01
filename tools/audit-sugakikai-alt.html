@@ -24,7 +24,7 @@ pre{background:#f6f8fa;padding:8px;overflow:auto;font-size:11px;white-space:pre-
 <b>材質記号 ＋ 呼び径 ＋ Sch ＋ 長さ</b> で突き合わせる。</p>
 <div id="out">読み込み中…</div>
 <script type="module">
-import { cache, startSubscriptions } from '../js/store.js?v=30';
+import { cache, startSubscriptions } from '../js/store.js?v=31';
 
 const esc = (x) => String(x ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const han = (x) => String(x).replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));

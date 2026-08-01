@@ -353,6 +353,9 @@ body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0
   -webkit-tap-highlight-color: transparent;
 }
 .kind-btn.on { background: var(--navy); color: #fff; border-color: var(--navy); font-weight: 700; }
+/* ②材質の件数。本体の文字と重なって読めなくなるので、横に置かず下段に回す */
+.kind-btn small { display: block; margin-top: 2px; font-size: 11px; font-weight: 400; color: var(--muted2); }
+.kind-btn.on small { color: rgba(255, 255, 255, 0.8); }
 
 .cand-head { font-size: 12px; font-weight: 700; color: var(--muted); padding: 10px 14px 4px; }
 .cand { padding: 11px 14px 11px 18px; border-top: 1px solid #E6EAEE; background: #fff; cursor: pointer; }

@@ -3,15 +3,15 @@
 // 「入力は1件1ページ。保存して次へで画面は移動しない」（README第4章）
 // ============================================================
 
-import { esc, YEN, local } from './util.js?v=30';
-import { icons } from './icons.js?v=30';
-import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=30';
-import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=30';
-import { excelRound } from './calc.js?v=30';
+import { esc, YEN, local } from './util.js?v=31';
+import { icons } from './icons.js?v=31';
+import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=31';
+import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=31';
+import { excelRound } from './calc.js?v=31';
 import {
   buildCatalog, catalogKinds, catalogMaterials,
   fillPattern, makeName, shapeName, buildNameIndex, lookupName,
-} from './catalog.js?v=30';
+} from './catalog.js?v=31';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
@@ -397,9 +397,9 @@ export function openCatalogPage(estimateId, est, opts = {}) {
               <b class="num" style="color:var(--text)">${esc(mats[0].label)}</b>
               しかないので選ばれています（${mats[0].sizes.length}件）</div></div>` : `
           <div class="field" style="margin-top:14px"><label>② 材質</label>
-            <div class="chips" style="flex-wrap:wrap">
-              ${mats.map((m) => `<div class="chip ${matLabel === m.label ? 'on' : ''}" data-mat="${esc(m.label)}"
-                style="flex:none">${esc(m.label)}<small style="color:var(--muted2);margin-left:4px">${m.sizes.length}</small></div>`).join('')}
+            <div class="kind-grid">
+              ${mats.map((m) => `<button class="kind-btn ${matLabel === m.label ? 'on' : ''}" data-mat="${esc(m.label)}"
+                ><span>${esc(m.label)}<small>${m.sizes.length}件</small></span></button>`).join('')}
             </div></div>`) : ''}
 
         ${g && !composing && g.hasLength ? shapeStepHtml(g) + lengthStepHtml(g) + otherStepHtml(g) : ''}
