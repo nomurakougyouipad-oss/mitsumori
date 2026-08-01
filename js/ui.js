@@ -2,7 +2,7 @@
 // 共通UI部品 — 全画面オーバーレイ・テンキー・トースト
 // ============================================================
 
-import { esc } from './util.js?v=15';
+import { esc } from './util.js?v=16';
 
 // ---------- トースト ----------
 let toastTimer = null;
@@ -46,11 +46,13 @@ export function bindSearch(input, onQuery) {
 
 // ---------- 全画面オーバーレイ（材料を追加・表紙など） ----------
 // 戻り値のelにinnerHTMLを入れて使う。close()で閉じる。
+// narrow: true …… 現場が使う入力系のページ。広い画面では中央720pxに寄せる
+//                  （事務所のページは幅を使い切るので指定しない）
 const overlayStack = [];
-export function openOverlay() {
+export function openOverlay({ narrow = false } = {}) {
   const root = document.getElementById('modal-root');
   const el = document.createElement('div');
-  el.className = 'fullpage';
+  el.className = narrow ? 'fullpage narrow' : 'fullpage';
   root.appendChild(el);
   overlayStack.push(el);
   return {

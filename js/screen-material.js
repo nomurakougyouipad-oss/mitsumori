@@ -3,11 +3,11 @@
 // 「入力は1件1ページ。保存して次へで画面は移動しない」（README第4章）
 // ============================================================
 
-import { esc, YEN, local } from './util.js?v=15';
-import { icons } from './icons.js?v=15';
-import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=15';
-import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=15';
-import { excelRound } from './calc.js?v=15';
+import { esc, YEN, local } from './util.js?v=16';
+import { icons } from './icons.js?v=16';
+import { openOverlay, openNumpad, toast, bindSearch } from './ui.js?v=16';
+import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=16';
+import { excelRound } from './calc.js?v=16';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
@@ -24,7 +24,7 @@ function recentBandHtml(recent) {
 // prefill: 複製・編集時の初期値 {lineId?, itemId, name, qty, unit, cost, supplier, handwritten}
 // ============================================================
 export function openMaterialPage(estimateId, est, opts = {}) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   const recent = [];
   let selected = null;   // 選択中の品目（マスター）
   let qty = opts.prefill?.qty ?? 1;
@@ -195,7 +195,7 @@ export function openMaterialPage(estimateId, est, opts = {}) {
 // 手打ち行（✎）— マスターに無いもの・「◯◯工事 一式」も
 // ============================================================
 export function openManualPage(estimateId, est, opts = {}) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   const p = opts.prefill || {};
   let name = p.name || '', unit = p.unit || '式', qty = p.qty ?? 1, cost = p.cost ?? null;
   let registerToMaster = false;
@@ -288,7 +288,7 @@ const FAB = {
 };
 
 export function openPendingPage(estimateId, est, opts = {}) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   const p = opts.prefill || {};
   const spec = {
     material: '', finish: '', thickness: null, w: null, h: null,
@@ -408,7 +408,7 @@ export function openPendingPage(estimateId, est, opts = {}) {
 // 労務を追加
 // ============================================================
 export function openLaborPage(estimateId, est, opts = {}) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   const p = opts.prefill || {};
   const trades = cache.unitRates.trades || [];
   let trade = p.trade || local.get('lastTrade', '') || (trades[0]?.name ?? '');
@@ -481,7 +481,7 @@ export function openLaborPage(estimateId, est, opts = {}) {
 // 移動を追加（人数×時間×移動1h単価 ＋ 距離×2(往復)×km単価）
 // ============================================================
 export function openTravelPage(estimateId, est, opts = {}) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   const p = opts.prefill || {};
   let name = p.name || '', persons = p.persons ?? 1, hours = p.hours ?? 0.5, km = p.km ?? null;
   const editingLineId = p.lineId || null;
@@ -546,7 +546,7 @@ export function openTravelPage(estimateId, est, opts = {}) {
 // 外注を追加（完全に自由入力。今のExcelと同じ）
 // ============================================================
 export function openSubcontractPage(estimateId, est, opts = {}) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   const p = opts.prefill || {};
   let supplier = p.supplier || '', content = p.name || '', amount = p.amount ?? null;
   const editingLineId = p.lineId || null;

@@ -2,12 +2,12 @@
 // ホーム — 自分の工事／会社全体。状態3分類のカード
 // ============================================================
 
-import { esc, YEN, fmtDateJa, local } from './util.js?v=15';
-import { icons } from './icons.js?v=15';
-import { toast } from './ui.js?v=15';
-import { cache, createEstimate } from './store.js?v=15';
-import { openOrderWaitPage, confirmDeleteEstimate } from './screen-order.js?v=15';
-import { openPendingPricePage, openReviewsPage } from './screen-settings.js?v=15';
+import { esc, YEN, fmtDateJa, local } from './util.js?v=16';
+import { icons } from './icons.js?v=16';
+import { toast } from './ui.js?v=16';
+import { cache, createEstimate } from './store.js?v=16';
+import { openOrderWaitPage, confirmDeleteEstimate } from './screen-order.js?v=16';
+import { openPendingPricePage, openReviewsPage } from './screen-settings.js?v=16';
 
 const STATUSES = ['見積中', '発注待ち', '進行中'];
 
@@ -57,10 +57,10 @@ export function renderHome(container, opts = {}) {
           <div class="bdg" id="bdg-price">単価待ち<b>${priceWait}</b></div>
           <div class="bdg" id="bdg-review">判断待ち<b>—</b></div>
         </div>
-        <div class="scroll">
+        <div class="scroll home-scroll">
           ${mine.length ? STATUSES.map(section).join('') : `
             <div class="empty"><div class="big">見積はまだありません</div>下の「＋あたらしい見積」から作りましょう</div>`}
-          <div style="height:8px"></div>
+          <div class="pad-end"></div>
         </div>
         <div class="bottom-action">
           <button class="btn btn-primary btn-block btn-big" id="new-estimate">${icons.plus}あたらしい見積</button>
@@ -98,7 +98,7 @@ export function renderEstimatesTab(container) {
   const staffName = local.get('staff', '');
   const mine = cache.estimates.filter((e) => e.staff === staffName);
   container.innerHTML = `
-    <div class="screen"><div class="scroll">
+    <div class="screen"><div class="scroll est-list-scroll">
       <div class="sec-head"><span class="ttl">自分の見積</span><span class="cnt">${mine.length}</span><span class="rule"></span></div>
       ${mine.length ? mine.map((e) => `
         <div class="card" data-est="${e.id}" style="cursor:pointer">

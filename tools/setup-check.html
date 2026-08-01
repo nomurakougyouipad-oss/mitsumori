@@ -54,7 +54,7 @@
   };
 
   try {
-    const config = (await import('../firebase-config.js?v=15')).default;
+    const config = (await import('../firebase-config.js?v=16')).default;
     if (!config.projectId || config.projectId.includes('貼り替え')) {
       set('config', false, 'firebase-config.js がまだ書き替えられていません');
       hint('Firebaseコンソールでウェブアプリを登録し、表示された firebaseConfig の値を firebase-config.js に貼り替えてください。');
@@ -62,7 +62,7 @@
     }
     set('config', true, 'プロジェクト: ' + config.projectId);
 
-    const fb = await import('../js/firebase.js?v=15');
+    const fb = await import('../js/firebase.js?v=16');
     set('persist', fb.persistenceEnabled, fb.persistenceEnabled ? '有効（複数タブ対応）' : '無効（メモリキャッシュで継続）');
 
     let user;

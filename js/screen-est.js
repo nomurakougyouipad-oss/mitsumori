@@ -2,23 +2,23 @@
 // 見積画面 — 明細一覧（費目タブ）・表紙の情報・見積の確認
 // ============================================================
 
-import { esc, YEN, fmtDateJa, local } from './util.js?v=15';
-import { icons } from './icons.js?v=15';
-import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=15';
+import { esc, YEN, fmtDateJa, local } from './util.js?v=16';
+import { icons } from './icons.js?v=16';
+import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=16';
 import {
   cache, subscribeEstimate, subscribeLines, updateEstimate,
   addLine, deleteLine, saveSummary, addNamed,
-} from './store.js?v=15';
-import { totals, lineAmount, excelRound } from './calc.js?v=15';
+} from './store.js?v=16';
+import { totals, lineAmount, excelRound } from './calc.js?v=16';
 import {
   db, doc, updateDoc, deleteDoc, getDocs, collection, Timestamp, arrayUnion, arrayRemove,
   storageRef, uploadBytes, getDownloadURL, deleteObject, storage,
-} from './firebase.js?v=15';
+} from './firebase.js?v=16';
 import {
   openMaterialPage, openManualPage, openPendingPage,
   openLaborPage, openTravelPage, openSubcontractPage,
-} from './screen-material.js?v=15';
-import { exportEstimateCsv } from './export.js?v=15';
+} from './screen-material.js?v=16';
+import { exportEstimateCsv } from './export.js?v=16';
 
 const KINDS = ['材料', '労務', '移動', '外注'];
 const KIND_LABEL = { 材料: '材料費', 労務: '労務費', 移動: '移動費', 外注: '外注費' };
@@ -238,7 +238,7 @@ export function renderEstScreen(container, estId) {
 // 表紙の情報（工事名・宛先・施工場所・注番・担当者・スケッチ写真）
 // ============================================================
 export function openCoverPage(estId, getEst) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   let saveTimers = {};
 
   function debounceSave(key, patch) {
@@ -456,7 +456,7 @@ async function shrinkImage(file, maxSize) {
 // 見積の確認
 // ============================================================
 export function openConfirmPage(estId) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   let est = null, lines = [], rateOpen = false;
 
   const unsubEst = subscribeEstimate(estId, (e) => { est = e; paint(); });
@@ -612,7 +612,7 @@ export function openConfirmPage(estId) {
       subcon: by('外注').map((l) => ({ vendor: l.supplier || '', content: l.name || '', amt: l.amount || 0 })),
     };
     // ?v= を付けて、端末に残った古い表紙HTMLが使われないようにする
-    const url = 'hyoshi.html?v=15#app=' + encodeURIComponent(JSON.stringify(payload));
+    const url = 'hyoshi.html?v=16#app=' + encodeURIComponent(JSON.stringify(payload));
     const w = window.open(url, '_blank');
     if (!w) location.assign(url);
   }

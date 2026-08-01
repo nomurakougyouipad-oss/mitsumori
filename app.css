@@ -79,6 +79,7 @@ button { font-family: var(--font); }
 #app { height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
 .screen { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .scroll { flex: 1; overflow-y: auto; padding: 0 12px 12px; }
+.pad-end { height: 8px; }   /* 一覧の最後に少しだけ余白 */
 
 /* タブバーの高さ＋セーフエリアぶん、下に余白 */
 body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0px)); }
@@ -520,17 +521,52 @@ body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0
 .photo-view img { flex: 1; min-height: 0; object-fit: contain; width: 100%; }
 .photo-view .pv-bar { flex: none; display: flex; justify-content: space-between; padding: 10px 16px calc(16px + env(safe-area-inset-bottom, 0px)); }
 
-/* ---------- PC（従）: 中央390〜560pxに寄せる ---------- */
+/* ---------- 広い画面での置き方 ----------
+   以前はアプリ全体を560pxの枠に押し込んでいたが、事務所の作業はPCが主なので
+   全体の枠はやめた。幅を絞るのは「現場が使う入力系のページ」だけにする。
+   ・.fullpage.narrow … 材料を追加・手打ち・単価待ち・労務・移動・外注・
+     表紙の情報・見積の確認（現場のページ。中央720px）
+   ・#est-root       … 見積の入力画面（同じく中央720px）
+   幅の指定は下の @media にまとめてある（末尾の「幅で見た目を変える」ぶん） */
 @media (min-width: 700px) {
-  #app { max-width: 560px; margin: 0 auto; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
-  .tabbar { max-width: 560px; left: 50%; transform: translateX(-50%); }
-  .fullpage, .numpad-back, .photo-view { max-width: 560px; left: 50%; transform: translateX(-50%); right: auto; width: 100%; }
+  .numpad-back { max-width: 560px; left: 50%; transform: translateX(-50%); right: auto; width: 100%; }
+  .photo-view { max-width: 900px; left: 50%; transform: translateX(-50%); right: auto; width: 100%; }
 }
 
 /* ============================================================
    ここから下は「幅で見た目を変える」ぶん。
    上の基本ルールを打ち消す必要があるので、必ずファイルの末尾に置くこと。
    ============================================================ */
+
+/* ---------- 768px以上（タブレット・PC共通） ----------
+   現場のページは横に間延びさせない。中央720pxに寄せる */
+@media (min-width: 768px) {
+  .fullpage.narrow {
+    max-width: 720px; left: 50%; transform: translateX(-50%); right: auto; width: 100%;
+    border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  }
+  #est-root {
+    max-width: 720px; width: 100%; margin: 0 auto;
+    border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  }
+
+  /* ホーム: カードを2列に（工事の数を一目で見渡せるように） */
+  .home-scroll {
+    display: grid; grid-template-columns: repeat(2, 1fr);
+    gap: 10px; align-content: start;
+  }
+  .home-scroll > .sec-head, .home-scroll > .empty, .home-scroll > .pad-end { grid-column: 1 / -1; }
+  .home-scroll > .card + .card { margin-top: 0; }   /* すき間はgapが持つ */
+  .home-scroll .pad-end { height: 8px; }
+
+  /* 見積タブ・さがすの一覧も間延びさせない */
+  #s-list, .est-list-scroll { max-width: 900px; margin: 0 auto; width: 100%; }
+}
+
+/* ---------- 1280px以上: ホームは3列 ---------- */
+@media (min-width: 1280px) {
+  .home-scroll { grid-template-columns: repeat(3, 1fr); }
+}
 /* ============================================================
    画面幅の使い分け
      〜767px    スマホ … 現場（見積入力・材料を追加）が主
