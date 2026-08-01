@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>経路の突き合わせ（開発用）</title>
+<style>
+body{font:13px/1.7 system-ui;margin:16px;color:#22303C;max-width:900px}
+h1{font-size:17px}
+table{border-collapse:collapse;margin:12px 0;font-size:12.5px}
+th,td{border:1px solid #ccc;padding:4px 9px;text-align:left}
+th{background:#eef2f6}
+.ok{color:#0A6B2E;font-weight:700}
+.ng{color:#B00;font-weight:700}
+pre{background:#f6f8fa;padding:8px;overflow:auto;font-size:11.5px}
+</style>
+</head>
+<body>
+<h1>検索から選んだ場合と、規格から選んだ場合の突き合わせ</h1>
+<p>同じ品目なら、どちらの経路でも <b>同じ品名・同じitemId</b> で明細に入る必要がある。
+経路で別の行になると、集計と単価マスターの更新が食い違う。</p>
+<div id="out">読み込み中…</div>
+<script type="module">
+import { cache, startSubscriptions } from '../js/store.js?v=21';
+import {
+  buildCatalog, catalogKinds, catalogMaterials, shapeName,
+  buildNameIndex, lookupName, parseItemName, CATALOG_KINDS,
+} from '../js/catalog.js?v=21';
+
+const out = document.getElementById('out');
+startSubscriptions();
+for (let i = 0; i < 120 && !cache.itemsLoaded; i++) await new Promise((r) => setTimeout(r, 500));
+
+const cat = buildCatalog(cache.items);
+const idx = buildNameIndex(cache.items);
+const byId = new Map(cache.items.map((i) => [i.id, i]));
+
+const reached = new Set();   // 規格の経路で「その品目そのもの」に届いた
+const wrongName = [];        // 保存されている品名と違う名前で出ている
+const composedHit = [];      // 組み立て名がマスターに当たる（実在するのに単価待ちになりかけた）
+let combos = 0;
+
+for (const k of catalogKinds(cat)) for (const g of catalogMaterials(cat, k.key)) {
+  if (!g.hasLength) {
+    for (const sz of g.sizes) {
+      const it = byId.get(sz.id);
+      if (it && sz.name !== it.name) wrongName.push(`${sz.name} ≠ ${it.name}`);
+      reached.add(sz.id);
+    }
+    continue;
+  }
+  for (const o of (g.oddSizes || [])) {
+    const it = byId.get(o.id);
+    if (it && o.name !== it.name) wrongName.push(`${o.name} ≠ ${it.name}`);
+    reached.add(o.id);
+  }
+  for (const sh of g.shapes) for (const L of g.lengths) {
+    combos++;
+    const rows = sh.byLen.get(L.value) || [];
+    if (rows.length) {
+      for (const r of rows) {
+        const it = byId.get(r.id);
+        if (it && r.name !== it.name) wrongName.push(`${r.name} ≠ ${it.name}`);
+        reached.add(r.id);
+      }
+      continue;
+    }
+    const hit = lookupName(idx, shapeName(g, sh, L.value));
+    if (hit) { composedHit.push(`${shapeName(g, sh, L.value)} → ${hit.name}`); reached.add(hit.id); }
+  }
+}
+
+// カタログの対象になる品目（種類の先頭語を持ち、寸法がある）
+const inScope = cache.items.filter((it) => {
+  const p = parseItemName(it.name);
+  return CATALOG_KINDS.some((d) => d.heads.includes(p.head)) && p.dims;
+});
+const missed = inScope.filter((i) => !reached.has(i.id));
+
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const judge = (n) => (n === 0 ? '<span class="ok">OK</span>' : `<span class="ng">NG ${n}件</span>`);
+
+out.innerHTML = `
+<table>
+  <tr><th>項目</th><th>結果</th><th>意味</th></tr>
+  <tr><td>単価マスター</td><td>${cache.items.length}件</td><td>—</td></tr>
+  <tr><td>規格から選べる品目</td><td>${inScope.length}件</td><td>種類の先頭語と寸法を持つもの</td></tr>
+  <tr><td>調べた 形×長さ の組合せ</td><td>${combos}通り</td><td>—</td></tr>
+  <tr><td>届かない品目</td><td>${judge(missed.length)}</td>
+      <td>規格の経路からたどり着けない品目（あると検索でしか入らない）</td></tr>
+  <tr><td>品名の食い違い</td><td>${judge(wrongName.length)}</td>
+      <td>マスターに保存されている品名と違う名前で出ている</td></tr>
+  <tr><td>実在するのに組み立て名になる</td><td>${judge(composedHit.length)}</td>
+      <td>0でないと、同じ物が別名・itemId無しで明細に入る</td></tr>
+</table>
+${missed.length ? `<h3>届かない品目</h3><pre>${esc(missed.map((i) => i.name).join('\n'))}</pre>` : ''}
+${wrongName.length ? `<h3>品名の食い違い</h3><pre>${esc(wrongName.join('\n'))}</pre>` : ''}
+${composedHit.length ? `<h3>組み立て名がマスターに当たった</h3><pre>${esc(composedHit.join('\n'))}</pre>` : ''}
+<p>※ 明細に書き込む値そのもの（itemId・単位・原価・仕入先）は、実際に両経路で保存して
+Firestoreの中身を突き合わせて確認する。この画面は「どの品目にたどり着くか」の確認。</p>`;
+</script>
+</body>
+</html>

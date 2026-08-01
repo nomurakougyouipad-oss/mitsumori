@@ -520,7 +520,9 @@ export function openCatalogPage(estimateId, est, opts = {}) {
     const waiting = num(picked.cost) == null;
     const line = {
       kind: '材料', itemId: picked.itemId || null, name: picked.name,
-      qty: num(qty) || 0, unit: picked.unit || '本',
+      // 単位はマスターの値をそのまま書く。検索から入れた行（unit: selected.unit || ''）と
+      // 同じ物が違う単位で入ると集計が食い違うため、ここで '本' に置き換えない
+      qty: num(qty) || 0, unit: picked.unit || '',
       cost: num(picked.cost) || 0, supplier: picked.supplier || '',
       handwritten: false,
       pendingPrice: waiting,     // 単価が無いものは単価待ち（時計マーク）
