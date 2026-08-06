@@ -76,247 +76,365 @@ export function renderRoughScreen(container, roughId) {
     try { await saveRoughSummary(roughId, rough, items); } catch (e) { console.warn(e); }
   }
 
+  // ============================================================
+  // 描画 — 画面/AI概算見積_UI設計/写真から見積.dc.html に合わせる
+  //   44px ステータスバー相当は実機のセーフエリアが担う
+  //   56px ヘッダー（濃紺グラデ・戻る・工事名）
+  //   本文（写真 → 図面 → すること → 項目）
+  //   下部の濃紺の帯（提出価格の目安・幅のバー・ボタン2つ）
+  //   56px タブバーは app.js が付ける
+  // モックの寸法・色・字の大きさをそのまま写している。勝手に変えない。
+  // ============================================================
+
+  const NAVY_GRAD = 'linear-gradient(180deg,#24507A 0%,#1B3A5C 100%)';
+
+  // ---------- ヘッダー ----------
+  function headerHtml() {
+    return `
+      <div style="background:${NAVY_GRAD};display:flex;align-items:center;gap:10px;
+        padding:calc(8px + env(safe-area-inset-top, 0px)) 12px 10px 8px;flex:none">
+        <button id="r-back" style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;
+          color:#fff;background:none;border:0;font-size:24px;flex:none;cursor:pointer">‹</button>
+        <button id="r-cover" style="flex:1;min-width:0;background:none;border:0;padding:0;text-align:left;cursor:pointer">
+          <div style="color:#fff;font-size:19px;font-weight:700;line-height:1.2;font-family:var(--font)">写真から見積</div>
+          <div style="color:rgba(255,255,255,0.72);font-size:11.5px;margin-top:3px;white-space:nowrap;
+            overflow:hidden;text-overflow:ellipsis">${esc(rough.projectName || '工事名を入れる')}</div>
+        </button>
+      </div>`;
+  }
+
   // ---------- 写真 ----------
-  function photosHtml() {
+  // 項目を出す前は78px、出したあとは56px（モックの①と②③の違い）
+  function photosHtml(big) {
     const list = rough.photos || [];
     const site = list.filter((p) => p.role !== '図面');
     const plans = list.filter((p) => p.role === '図面');
+    const s = big ? 78 : 56;
+
     const thumb = (p) => `
-      <div class="ph-wrap" data-ph="${esc(p.path)}" style="position:relative">
-        <img class="ph" src="${esc(p.url)}" alt="">
-        ${p.role !== '現場' ? `<span style="position:absolute;left:4px;bottom:4px;background:rgba(27,58,92,.85);
-          color:#fff;font-size:10px;padding:1px 5px;border-radius:3px">${esc(p.role)}</span>` : ''}
+      <div data-ph="${esc(p.path)}" style="width:${s}px;height:${s}px;border-radius:6px;background:#5B6B7C;
+        flex:none;position:relative;overflow:hidden;cursor:pointer">
+        <img src="${esc(p.url)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">
       </div>`;
+
+    const planThumb = (p) => `
+      <div data-ph="${esc(p.path)}" style="width:${s}px;height:${s}px;border-radius:6px;background:#DDE3EA;
+        border:1px solid #C3CBD4;display:flex;align-items:flex-end;justify-content:center;flex:none;
+        overflow:hidden;position:relative;cursor:pointer">
+        <img src="${esc(p.url)}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
+        <span style="position:relative;background:#1B3A5C;color:#fff;font-size:10px;padding:2px 5px;margin-bottom:4px">図面</span>
+      </div>`;
+
     return `
-      <div style="padding:12px 12px 0">
-        <div class="photo-grid">
-          ${site.map(thumb).join('')}
-          <button class="ph-add" id="ph-site">${icons.plus}<span style="font-size:11px">写真</span></button>
-        </div>
-        <div style="font-size:11.5px;color:var(--muted2);padding:6px 2px 0">
-          現場の写真 ${site.length}枚${isAiAvailable() ? '' : '（いまは残すだけ。AIが入ったら読み取ります）'}</div>
-        <div style="display:flex;align-items:center;gap:8px;padding:10px 0 0">
-          <span style="font-size:13px;font-weight:700;color:var(--navy);flex:none">図面</span>
-          ${plans.map(thumb).join('')}
-          <button class="ph-add" id="ph-plan" style="width:64px;height:64px">${icons.plus}<span style="font-size:10px">紙を撮る</span></button>
-        </div>
+      <div style="display:flex;gap:8px;padding:12px 0 ${big ? '4px' : '0'}">
+        ${site.map(thumb).join('')}
+        <button id="ph-site" style="width:${s}px;height:${s}px;border-radius:6px;border:1.5px dashed #A9B3BE;
+          background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+          color:#1B3A5C;flex:none;cursor:pointer;font-family:var(--font)">
+          <span style="font-size:${big ? 26 : 22}px;display:grid;place-items:center">${big ? icons.camera : icons.plus}</span>
+          ${big ? '<span style="font-size:11px;font-weight:700">ふやす</span>' : ''}
+        </button>
+        ${big ? '' : `<div style="flex:1;display:flex;align-items:center;justify-content:flex-end;
+          font-size:11.5px;color:#8A96A3">写真 ${site.length}枚</div>`}
+      </div>
+      ${big ? `<div style="font-size:11.5px;color:#8A96A3;padding:6px 2px 0">現場の写真 ${site.length}枚</div>` : ''}
+
+      <div style="display:flex;align-items:center;gap:8px;padding:${big ? '12px' : '8px'} 0 0">
+        ${big ? '<div style="font-size:13px;font-weight:700;color:#1B3A5C;flex:none;width:100%;padding-bottom:6px">図面・スケッチ（あれば）</div>' : ''}
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        ${plans.map(planThumb).join('')}
+        <button id="ph-plan" style="width:${s}px;height:${s}px;border-radius:6px;border:1.5px dashed #A9B3BE;
+          background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+          color:#1B3A5C;flex:none;cursor:pointer;font-family:var(--font)">
+          <span style="font-size:${big ? 24 : 20}px;display:grid;place-items:center">${big ? icons.camera : icons.filePlus}</span>
+          <span style="font-size:${big ? 11 : 10}px;font-weight:700">${big ? '紙を撮る' : '図面'}</span>
+        </button>
+        <div style="flex:1;font-size:11.5px;color:#8A96A3;line-height:1.5">
+          ${plans.length ? `図面 ${plans.length}枚を残しています` : '図面があれば<br>あとで寸法も読み取ります'}</div>
       </div>`;
   }
 
   // ---------- すること ----------
-  function oneLinerHtml() {
+  function oneLinerHtml(big) {
+    if (big) {
+      return `
+        <div style="padding:14px 0 0">
+          <div style="font-size:13px;font-weight:700;color:#1B3A5C;padding-bottom:6px">すること</div>
+          <button id="r-oneliner" style="width:100%;min-height:52px;background:#fff;border:1px solid #D9DEE4;
+            border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;
+            font-size:16px;font-family:var(--font);text-align:left;cursor:pointer;
+            color:${rough.oneLiner ? '#16202B' : '#A9B3BE'}">
+            <span style="flex:1;min-width:0;line-height:1.4">${esc(rough.oneLiner || 'ポンプの駆動部を全部やりかえ')}</span>
+            <span style="color:#8A96A3;font-size:18px;flex:none;display:grid;place-items:center">${icons.pencil}</span>
+          </button>
+        </div>`;
+    }
     return `
-      <div style="padding:14px 12px 0">
-        <div style="font-size:13px;font-weight:700;color:var(--navy);padding-bottom:6px">すること</div>
-        <button id="r-oneliner" style="width:100%;min-height:52px;background:#fff;border:1px solid var(--line);
+      <div style="padding:12px 0 0">
+        <button id="r-oneliner" style="width:100%;min-height:48px;background:#fff;border:1px solid #D9DEE4;
           border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;
-          padding:8px 12px 8px 14px;font-size:16px;font-family:var(--font);cursor:pointer;text-align:left;
-          color:${rough.oneLiner ? 'var(--text)' : 'var(--muted2)'}">
-          <span style="flex:1;min-width:0;line-height:1.5">${esc(rough.oneLiner || 'ポンプの駆動部を全部やりかえ')}</span>
-          <span style="color:var(--muted2);flex:none">✎</span>
+          padding:6px 12px 6px 14px;font-size:15px;font-family:var(--font);text-align:left;cursor:pointer;
+          color:${rough.oneLiner ? '#16202B' : '#A9B3BE'}">
+          <span style="flex:1;min-width:0;line-height:1.4">${esc(rough.oneLiner || 'ポンプの駆動部を全部やりかえ')}</span>
+          <span style="color:#8A96A3;font-size:18px;flex:none;display:grid;place-items:center">${icons.pencil}</span>
         </button>
-        <div style="font-size:11.5px;color:var(--muted2);padding:6px 2px 0">打つのはここだけです。あとは全部ボタン。</div>
       </div>`;
   }
 
-  // ---------- 工事の種類・項目を出す ----------
-  function generateHtml() {
-    const has = items.length > 0;
+  // ---------- 項目を出す ----------
+  function generateHtml(big) {
+    const label = TEMPLATE_LABELS[rough.workType] || rough.workType;
+    const n = templateRowCount(rough.workType);
+    // 【芯5】項目が並んだあとは「出しなおす」を出さない。
+    // モックの一覧状態にも無い。押し間違えると全部消える危ないボタンでもある。
+    // 出しなおしたいときは表紙から工事の種類を選び直す。
+    if (!big) return '';
     return `
-      <div style="padding:14px 12px 0">
-        <div style="font-size:13px;font-weight:700;color:var(--navy);padding-bottom:6px">工事の種類</div>
-        <div class="chips" style="flex-wrap:wrap;gap:8px">
-          ${WORK_TYPES.map((w) => `
-            <div class="chip ${rough.workType === w ? 'on' : ''}" data-wt="${esc(w)}"
-              style="min-height:44px;display:flex;align-items:center">${esc(TEMPLATE_LABELS[w] || w)}</div>`).join('')}
-        </div>
-        <button class="btn btn-primary btn-block" id="r-gen" style="height:56px;margin-top:12px" ${busy ? 'disabled' : ''}>
-          ${icons.search}${has ? '項目を出しなおす' : '項目を出す'}</button>
-        <div style="font-size:11.5px;color:var(--muted2);text-align:center;padding-top:8px;line-height:1.6">
+      <div style="padding:16px 0 0">
+        <button class="r-gen" style="width:100%;height:56px;background:${NAVY_GRAD};border:0;border-radius:6px;
+          color:#fff;font-family:var(--font);font-size:18px;font-weight:700;display:flex;align-items:center;
+          justify-content:center;gap:8px;cursor:pointer" ${busy ? 'disabled' : ''}>
+          <span style="font-size:22px;display:grid;place-items:center">${icons.listSearch}</span>項目を出す</button>
+        <div style="font-size:11.5px;color:#8A96A3;text-align:center;padding-top:8px;line-height:1.6">
           ${isAiAvailable()
-            ? '押すと写真から項目を並べます。金額はあとから一つずつ直せます。'
-            : `押すと ${esc(TEMPLATE_LABELS[rough.workType] || rough.workType)} のひな形から
-               ${templateRowCount(rough.workType)}項目が並びます。<br>要らない行は消して、人数と時間を直してください。`}
+            ? '押すと写真から項目を並べます。<br>金額はあとから一つずつ直せます。'
+            : `押すと<b style="color:#1B3A5C">${esc(label)}</b>のひな形から${n}項目が並びます。<br>金額はあとから一つずつ直せます。`}
         </div>
       </div>`;
   }
 
-  // ---------- ききたいこと（AIが入ったら出る） ----------
+  // ---------- ききたいこと ----------
   function questionHtml(q) {
     const opts = (q.options || []).length ? q.options : ['要る', '要らない'];
-    if (q.answer) return '';
     return `
-      <div style="background:#FBF2E4;border:1.5px solid var(--accent);border-radius:6px;padding:12px 14px">
-        <div style="display:flex;align-items:center;gap:6px;color:var(--accent);font-size:12px;font-weight:700">
-          ${icons.warning}ききたいこと</div>
-        ${q.about ? `<div style="font-size:16px;font-weight:700;color:var(--text);padding-top:6px">${esc(q.about)}</div>` : ''}
-        <div style="font-size:14px;color:#4A5A6B;line-height:1.55;padding-top:4px">${esc(q.text)}</div>
+      <div style="background:#FBF2E4;border:1.5px solid #BA7517;border-radius:6px;padding:12px 14px">
+        <div style="display:flex;align-items:center;gap:6px;color:#BA7517;font-size:12px;font-weight:700">
+          <span style="font-size:15px;display:grid;place-items:center">${icons.question}</span>ききたいこと</div>
+        ${q.about ? `<div style="font-size:16px;font-weight:700;color:#16202B;padding-top:6px">${esc(q.about)}</div>` : ''}
+        <div style="font-size:${q.about ? 14 : 16}px;${q.about ? 'color:#4A5A6B' : 'font-weight:700;color:#16202B'};
+          line-height:1.55;padding-top:${q.about ? 4 : 6}px">${esc(q.text)}</div>
         <div style="display:flex;gap:8px;padding-top:10px">
           ${opts.map((o, i) => `
-            <button class="btn ${i === 0 ? 'btn-primary' : ''}" style="flex:1;height:48px"
-              data-ans="${q.id}" data-ansv="${esc(o)}">${esc(o)}</button>`).join('')}
+            <button data-ans="${q.id}" data-ansv="${esc(o)}" style="flex:1;height:48px;border-radius:6px;
+              font-family:var(--font);font-size:${opts.length > 2 ? 15 : 16}px;font-weight:700;cursor:pointer;
+              ${i === 0 ? 'background:#BA7517;border:0;color:#fff' : 'background:#fff;border:1px solid #C6B79A;color:#7A5A18'}"
+              >${esc(o)}</button>`).join('')}
         </div>
       </div>`;
   }
 
   // ---------- 項目カード ----------
+  const CARD = 'background:#fff;border:1px solid #D9DEE4;border-radius:6px;padding:12px 14px';
+  const TITLE = 'font-size:16px;font-weight:700;color:#16202B;line-height:1.4';
+  const AMT = 'font-family:var(--mono);font-size:26px;font-weight:700;color:#1B3A5C;letter-spacing:-.01em;line-height:1.1';
+  const STEP_BTN = 'width:56px;height:44px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;color:#1B3A5C;'
+    + 'font-family:var(--mono);font-size:15px;font-weight:700;cursor:pointer';
+  const SUB_BTN = 'height:44px;padding:0 14px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;'
+    + 'color:#1B3A5C;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer';
+
+  // 【芯5】押すところを増やさない。
+  // モックの項目カードに削除ボタンは無いので、こちらでも出さない。
+  // 要らない行は時間を0にすれば0円になる。行ごと消す道は、
+  // 「項目のくわしい中身」を作るときにそちらへ入れる。
+  function delBtn() { return ''; }
+
   function itemCard(it, rates, unitRates) {
     const amt = itemAmount(it, rates, unitRates);
-    const pending = it.state === '単価待ち';
-    const undecided = it.state === '未確定';
 
-    // 未確定（AIが出したもの）… よつばの単価と相場を2つ並べて、押させる
-    if (undecided) {
+    // 未確定 … よつばの単価と相場を2つ並べて、人に押させる
+    if (it.state === '未確定') {
       const y = yotsubaAmount(it, rates, unitRates);
       const m = marketAmount(it);
       return `
-        <div class="card" style="border-style:dashed">
+        <div style="background:#fff;border:1px dashed #C3CBD4;border-radius:6px;padding:12px 14px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-            <div class="ttl" style="font-size:16px">${esc(it.name || '（名前なし）')}</div>
-            <span style="font-size:11px;font-weight:700;color:#7A8794;border:1px solid var(--line2);
-              border-radius:3px;padding:2px 6px;flex:none">未確定</span>
+            <div style="${TITLE}">${esc(it.name || '（名前なし）')}</div>
+            <span style="font-size:11px;font-weight:700;color:#7A8794;border:1px solid #D2D8E0;border-radius:3px;
+              padding:2px 6px;flex:none">未確定</span>
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;font-size:13px;color:var(--muted)">
-            <span>よつばの単価</span><span class="num">${y == null ? 'なし' : YEN(y)}</span></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:4px;font-size:13px;color:var(--muted)">
-            <span>世の中の相場</span>
-            <span class="num" style="font-size:20px;font-weight:700;color:#1F6B5B">${m == null ? '—' : YEN(m)}</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;font-size:13px;color:#6B7783">
+            <span>よつばの単価</span>
+            <span style="font-family:var(--mono)${y != null ? ';font-size:18px;font-weight:700;color:#16202B' : ''}">${y == null ? 'なし' : YEN(y)}</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:4px;font-size:13px;color:#6B7783">
+            <span style="display:flex;align-items:center;gap:6px">世の中の相場
+              <span style="font-size:10.5px;font-weight:700;color:#1F6B5B;background:#E3F0EC;border-radius:3px;padding:2px 5px">相場</span></span>
+            <span style="font-family:var(--mono);font-size:22px;font-weight:700;color:#1F6B5B;letter-spacing:-.01em">${m == null ? '—' : YEN(m)}</span></div>
           <div style="display:flex;gap:6px;padding-top:10px">
-            ${y != null ? `<button class="btn btn-primary btn-sm" style="flex:1.2;height:48px" data-use="${it.id}" data-src="yotsuba">よつばで使う</button>` : ''}
-            ${m != null ? `<button class="btn btn-primary btn-sm" style="flex:1.2;height:48px" data-use="${it.id}" data-src="market">この金額を使う</button>` : ''}
-            <button class="btn btn-sm" style="flex:1;height:48px" data-edit="${it.id}">金額を直す</button>
-            <button class="btn btn-sm" style="flex:1;height:48px" data-pend="${it.id}">単価待ち</button>
+            <button data-use="${it.id}" data-src="${y != null ? 'yotsuba' : 'market'}" style="flex:1.2;height:48px;
+              background:${NAVY_GRAD};border:0;border-radius:6px;color:#fff;font-family:var(--font);
+              font-size:14px;font-weight:700;cursor:pointer">この金額を使う</button>
+            <button data-edit="${it.id}" style="flex:1;height:48px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;
+              color:#1B3A5C;font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer">金額を直す</button>
+            <button data-pend="${it.id}" style="flex:1.1;height:48px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;
+              color:#1B3A5C;font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer">単価待ち</button>
           </div>
-          <div style="font-size:11.5px;color:var(--muted2);padding-top:8px">どれか押すまで合計に入りません</div>
+          <div style="font-size:11.5px;color:#8A96A3;padding-top:8px">どれか押すまで合計に入りません</div>
         </div>`;
     }
 
-    // 労務・移動 … 人数×時間を その場で増減
+    // 単価待ち … 左に山吹の帯。合計に入らない
+    if (it.state === '単価待ち') {
+      return `
+        <div style="${CARD};border-left:4px solid #BA7517">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div style="${TITLE};flex:1;min-width:0">${esc(it.name || '（名前なし）')}</div>
+            <span style="display:flex;align-items:center;gap:3px;font-size:11px;font-weight:700;color:#fff;
+              background:#BA7517;border-radius:3px;padding:3px 6px;flex:none">
+              <span style="font-size:12px;display:grid;place-items:center">${icons.clock}</span>単価待ち</span>
+            ${delBtn(it.id)}
+          </div>
+          <div style="font-size:13px;color:#6B7783;padding-top:6px;line-height:1.5">
+            仕入先に単価を聞いてから入れます。<br>この1件を空けたまま先へ進めます。</div>
+          <div style="display:flex;align-items:flex-end;justify-content:space-between;padding-top:8px">
+            <button data-edit="${it.id}" style="${SUB_BTN}">金額を入れる</button>
+            <span style="${AMT};color:#A9B3BE">￥—</span>
+          </div>
+        </div>`;
+    }
+
+    // 労務・移動 … 人数×時間をその場で増減
     if (it.kind === '労務' || it.kind === '移動') {
-      const rate = it.kind === '移動'
-        ? unitRates.travelLabor
-        : (num(it.rate) ?? tradeRate(unitRates, it.trade));
-      // 作業は1日（8h）単位で動かす。移動は1時間単位（往復1〜2時間のことが多い）
+      const rate = it.kind === '移動' ? unitRates.travelLabor : (num(it.rate) ?? tradeRate(unitRates, it.trade));
       const step = it.kind === '移動' ? 1 : 8;
       return `
-        <div class="card">
+        <div style="${CARD}">
           <div style="display:flex;align-items:flex-start;gap:8px">
-            <div class="ttl" style="font-size:16px;flex:1">${esc(it.name || '（名前なし）')}</div>
-            <button class="btn btn-sm" style="flex:none;min-width:44px" data-del="${it.id}">✕</button>
+            <div style="${TITLE};flex:1;min-width:0">${esc(it.name || '（名前なし）')}</div>${delBtn(it.id)}
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:8px">
-            <div style="font-size:13px;color:#4A5A6B">
-              ${esc(it.kind === '移動' ? '移動労務' : (it.trade || ''))}
-              <b class="num" data-np="${it.id}" style="cursor:pointer;text-decoration:underline">${it.persons ?? 0}</b>人 ×
-              <b class="num" data-nh="${it.id}" style="cursor:pointer;text-decoration:underline">${it.hours ?? 0}</b>h
-              ${rate ? `<span style="color:var(--muted2)">／ ${rate.toLocaleString('ja-JP')}円/h</span>` : ''}
-            </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;gap:10px">
+            <div style="font-size:13px;color:#4A5A6B">${esc(it.kind === '移動' ? '移動労務' : (it.trade || ''))}
+              <b data-np="${it.id}" style="font-family:var(--mono);font-weight:700;color:#16202B;cursor:pointer">${it.persons ?? 0}</b>人 ×
+              <b data-nh="${it.id}" style="font-family:var(--mono);font-weight:700;color:#16202B;cursor:pointer">${it.hours ?? 0}</b>h</div>
             <div style="display:flex;gap:6px;flex:none">
-              <button class="btn btn-sm" style="width:56px;height:44px" data-h="${it.id}" data-d="-${step}">−${step}h</button>
-              <button class="btn btn-sm" style="width:56px;height:44px" data-h="${it.id}" data-d="${step}">＋${step}h</button>
+              <button data-h="${it.id}" data-d="-${step}" style="${STEP_BTN}">−${step}h</button>
+              <button data-h="${it.id}" data-d="${step}" style="${STEP_BTN}">＋${step}h</button>
             </div>
           </div>
           ${it.kind === '移動' ? `
-            <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;font-size:13px;color:#4A5A6B">
-              <span>片道 <b class="num" data-km="${it.id}" style="cursor:pointer;text-decoration:underline">${it.km ?? '—'}</b> km
-                <span style="color:var(--muted2)">（往復で計算・${unitRates.kmRate}円/km）</span></span>
-            </div>` : ''}
-          <div style="display:flex;align-items:flex-end;justify-content:flex-end;padding-top:6px">
-            <span class="num" style="font-size:26px;font-weight:700;color:var(--navy)">${YEN(amt || 0)}</span></div>
+            <div style="font-size:12.5px;color:#6B7783;padding-top:8px">片道
+              <b data-km="${it.id}" style="font-family:var(--mono);color:#16202B;cursor:pointer">${it.km ?? '—'}</b> km
+              <span style="color:#A9B3BE">（往復で計算・${unitRates.kmRate}円/km）</span></div>` : ''}
+          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px">
+            ${it.kind === '労務' ? `<button data-steps="${it.id}" style="display:flex;align-items:center;gap:4px;height:36px;
+              padding:0 12px;background:#1B3A5C;border:0;border-radius:6px;font-size:13px;font-weight:700;color:#fff;
+              font-family:var(--font);cursor:pointer">くわしく<span style="font-size:12px;display:grid;place-items:center">${icons.caretRight}</span></button>`
+              : '<span></span>'}
+            <span style="${AMT}">${YEN(amt || 0)}</span>
+          </div>
         </div>`;
     }
 
-    // 材料・外注
+    // 材料・外注（確定）
+    const isMarket = it.chosen === 'market';
     return `
-      <div class="card" ${pending ? 'style="border-left:4px solid var(--accent)"' : ''}>
-        <div style="display:flex;align-items:flex-start;gap:8px">
-          <div class="ttl" style="font-size:16px;flex:1">${esc(it.name || '（名前なし）')}</div>
-          ${pending ? `<span style="display:flex;align-items:center;gap:3px;font-size:11px;font-weight:700;color:#fff;
-            background:var(--accent);border-radius:3px;padding:3px 6px;flex:none">${icons.clock}単価待ち</span>` : ''}
-          <button class="btn btn-sm" style="flex:none;min-width:44px" data-del="${it.id}">✕</button>
+      <div style="${CARD}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <div style="${TITLE};flex:1;min-width:0">${esc(it.name || '（名前なし）')}</div>
+          ${isMarket ? `<span style="display:flex;align-items:center;gap:3px;font-size:11px;font-weight:700;color:#1F6B5B;
+            background:#E3F0EC;border-radius:3px;padding:3px 6px;flex:none">
+            <span style="font-size:12px;display:grid;place-items:center">${icons.check}</span>相場で確定</span>` : ''}
+          ${delBtn(it.id)}
         </div>
-        ${pending ? `<div style="font-size:13px;color:var(--muted);padding-top:6px;line-height:1.6">
-          仕入先に単価を聞いてから入れます。この1件を空けたまま先へ進めます。</div>` : ''}
+        ${it.kind === '外注' ? '<div style="font-size:13px;color:#4A5A6B;padding-top:8px">外注費 1式</div>' : ''}
         <div style="display:flex;align-items:flex-end;justify-content:space-between;padding-top:8px">
-          <button class="btn btn-sm" style="height:44px" data-edit="${it.id}">${pending ? '金額を入れる' : '金額を直す'}</button>
-          <span class="num" style="font-size:26px;font-weight:700;color:${pending ? 'var(--muted2)' : 'var(--navy)'}">
-            ${pending ? '￥—' : YEN(amt || 0)}</span>
+          <button data-edit="${it.id}" style="${SUB_BTN}">金額を直す</button>
+          <span style="${AMT}">${YEN(amt || 0)}</span>
         </div>
       </div>`;
   }
 
   // ---------- 下の帯 ----------
-  function bandHtml(band, c) {
-    const note = c.undecided
-      ? `<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#F0C888;padding-top:8px">
-           ${icons.warning}まだ決めていない項目が ${c.undecided} 件あります</div>`
-      : c.pending
-        ? `<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#F0C888;padding-top:8px">
-             ${icons.clock}単価待ちが ${c.pending} 件あります</div>`
-        : '<div style="font-size:11.5px;color:rgba(255,255,255,.68);padding-top:8px">概算です。本見積は現地確認のあとに出します</div>';
-
+  // 幅のバー: 中央値の±30%を目盛りにして、そこに幅を置く。
+  // 決めるほど幅が狭まり、山吹の帯が短くなる。
+  function bandBarHtml(band) {
+    if (!band.hasAmount) return '<div style="height:8px;border-radius:4px;background:rgba(255,255,255,0.14);margin-top:8px"></div>';
+    const mid = (band.displayLow + band.displayHigh) / 2 || 1;
+    const lo = mid * 0.7, hi = mid * 1.3;
+    const pct = (v) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100));
+    const left = pct(band.displayLow);
+    const w = Math.max(4, pct(band.displayHigh) - left);
     return `
-      <div style="flex:none;background:var(--navy);padding:12px 14px calc(14px + env(safe-area-inset-bottom, 0px))">
-        <div style="font-size:11.5px;color:rgba(255,255,255,.68)">提出価格の目安（税込）</div>
-        <div class="num" style="font-size:28px;font-weight:700;color:${band.hasAmount ? '#fff' : 'rgba(255,255,255,.34)'};
-          letter-spacing:-.01em;padding-top:2px">
+      <div style="height:8px;border-radius:4px;background:rgba(255,255,255,0.16);margin-top:8px;display:flex">
+        <div style="width:${left}%"></div>
+        <div style="width:${w}%;background:#BA7517;border-radius:4px"></div>
+      </div>`;
+  }
+
+  function bandHtml(band, c) {
+    const note = !band.hasAmount
+      ? '<div style="font-size:11.5px;color:rgba(255,255,255,0.68);padding-top:8px">項目を出すと目安が出ます</div>'
+      : c.undecided
+        ? `<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#F0C888;padding-top:8px">
+             <span style="font-size:13px;display:grid;place-items:center">${icons.warning}</span>まだ決めていない項目が ${c.undecided} 件あります</div>`
+        : c.pending
+          ? `<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#F0C888;padding-top:8px">
+               <span style="font-size:13px;display:grid;place-items:center">${icons.clock}</span>単価待ちが ${c.pending} 件あります</div>`
+          : `<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#9FD5BE;padding-top:8px">
+               <span style="font-size:14px;display:grid;place-items:center">${icons.checkCircle}</span>${c.decided}件 確定</div>`;
+
+    // 未確定が残っているあいだは「文面を作る」を押させない（モックと同じ）
+    const canQuote = band.hasAmount && !c.undecided;
+    return `
+      <div style="flex:none;background:#1B3A5C;padding:12px 14px calc(14px + env(safe-area-inset-bottom, 0px))">
+        <div style="font-size:11.5px;color:rgba(255,255,255,0.68)">提出価格の目安（税込）</div>
+        <div style="font-family:var(--mono);font-size:28px;font-weight:700;letter-spacing:-.01em;padding-top:2px;
+          color:${band.hasAmount ? '#fff' : 'rgba(255,255,255,0.34)'}">
           ${band.hasAmount ? `${YEN(band.displayLow)} 〜 ${YEN(band.displayHigh)}` : '￥— 〜 ￥—'}</div>
+        ${bandBarHtml(band)}
         ${note}
         <div style="display:flex;gap:8px;padding-top:10px">
-          <button class="btn btn-sm" id="r-add" style="flex:1;height:48px;background:rgba(255,255,255,.14);
-            border-color:rgba(255,255,255,.4);color:#fff;font-size:16px">項目を足す</button>
-          <button class="btn btn-sm" id="r-quote" style="flex:1;height:48px;background:#fff;color:var(--navy);
-            border-color:#fff;font-size:16px" ${band.hasAmount ? '' : 'disabled'}>${icons.note}文面を作る</button>
+          <button id="r-add" style="flex:1;height:48px;background:rgba(255,255,255,0.14);
+            border:1px solid rgba(255,255,255,0.4);border-radius:6px;color:#fff;font-family:var(--font);
+            font-size:16px;font-weight:700;cursor:pointer">項目を足す</button>
+          <button id="r-quote" ${canQuote ? '' : 'disabled'} style="flex:1;height:48px;border-radius:6px;
+            font-family:var(--font);font-size:16px;font-weight:700;display:flex;align-items:center;
+            justify-content:center;gap:6px;
+            ${canQuote
+              ? 'background:#fff;border:0;color:#1B3A5C;cursor:pointer'
+              : 'background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.45);cursor:not-allowed'}">
+            <span style="font-size:19px;display:grid;place-items:center">${icons.fileText}</span>文面を作る</button>
         </div>
       </div>`;
   }
 
-  // ---------- 描画 ----------
+  // ---------- 全体 ----------
   function paint() {
     if (!rough) return;
     const { rates, unitRates, band, c } = calcAll();
     const open = questions.filter((q) => !q.answer);
+    const big = items.length === 0;          // まだ項目が無いとき＝モックの①
 
-    const body = items.length
-      ? `<div style="display:flex;align-items:center;gap:8px;padding:16px 14px 8px">
-           <span style="font-size:13px;font-weight:700;color:var(--navy)">項目</span>
-           <span class="num" style="font-size:13px;font-weight:700;color:#7A8794">${c.items}件</span>
-           <span style="flex:1;height:1px;background:var(--line2)"></span>
-           ${c.undecided ? `<span style="font-size:11.5px;color:var(--accent);font-weight:700">未確定 ${c.undecided}</span>`
-             : `<span style="display:flex;align-items:center;gap:4px;font-size:11.5px;color:var(--green);font-weight:700">
-                  ${icons.checkCircle}${c.decided}件 確定</span>`}
-         </div>
-         <div style="display:flex;flex-direction:column;gap:8px;padding:0 12px">
-           ${open.map(questionHtml).join('')}
-           ${items.map((it) => itemCard(it, rates, unitRates)).join('')}
-         </div>
-         <div style="height:12px"></div>`
-      : `<div class="empty" style="padding:36px 24px">
-           <div class="big">項目はまだありません</div>
-           上の「項目を出す」を押してください</div>`;
+    const list = items.length ? `
+      <div style="display:flex;align-items:center;gap:8px;padding:16px 2px 8px">
+        <span style="font-size:13px;font-weight:700;color:#1B3A5C">読み取った項目</span>
+        <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:#7A8794">${c.items}件</span>
+        <span style="flex:1;height:1px;background:#D2D8E0"></span>
+        ${c.undecided
+          ? `<span style="font-size:11.5px;color:#BA7517;font-weight:700">未確定 ${c.undecided}</span>`
+          : `<span style="display:flex;align-items:center;gap:4px;font-size:11.5px;color:#1F6B5B;font-weight:700">
+               <span style="font-size:14px;display:grid;place-items:center">${icons.checkCircle}</span>${c.decided}件 確定</span>`}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${open.map(questionHtml).join('')}
+        ${items.map((it) => itemCard(it, rates, unitRates)).join('')}
+      </div>
+      <div style="height:12px"></div>` : `
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+        color:#8A96A3;border:1.5px dashed #C3CBD4;border-radius:6px;margin:16px 0 4px;padding:28px 20px">
+        <span style="font-size:44px;color:#A9B3BE;display:grid;place-items:center">${icons.images}</span>
+        <div style="font-size:14px;color:#6B7783;text-align:center;line-height:1.8">
+          「項目を出す」を押すと、ここに項目が並びます。<br>金額はあとから一つずつ直せます。</div>
+      </div>`;
 
     setHtmlKeepScroll(container, `
-      <div class="screen">
-        <div class="est-header" style="padding-top: env(safe-area-inset-top, 0px)">
-          <div class="row1">
-            <button class="icon-btn" id="r-back" style="color:#fff;background:none;border:0;width:44px;height:44px;font-size:24px;cursor:pointer">←</button>
-            <div style="flex:1;min-width:0">
-              <div class="ttl">${esc(rough.projectName || '（工事名なし）')}</div>
-              <div class="meta">概算${rough.customer ? ' ／ ' + esc(rough.customer) : ''}</div>
-              <div class="saved">☁ 自動保存されます</div>
-            </div>
-          </div>
-        </div>
-        <button class="cover-row" id="r-cover">
-          <span class="main">表紙の情報</span>
-          <span class="sub">${esc([rough.projectName, rough.customer, rough.site].filter(Boolean).join('・') || '工事名・宛先・施工場所')}</span>
-          <span style="color:var(--muted)">›</span>
-        </button>
-        <div class="scroll est-list-scroll" style="padding:0">
-          ${photosHtml()}
-          ${oneLinerHtml()}
-          ${generateHtml()}
-          ${body}
+      <div class="screen" style="background:#EEF0F3">
+        ${headerHtml()}
+        <div class="scroll est-list-scroll" style="padding:0 12px 12px">
+          ${photosHtml(big)}
+          ${oneLinerHtml(big)}
+          ${generateHtml(big)}
+          ${list}
         </div>
         ${bandHtml(band, c)}
       </div>`);
@@ -350,12 +468,14 @@ export function renderRoughScreen(container, roughId) {
       });
     });
 
-    all('[data-wt]').forEach((el) => el.addEventListener('click', () => {
-      updateRough(roughId, { workType: el.dataset.wt }).catch(() => toast('保存できませんでした'));
-    }));
-
-    q('#r-gen').addEventListener('click', generate);
+    // 工事の種類は表紙で選ぶ（モックにこの画面のボタンが無いため）
+    all('.r-gen').forEach((el) => el.addEventListener('click', generate));
     q('#r-add').addEventListener('click', addBlank);
+
+    // 手順の内訳（項目のくわしい中身）はまだ画面が無い
+    all('[data-steps]').forEach((el) => el.addEventListener('click', () => {
+      toast('手順の内訳はこれから作ります');
+    }));
     // 文面を作る前に、そのときの率と金額を焼き付ける。
     // 客に出した金額と、あとで見る金額がずれないようにするため。
     q('#r-quote').addEventListener('click', async () => {

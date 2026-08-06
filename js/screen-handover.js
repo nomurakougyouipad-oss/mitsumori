@@ -31,6 +31,14 @@ const BADGE = {
 
 const ms = (v) => { const d = toDate(v); return d ? d.getTime() : 0; };
 
+// 中身が何も無い見積は一覧に出さない。
+// 「あたらしい見積」を押して戻っただけの空が溜まると、本物が埋もれる。
+// 消しはしない（開けば今まで通り使える）。出さないだけ。
+export function isEmptyQuote(e) {
+  return !e.projectName && !e.customer && !e.orderNo
+    && !e.totalFinal && !e.linesCount;
+}
+
 // 差の書き方。ぴったり同じときに「−0」と出さない
 function gapText(gap) {
   if (gap === 0) return '±0';
@@ -46,6 +54,7 @@ function buildRows() {
 
   for (const r of cache.roughs || []) {
     if (r.status === '完工') continue;              // 完工は下の実績カードで出す
+    if (isEmptyQuote(r) && !(r.photos || []).length && !r.oneLiner) continue;
     rows.push({
       kind: '概算', id: r.id, at: ms(r.updatedAt),
       title: r.projectName, customer: r.customer, site: r.site, staff: r.staff,
@@ -59,6 +68,7 @@ function buildRows() {
 
   for (const e of cache.estimates || []) {
     if (e.status === '完工') continue;
+    if (isEmptyQuote(e)) continue;
     rows.push({
       kind: '本見積', id: e.id, at: ms(e.updatedAt),
       title: e.projectName, customer: e.customer, site: e.site, staff: e.staff,
