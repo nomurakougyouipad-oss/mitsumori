@@ -2,7 +2,8 @@ rules_version = '2';
 
 // ============================================================
 // Storage セキュリティルール — 見積アプリ (mitsumori)
-// 拾い出しスケッチの写真のみ。画像・10MB以下・サインイン必須
+// 拾い出しスケッチの写真と、概算見積の現場写真・図面。
+// 画像・10MB以下・サインイン必須（図面PDFのみ application/pdf を許可）
 // ============================================================
 
 service firebase.storage {
@@ -10,6 +11,26 @@ service firebase.storage {
 
     // 見積の表紙に貼る拾い出しスケッチ写真
     match /sketchPhotos/{estimateId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null;
+    }
+
+    // 概算見積の現場写真・図面・銘板（写真から見積）
+    // 図面は紙を撮るだけでなくPDFを入れることもある
+    match /roughPhotos/{roughId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null
+        && request.resource.size < 10 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*')
+            || request.resource.contentType == 'application/pdf');
+      allow delete: if request.auth != null;
+    }
+
+    // 「スケッチしてもらう」の完成イメージ（AIが描いた絵）
+    match /roughSketches/{roughId}/{fileName} {
       allow read: if request.auth != null;
       allow write: if request.auth != null
         && request.resource.size < 10 * 1024 * 1024

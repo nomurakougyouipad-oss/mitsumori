@@ -126,6 +126,97 @@ service cloud.firestore {
       }
     }
 
+    // ---- 概算見積（AI概算・写真から見積） ----
+    // 本見積(estimates)とは別に残す。上書きしない。
+    // 現場で止まらないことを優先するので必須フィールドは課さない。型の安全網のみ。
+    match /roughEstimates/{roughId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && strMax(request.resource.data.get('projectName', ''), 200)
+        && strMax(request.resource.data.get('site', ''), 200)
+        && strMax(request.resource.data.get('customer', ''), 100)
+        && strMax(request.resource.data.get('orderNo', ''), 30)
+        && strMax(request.resource.data.get('staff', ''), 60)
+        && strMax(request.resource.data.get('oneLiner', ''), 500)
+        && request.resource.data.get('status', '見積中') in ['見積中', '発注待ち', '進行中']
+        && request.resource.data.get('workType', '修理・整備') in ['修理・整備', '製作もの', '配管工事']
+        && request.resource.data.get('welfareOn', false) is bool
+        && request.resource.data.get('spreadBase', '材労') in ['材労', '全費目']
+        && request.resource.data.get('photos', []) is list;
+      allow delete: if signedIn();
+
+      // 読み取った項目。AIが出したものは必ず '未確定' で入り、
+      // 人が押して '確定' になったものだけが合計に入る（アプリ側の芯）。
+      match /items/{itemId} {
+        allow read: if signedIn();
+        allow create, update: if signedIn()
+          && request.resource.data.kind in ['材料', '労務', '移動', '外注']
+          && request.resource.data.get('state', '未確定') in ['未確定', '確定', '単価待ち']
+          && request.resource.data.get('chosen', null) in [null, 'yotsuba', 'market', 'manual']
+          && strMax(request.resource.data.get('name', ''), 200)
+          && strMax(request.resource.data.get('reason', ''), 100)
+          && request.resource.data.get('steps', []) is list;
+        allow delete: if signedIn();
+      }
+
+      // ききたいこと（AIが自信のないところ）
+      match /questions/{questionId} {
+        allow read: if signedIn();
+        allow create, update: if signedIn()
+          && strMax(request.resource.data.get('text', ''), 500)
+          && request.resource.data.get('kind', 'choice') in ['choice', 'photo', 'free']
+          && request.resource.data.get('options', []) is list;
+        allow delete: if signedIn();
+      }
+
+      // スケッチしてもらう（完成イメージ）
+      match /sketches/{sketchId} {
+        allow read: if signedIn();
+        allow create, update: if signedIn()
+          && strMax(request.resource.data.get('prompt', ''), 500)
+          && request.resource.data.get('proposedItems', []) is list;
+        allow delete: if signedIn();
+      }
+
+      // 見積の中のやりとり。単独のチャット画面は作らない
+      match /chat/{messageId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.resource.data.get('role', 'user') in ['user', 'ai']
+          && strMax(request.resource.data.get('text', ''), 4000)
+          && strMax(request.resource.data.get('by', ''), 60);
+        allow update: if false;
+        allow delete: if signedIn();
+      }
+    }
+
+    // ---- 覚えること ----
+    // 項目を足す: 3件たまったら自動。金額を直す: 本人が押す＋理由。
+    // 承認は挟まない。誰でも消せる（「いつでも消せる」が仕様）。
+    match /memoryItems/{memoryId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && validNamed(request.resource.data)
+        && request.resource.data.get('count', 0) is number
+        && request.resource.data.get('adopted', false) is bool
+        && request.resource.data.get('disabled', false) is bool
+        && request.resource.data.get('occurrences', []) is list;
+      allow delete: if signedIn();
+    }
+
+    match /memoryPrices/{memoryId} {
+      allow read: if signedIn();
+      // 理由の無い書き込みは弾く（誰が・いつ・なぜ が残らないものは覚えない）
+      allow create, update: if signedIn()
+        && validNamed(request.resource.data)
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() > 0
+        && request.resource.data.reason.size() <= 100
+        && strMax(request.resource.data.get('staff', ''), 60)
+        && request.resource.data.get('disabled', false) is bool;
+      allow delete: if signedIn();
+    }
+
     // ---- 単価の判断待ち ----
     match /priceReviews/{reviewId} {
       allow read: if signedIn();

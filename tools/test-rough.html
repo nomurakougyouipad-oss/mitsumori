@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>概算見積 計算テスト</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #EEF0F3; margin: 0; padding: 20px; }
+  h1 { font-size: 18px; color: #1B3A5C; }
+  h2 { font-size: 14px; color: #1B3A5C; margin: 18px 0 6px; }
+  .case { background: #fff; border-radius: 8px; padding: 10px 14px; margin-bottom: 6px; font-size: 14px; }
+  .ok { border-left: 4px solid #177a49; }
+  .ng { border-left: 4px solid #b3261e; font-weight: 700; }
+  #summary { font-size: 16px; font-weight: 700; margin: 12px 0; }
+  .note { background:#FBF2E4; border-left:4px solid #BA7517; padding:10px 14px; font-size:13px; line-height:1.7; border-radius:6px; margin-bottom:14px; }
+</style>
+</head>
+<body>
+<h1>概算見積 計算テスト（rough-calc.js）</h1>
+<div class="note">
+  <b>2026-08-06 決定ずみ</b><br>
+  ・諸経費／損料のベースは「材料費＋労務費」（<code>spreadBase:'材労'</code>）が正。
+  UIモックPC版の数字は「材料＋労務＋移動＋外注」だが、あれは見本用で計算を合わせていない（デザイン側の誤り）。
+  <code>'全費目'</code> はモックの数字を再現できるように残してあるだけ。<br>
+  ・提出価格は<b>必ず幅で出す</b>。下限＝合計を1万円単位に切り下げ／上限＝合計×1.1 を1万円単位に切り上げ。
+  全項目を押し終わっても幅は消えない。未確定が残っていると、その不確かさぶんだけ幅が広がる。
+</div>
+<div id="summary">実行中…</div>
+<div id="out"></div>
+<script type="module">
+  import { DEFAULT_RATES } from '../js/calc.js?v=2';
+  import {
+    tradeRate, resolveRates, resolveUnitRates,
+    stepAmount, stepsTotal, stepsManHours,
+    yotsubaBase, yotsubaAmount, itemAmount, itemRange, itemCandidates,
+    sumByKind, totalsFromKinds, roughTotals, priceBand, counts, itemBreakdown,
+    DEFAULT_ROUGH_OPTIONS,
+  } from '../js/rough-calc.js?v=2';
+
+  const out = document.getElementById('out');
+  let pass = 0, fail = 0;
+  const head = (t) => { const h = document.createElement('h2'); h.textContent = t; out.appendChild(h); };
+  const eq = (name, got, want) => {
+    const ok = Object.is(got, want) || (typeof got === 'number' && typeof want === 'number' && Math.abs(got - want) < 1e-6);
+    const div = document.createElement('div');
+    div.className = 'case ' + (ok ? 'ok' : 'ng');
+    div.textContent = `${ok ? '✓' : '✕'} ${name} — got: ${got} / want: ${want}`;
+    out.appendChild(div);
+    ok ? pass++ : fail++;
+  };
+
+  const R = DEFAULT_RATES;   // 材料15% 労務0% 諸経費15% 福利16% 損料5% 税10%
+  const U = {
+    travelLabor: 3000, kmRate: 25,
+    trades: [
+      { name: '溶接加工', rate: 3500 }, { name: '曲げ加工', rate: 3000 },
+      { name: '穴あけ加工', rate: 2800 }, { name: '塗装', rate: 2500 },
+      { name: '整備', rate: 3000 }, { name: '現場工事', rate: 4000 },
+    ],
+  };
+
+  // ---- 職種の単価 ----
+  head('職種の1h単価');
+  eq('現場工事 = 4000', tradeRate(U, '現場工事'), 4000);
+  eq('整備 = 3000', tradeRate(U, '整備'), 3000);
+  eq('知らない職種 = null', tradeRate(U, '板金'), null);
+
+  // ---- 率と単価の3段階 ----
+  head('率と単価の3段階（会社 → 元請け → この見積）');
+  eq('元請けの諸経費が会社標準を上書き',
+     resolveRates({ overhead: 0.15, tax: 0.10 }, { overhead: 0.12 }, null).overhead, 0.12);
+  eq('書いていないところは上の段が残る',
+     resolveRates({ overhead: 0.15, tax: 0.10 }, { overhead: 0.12 }, null).tax, 0.10);
+  eq('この見積だけの上書きが最優先',
+     resolveRates({ overhead: 0.15 }, { overhead: 0.12 }, { overhead: 0.20 }).overhead, 0.20);
+  {
+    const u = resolveUnitRates(U, { trades: [{ name: '整備', rate: 3300 }] }, null);
+    eq('元請けの整備だけ3300に', u.trades.find((t) => t.name === '整備').rate, 3300);
+    eq('触っていない現場工事は4000のまま', u.trades.find((t) => t.name === '現場工事').rate, 4000);
+    eq('職種の数は変わらない', u.trades.length, 6);
+  }
+
+  // ---- 手順（モック「項目のくわしい中身」の4手順） ----
+  head('手順 — 既設モーター・駆動装置 取外し（モックの数字）');
+  const steps = [
+    { name: '門型 組立・解体', trade: '現場工事', persons: 2, hours: 4, enabled: true },
+    { name: '玉掛け・チェンブロック2tで吊り', trade: '現場工事', persons: 2, hours: 2, enabled: true },
+    { name: 'トロリーで吊り出し・搬出', trade: '現場工事', persons: 2, hours: 1, enabled: true },
+    { name: '養生・片付', trade: '現場工事', persons: 2, hours: 1, enabled: true },
+  ];
+  eq('門型 2人×4h×4000 = 32,000', stepAmount(steps[0], U), 32000);
+  eq('玉掛け 2人×2h×4000 = 16,000', stepAmount(steps[1], U), 16000);
+  eq('トロリー 2人×1h×4000 = 8,000', stepAmount(steps[2], U), 8000);
+  eq('4手順の合計 = 64,000', stepsTotal(steps, U), 64000);
+  eq('合計 16人時', stepsManHours(steps), 16);
+  eq('「使わない」を押した手順は0円',
+     stepAmount({ ...steps[0], enabled: false }, U), 0);
+  eq('門型を使わないと 64,000 → 32,000',
+     stepsTotal([{ ...steps[0], enabled: false }, ...steps.slice(1)], U), 32000);
+  eq('使わない手順は人時にも入らない',
+     stepsManHours([{ ...steps[0], enabled: false }, ...steps.slice(1)]), 8);
+
+  // ---- よつばの単価 ----
+  head('よつばの単価（自社の原価に率を掛ける）');
+  const rough = { kind: '労務', name: '既設モーター・駆動装置 取外し', trade: '現場工事', persons: 2, hours: 8, steps: [] };
+  eq('ざっくり 2人×8h×4000 = 64,000', yotsubaBase(rough, U), 64000);
+  eq('労務は上乗せ0%なので金額も64,000', yotsubaAmount(rough, R, U), 64000);
+  eq('手順があれば手順が正（同じ64,000）', yotsubaBase({ ...rough, steps }, U), 64000);
+  eq('材料は原価×1.15', yotsubaAmount({ kind: '材料', qty: 3, cost: 1000 }, R, U), 3450);
+  eq('外注は上乗せなし', yotsubaAmount({ kind: '外注', amount: 120000 }, R, U), 120000);
+  eq('移動 2人×4h×3000 ＋ 30km往復×25 = 25,500',
+     yotsubaAmount({ kind: '移動', persons: 2, hours: 4, km: 30 }, R, U), 25500);
+  eq('人数・時間が無い移動は距離だけあっても null',
+     yotsubaAmount({ kind: '移動', km: 30 }, R, U), null);
+
+  // ---- 人が押すまで合計に入らない（芯） ----
+  head('人が押すまで合計に入らない');
+  const motor = { kind: '材料', name: '交換用モーター', state: '未確定', chosen: null, marketAmount: 250000 };
+  eq('未確定は null（AIの金額はそのまま入らない）', itemAmount(motor, R, U), null);
+  eq('［この金額を使う］→ 相場250,000',
+     itemAmount({ ...motor, state: '確定', chosen: 'market' }, R, U), 250000);
+  eq('［金額を直す］→ 人が入れた金額',
+     itemAmount({ ...motor, state: '確定', chosen: 'manual', manualAmount: 232000 }, R, U), 232000);
+  eq('［単価待ち］は確定にならない → null',
+     itemAmount({ ...motor, state: '単価待ち' }, R, U), null);
+  eq('相場は売値なので15%を掛けない',
+     itemAmount({ ...motor, state: '確定', chosen: 'market' }, R, U), 250000);
+  eq('よつばの単価が無い項目の候補は相場だけ',
+     itemCandidates(motor, R, U).length, 1);
+  {
+    const both = { kind: '労務', trade: '整備', persons: 2, hours: 32, state: '未確定', marketAmount: 250000 };
+    eq('よつば 整備3000×2×32 = 192,000', yotsubaAmount(both, R, U), 192000);
+    eq('2つ並ぶので候補は2件', itemCandidates(both, R, U).length, 2);
+    eq('未確定の幅は 下=192,000', itemRange(both, R, U).low, 192000);
+    eq('未確定の幅は 上=250,000', itemRange(both, R, U).high, 250000);
+  }
+  eq('単価待ちの下は0（合計に入れない）',
+     itemRange({ ...motor, state: '単価待ち' }, R, U).low, 0);
+  eq('単価待ちの上は分かっている相場',
+     itemRange({ ...motor, state: '単価待ち' }, R, U).high, 250000);
+
+  // ---- 件数 ----
+  head('件数（画面の帯）');
+  {
+    const list = [
+      { kind: '労務', state: '確定' }, { kind: '労務', state: '確定' },
+      { kind: '材料', state: '未確定' }, { kind: '材料', state: '単価待ち' },
+    ];
+    const c = counts(list);
+    eq('項目 4件', c.items, 4);
+    eq('確定 2件', c.decided, 2);
+    eq('未確定 1件', c.undecided, 1);
+    eq('単価待ち 1件', c.pending, 1);
+  }
+
+  // ---- 費目ごとの合計と率（UIモックの数字で検証） ----
+  head('費目 → 税込（UIモック「写真から見積」PC版 状態②の数字）');
+  const kinds = { 材料: 402000, 労務: 388000, 移動: 26500, 外注: 120000 };
+  {
+    const t = totalsFromKinds(kinds, R, { spreadBase: '全費目', welfareOn: true });
+    eq('諸経費15%（材+労+移+外 936,500ベース）= 140,475', t.overhead, 140475);
+    eq('法定福利費16%（労務費のみ）= 62,080', t.welfare, 62080);
+    eq('損料5%（同ベース）= 46,825', t.depreciation, 46825);
+    eq('税抜計 = 1,185,880', t.taxable, 1185880);
+    eq('消費税10% = 118,588', t.tax, 118588);
+    eq('税込 = 1,304,468', t.withTax, 1304468);
+  }
+  head('同じ費目を「材料＋労務」ベースで計算した場合（CLAUDE.md／Excel の既定）');
+  {
+    const t = totalsFromKinds(kinds, R, DEFAULT_ROUGH_OPTIONS);
+    eq('諸経費15%（材+労 790,000ベース）= 118,500', t.overhead, 118500);
+    eq('損料5% = 39,500', t.depreciation, 39500);
+    eq('法定福利費は同じ 62,080', t.welfare, 62080);
+    eq('税抜計 = 1,156,580', t.taxable, 1156580);
+    eq('税抜の差は 29,300円（諸経費21,975＋損料7,325）', 1185880 - t.taxable, 29300);
+    eq('税込の差は 32,230円', 1304468 - t.withTax, 32230);
+  }
+  head('法定福利費オフ');
+  {
+    const t = totalsFromKinds(kinds, R, { spreadBase: '全費目', welfareOn: false });
+    eq('福利費 = 0', t.welfare, 0);
+    eq('税抜計が福利費分だけ減る', t.taxable, 1185880 - 62080);
+  }
+
+  // ---- 提出価格の幅 ----
+  head('提出価格の目安（税込・万円単位に外へ丸める）');
+  {
+    const items = [
+      { kind: '労務', trade: '現場工事', persons: 2, hours: 8, state: '確定', chosen: 'yotsuba' },
+      { kind: '労務', trade: '整備', persons: 2, hours: 16, state: '確定', chosen: 'yotsuba' },
+      { kind: '材料', state: '確定', chosen: 'market', marketAmount: 250000 },
+      { kind: '外注', amount: 120000, state: '確定', chosen: 'yotsuba' },
+      { kind: '材料', name: 'カップリング一式', state: '単価待ち' },   // 金額不明
+    ];
+    const b = priceBand(items, R, U, DEFAULT_ROUGH_OPTIONS);
+    eq('単価待ち 1件', b.pending, 1);
+    eq('確定 4件', b.decided, 4);
+    eq('金額不明の単価待ちは合計を動かさない（rawLow＝rawHigh）', b.rawLow, b.rawHigh);
+    eq('下限は合計そのもの', b.low, b.rawLow);
+    eq('上限は合計×1.1', b.high, b.rawHigh * 1.1);
+    eq('表示は万円単位に切り下げ', b.displayLow % 10000, 0);
+    eq('表示は万円単位に切り上げ', b.displayHigh % 10000, 0);
+    eq('表示の下は実額以下', b.displayLow <= b.low, true);
+    eq('表示の上は実額以上', b.displayHigh >= b.high, true);
+    eq('全部押しても幅は消えない', b.displayHigh > b.displayLow, true);
+
+    const k = sumByKind(items, R, U, 'final');
+    eq('労務 = 64,000 + 96,000', k.労務, 160000);
+    eq('材料 = 250,000（相場・率なし）', k.材料, 250000);
+    eq('外注 = 120,000', k.外注, 120000);
+    eq('単価待ちは合計に入らない', roughTotals(items, R, U).material, 250000);
+  }
+  eq('何も無ければ hasAmount:false', priceBand([], R, U).hasAmount, false);
+
+  head('概算は必ず幅で出す（下限＝合計／上限＝合計×1.1・1万円単位）');
+  {
+    // 外注1本だけ。率がかからないので合計＝税込1,100,000 とちょうど読める
+    const done = [{ kind: '外注', amount: 1000000, state: '確定', chosen: 'yotsuba' }];
+    const b = priceBand(done, R, U, DEFAULT_ROUGH_OPTIONS);
+    eq('合計（税込）= 1,100,000', b.rawLow, 1100000);
+    eq('全部確定でも rawLow＝rawHigh', b.rawLow, b.rawHigh);
+    eq('下限 = 1,100,000（1万円単位で切り下げ）', b.displayLow, 1100000);
+    eq('上限 = 1,100,000×1.1 = 1,210,000', b.displayHigh, 1210000);
+    eq('全部押しても幅は残る', b.displayHigh - b.displayLow, 110000);
+  }
+  {
+    // 1万円単位の丸め（下は切り下げ・上は切り上げ）
+    const odd = [{ kind: '外注', amount: 1003000, state: '確定', chosen: 'yotsuba' }];
+    const b = priceBand(odd, R, U, DEFAULT_ROUGH_OPTIONS);
+    eq('合計 1,103,300 → 下限は 1,100,000 に切り下げ', b.displayLow, 1100000);
+    eq('1,103,300×1.1 = 1,213,630 → 上限は 1,220,000 に切り上げ', b.displayHigh, 1220000);
+  }
+  head('決めるほど幅が狭くなる');
+  {
+    // 整備 2人×32h＝192,000（よつば）と 相場250,000 の2択が残っている状態
+    const undecided = [{ kind: '労務', trade: '整備', persons: 2, hours: 32, state: '未確定', marketAmount: 250000 }];
+    const before = priceBand(undecided, R, U, DEFAULT_ROUGH_OPTIONS);
+    eq('未確定のあいだは rawLow < rawHigh', before.rawLow < before.rawHigh, true);
+
+    const after = priceBand(
+      [{ ...undecided[0], state: '確定', chosen: 'yotsuba' }], R, U, DEFAULT_ROUGH_OPTIONS);
+    eq('押したら rawLow＝rawHigh', after.rawLow, after.rawHigh);
+    eq('押すと幅が狭くなる',
+       (after.displayHigh - after.displayLow) < (before.displayHigh - before.displayLow), true);
+    eq('押しても幅はゼロにならない', after.displayHigh > after.displayLow, true);
+    // 安いほう（よつばの単価）を押した場合は、下限は動かず上限だけ下がる
+    eq('安いほうを押すと下限は変わらない', after.displayLow, before.displayLow);
+    eq('安いほうを押すと上限が下がる', after.displayHigh < before.displayHigh, true);
+    // 高いほう（相場）を押した場合は、上限は動かず下限が上がる
+    const market = priceBand(
+      [{ ...undecided[0], state: '確定', chosen: 'market' }], R, U, DEFAULT_ROUGH_OPTIONS);
+    eq('高いほうを押すと下限が上がる', market.displayLow > before.displayLow, true);
+    eq('高いほうを押すと上限は変わらない', market.displayHigh, before.displayHigh);
+    eq('どちらを押しても幅は狭くなる',
+       (market.displayHigh - market.displayLow) < (before.displayHigh - before.displayLow), true);
+  }
+  head('社長が実際に出した見積の形（税別135万〜150万・根拠にした実例）');
+  {
+    // 社長の見積は 税抜1,350,000 ／ 税込1,485,000。幅の計算は税込で行う
+    const b = priceBand(
+      [{ kind: '外注', amount: 1350000, state: '確定', chosen: 'yotsuba' }],
+      R, U, DEFAULT_ROUGH_OPTIONS);
+    eq('税込合計 = 1,485,000', b.rawLow, 1485000);
+    eq('下限 = 1,480,000', b.displayLow, 1480000);
+    eq('上限 = 1,485,000×1.1 = 1,633,500 → 1,640,000', b.displayHigh, 1640000);
+    // ※社長の「135万〜150万」は税別。税別で同じ計算をすると 135万〜149万になる
+    const t = priceBand(
+      [{ kind: '外注', amount: 1350000, state: '確定', chosen: 'yotsuba' }],
+      { ...R, tax: 0 }, U, DEFAULT_ROUGH_OPTIONS);
+    eq('税別なら 下限 1,350,000', t.displayLow, 1350000);
+    eq('税別なら 上限 1,490,000（社長の実例は150万）', t.displayHigh, 1490000);
+  }
+
+  // ---- 項目1件の内訳（モック「この項目にかかるもの」） ----
+  head('項目1件の内訳（モック 画面2 の数字）');
+  {
+    const item = { kind: '労務', trade: '現場工事', persons: 2, hours: 8, steps, state: '確定', chosen: 'yotsuba' };
+    const b = itemBreakdown(item, R, U, DEFAULT_ROUGH_OPTIONS);
+    eq('労務費 = 64,000', b.amount, 64000);
+    eq('損料5% = 3,200', b.depreciation, 3200);
+    eq('法定福利費16% = 10,240', b.welfare, 10240);
+    eq('この項目（税抜）= 77,440', b.taxable, 77440);
+    eq('合計 16人時', b.manHours, 16);
+  }
+  {
+    const b = itemBreakdown({ kind: '材料', state: '確定', chosen: 'market', marketAmount: 250000 }, R, U, DEFAULT_ROUGH_OPTIONS);
+    eq('材料に福利費はかからない', b.welfare, 0);
+    eq('材料の損料5% = 12,500', b.depreciation, 12500);
+  }
+
+  document.getElementById('summary').textContent =
+    fail === 0 ? `全 ${pass} 件 合格` : `${pass} 件合格 / ${fail} 件 不合格`;
+  document.getElementById('summary').style.color = fail === 0 ? '#177a49' : '#b3261e';
+</script>
+</body>
+</html>
