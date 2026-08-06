@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>実績・引き継ぎ テスト</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #EEF0F3; margin: 0; padding: 20px; }
+  h1 { font-size: 18px; color: #1B3A5C; }
+  h2 { font-size: 14px; color: #1B3A5C; margin: 18px 0 6px; }
+  .case { background: #fff; border-radius: 8px; padding: 10px 14px; margin-bottom: 6px; font-size: 14px; }
+  .ok { border-left: 4px solid #177a49; }
+  .ng { border-left: 4px solid #b3261e; font-weight: 700; }
+  #summary { font-size: 16px; font-weight: 700; margin: 12px 0; }
+  .note { background:#fff; border-left:4px solid #1B3A5C; padding:10px 14px; font-size:13px; line-height:1.7; border-radius:6px; margin-bottom:14px; }
+</style>
+</head>
+<body>
+<h1>実績・概算から本見積へ テスト</h1>
+<div class="note">
+  実績（完工）の差の出し方と、概算 → 本見積の引き継ぎを検証する。<br>
+  Firestore には触らない。純粋な計算・変換だけを見る。
+</div>
+<div id="summary">実行中…</div>
+<div id="out"></div>
+<script type="module">
+  import { DEFAULT_RATES } from '../js/calc.js?v=2';
+  import { diffOf, diffRate, summarizeByWorkType, perManDay, newActual, ENOUGH_SAMPLES } from '../js/actuals.js?v=2';
+  import { roughItemToLine, materialOriginOf, originVariance, MATERIAL_ORIGINS } from '../js/rough-store.js?v=2';
+  import { describe as describeHistory, tradeKey, tradeNameOf, isTradeKey } from '../js/rate-history.js?v=2';
+
+  const out = document.getElementById('out');
+  let pass = 0, fail = 0;
+  const head = (t) => { const h = document.createElement('h2'); h.textContent = t; out.appendChild(h); };
+  const eq = (name, got, want) => {
+    const ok = Object.is(got, want) || (typeof got === 'number' && typeof want === 'number' && Math.abs(got - want) < 1e-6);
+    const div = document.createElement('div');
+    div.className = 'case ' + (ok ? 'ok' : 'ng');
+    div.textContent = `${ok ? '✓' : '✕'} ${name} — got: ${got} / want: ${want}`;
+    out.appendChild(div);
+    ok ? pass++ : fail++;
+  };
+  const R = DEFAULT_RATES;
+  const U = { travelLabor: 3000, kmRate: 25, trades: [{ name: '現場工事', rate: 4000 }, { name: '整備', rate: 3000 }] };
+
+  // ---- ① 実績の差 ----
+  head('実績の差 — 概算 ￥1,457,280 → 実績 ￥1,398,000（−59,280）');
+  {
+    const a = { roughTotal: 1457280, estimateTotal: 1466300, billedAmount: 1398000 };
+    const d = diffOf(a);
+    eq('概算との差 = −59,280', d.vsRough, -59280);
+    eq('本見積との差 = −68,300', d.vsEstimate, -68300);
+    eq('請求額をそのまま持つ', d.billed, 1398000);
+    eq('概算比の割合 ≒ −4.07%', Math.round(diffRate(d.vsRough, a.roughTotal) * 10000) / 100, -4.07);
+  }
+  head('片方しか無くても止まらない');
+  {
+    // 概算だけ作って本見積を作らずに完工した
+    const d = diffOf({ roughTotal: 1000000, billedAmount: 1100000 });
+    eq('概算との差は出る', d.vsRough, 100000);
+    eq('本見積との差は null', d.vsEstimate, null);
+    // 社長の記憶から入れた（見積が無い）
+    const m = diffOf({ billedAmount: 1480000 });
+    eq('見積が無ければ差は null', m.vsRough, null);
+    eq('請求額だけは残る', m.billed, 1480000);
+    eq('請求額も無ければ null', diffOf({}).billed, null);
+    eq('元が0なら割合は null', diffRate(100, 0), null);
+  }
+  head('思い出して入れる4つだけの実績');
+  {
+    // 「モーター整備、2人で5日、材料35万、請求148万」
+    const a = newActual({ workType: '修理・整備', persons: 2, days: 5, materialCost: 350000, billedAmount: 1480000, source: 'memory' });
+    eq('工事の種類', a.workType, '修理・整備');
+    eq('何人', a.persons, 2);
+    eq('何日', a.days, 5);
+    eq('材料', a.materialCost, 350000);
+    eq('請求', a.billedAmount, 1480000);
+    eq('見積とつながっていない', a.roughId, null);
+    eq('どこから入れたか', a.source, 'memory');
+    eq('人日あたり 148,000円', perManDay(a), 148000);
+    eq('人数が無ければ人日単価は null', perManDay({ billedAmount: 100, days: 1 }), null);
+    // 打っていない欄は null のまま。0で埋めない（0円と区別がつかなくなる）
+    eq('打っていない欄は null', newActual({}).billedAmount, null);
+  }
+  head('溜まるまでは「よつばの金額」を出さない');
+  {
+    const list = [
+      { workType: '修理・整備', billedAmount: 1000000 },
+      { workType: '修理・整備', billedAmount: 1400000 },
+      { workType: '製作もの', billedAmount: 800000 },
+    ];
+    eq('しきい値は3件', ENOUGH_SAMPLES, 3);
+    eq('2件では enough:false', summarizeByWorkType(list, '修理・整備').enough, false);
+    eq('2件でも件数は返す', summarizeByWorkType(list, '修理・整備').count, 2);
+    eq('足りないときは中央値を出さない', summarizeByWorkType(list, '修理・整備').median, null);
+
+    const more = [...list, { workType: '修理・整備', billedAmount: 1200000 }];
+    const s = summarizeByWorkType(more, '修理・整備');
+    eq('3件そろえば enough:true', s.enough, true);
+    eq('中央値 = 1,200,000', s.median, 1200000);
+    eq('最小 = 1,000,000', s.min, 1000000);
+    eq('最大 = 1,400,000', s.max, 1400000);
+    eq('請求額が空の実績は数えない',
+       summarizeByWorkType([...more, { workType: '修理・整備' }], '修理・整備').count, 3);
+    eq('4件の中央値は真ん中2つの平均',
+       summarizeByWorkType([...more, { workType: '修理・整備', billedAmount: 1600000 }], '修理・整備').median, 1300000);
+  }
+
+  // ---- ③ 材料の割り直し ----
+  head('概算の材料は3種類。どれだったかを残す');
+  {
+    eq('印は3種類', MATERIAL_ORIGINS.join(','), 'market,manual,pending');
+    eq('相場を採用', materialOriginOf({ kind: '材料', state: '確定', chosen: 'market' }), 'market');
+    eq('手で直した', materialOriginOf({ kind: '材料', state: '確定', chosen: 'manual' }), 'manual');
+    eq('単価待ち', materialOriginOf({ kind: '材料', state: '単価待ち' }), 'pending');
+    eq('よつばの単価は割り直し不要', materialOriginOf({ kind: '材料', state: '確定', chosen: 'yotsuba' }), null);
+    eq('労務は対象外', materialOriginOf({ kind: '労務', state: '確定', chosen: 'market' }), null);
+  }
+  head('本見積の行に印と由来が残る');
+  {
+    const market = roughItemToLine(
+      { id: 'i1', kind: '材料', name: '交換用モーター', state: '確定', chosen: 'market', marketAmount: 250000, decidedBy: '野村' }, R, U);
+    eq('割り直しの対象', market.needsBreakdown, true);
+    eq('手打ち行になる', market.handwritten, true);
+    eq('元は相場', market.roughOrigin.priceSource, 'market');
+    eq('概算で採った金額を残す', market.roughOrigin.amount, 250000);
+    eq('押した人を残す', market.roughOrigin.decidedBy, '野村');
+    eq('一式1本で入る', market.qty, 1);
+    eq('原価に割り戻す（×1.15で250,000に戻る）', Math.round(market.cost * 1.15), 250000);
+
+    const manual = roughItemToLine(
+      { kind: '材料', name: '消耗部品一式', state: '確定', chosen: 'manual', manualAmount: 80000, reason: '前回もこれくらい' }, R, U);
+    eq('元は手直し', manual.roughOrigin.priceSource, 'manual');
+    eq('直した理由も残る', manual.roughOrigin.reason, '前回もこれくらい');
+
+    const pending = roughItemToLine({ kind: '材料', name: 'カップリング一式', state: '単価待ち' }, R, U);
+    eq('元は単価待ち', pending.roughOrigin.priceSource, 'pending');
+    eq('金額はまだ無い', pending.roughOrigin.amount, null);
+    eq('単価待ちのまま引き継ぐ', pending.pendingPrice, true);
+    eq('原価は0', pending.cost, 0);
+
+    const master = roughItemToLine(
+      { kind: '材料', name: 'アングル', state: '確定', chosen: 'yotsuba', qty: 3, cost: 1200, unit: '本' }, R, U);
+    eq('よつばの単価は割り直し不要', master.needsBreakdown, undefined);
+    eq('数量がそのまま入る', master.qty, 3);
+  }
+  head('相場はどれくらい外れていたか');
+  {
+    // 相場250,000で出して、割り直したら 198,000 だった
+    const line = { qty: 1, cost: 198000 / 1.15, roughOrigin: { priceSource: 'market', name: '交換用モーター', amount: 250000 } };
+    const v = originVariance(line, R);
+    eq('見立ては 250,000', v.guessed, 250000);
+    eq('実際は 198,000', Math.round(v.actual), 198000);
+    eq('差は −52,000', Math.round(v.diff), -52000);
+    eq('率は −20.8%', Math.round(v.rate * 1000) / 10, -20.8);
+    eq('由来も一緒に返す', v.priceSource, 'market');
+    eq('由来が無い行は null', originVariance({ qty: 1, cost: 100 }, R), null);
+    eq('金額の無い単価待ちは null',
+       originVariance({ qty: 1, cost: 100, roughOrigin: { priceSource: 'pending', amount: null } }, R), null);
+  }
+
+  // ---- ② 引き継ぎ ----
+  head('労務・移動・外注はそのまま引き継ぐ');
+  {
+    const l = roughItemToLine({ kind: '労務', name: '駆動部 分解整備', trade: '整備', persons: 2, hours: 16, state: '確定', chosen: 'yotsuba' }, R, U);
+    eq('職種が入る', l.trade, '整備');
+    eq('人数がそのまま', l.persons, 2);
+    eq('時間がそのまま', l.hours, 16);
+    eq('単価を職種から引く', l.rate, 3000);
+    eq('割り直しの印は付かない', l.needsBreakdown, undefined);
+
+    const t = roughItemToLine({ kind: '移動', persons: 2, hours: 4, km: 30, state: '確定', chosen: 'yotsuba' }, R, U);
+    eq('距離が残る', t.km, 30);
+    const s = roughItemToLine({ kind: '外注', name: '足場 組立・解体', amount: 120000, state: '確定', chosen: 'yotsuba' }, R, U);
+    eq('外注は金額そのまま', s.amount, 120000);
+    eq('概算から来た印', s.fromRoughItem, true);
+  }
+
+  // ---- ④ 変更履歴 ----
+  head('変更履歴は欄ごとに持つ');
+  {
+    const h = describeHistory({
+      scope: 'customer', target: '東レ株式会社愛媛工場', key: tradeKey('現場工事'),
+      label: '現場工事', from: 4000, to: 3800, unit: '円/h',
+      staff: '野村', reason: '今年度から単価が下がった',
+    });
+    eq('どこの', h.where, '東レ株式会社愛媛工場');
+    eq('何を', h.what, '現場工事');
+    eq('いくらから', h.from, 4000);
+    eq('いくらに', h.to, 3800);
+    eq('誰が', h.who, '野村');
+    eq('なぜ', h.reason, '今年度から単価が下がった');
+    eq('職種のキーだと分かる', isTradeKey(tradeKey('現場工事')), true);
+    eq('キーから職種名を戻せる', tradeNameOf(tradeKey('現場工事')), '現場工事');
+    eq('率のキーは職種ではない', isTradeKey('overhead'), false);
+
+    const std = describeHistory({ scope: 'standard', key: 'overhead', label: '諸経費', from: 12, to: 15, staff: '事務員' });
+    eq('標準は「標準」と出る', std.where, '標準');
+    // scope が無い時代の行は標準として読む
+    eq('古い行も落ちない', describeHistory({ key: 'material', label: '材料費', from: 13, to: 15 }).where, '標準');
+    eq('古い行の担当者は —', describeHistory({ key: 'material' }).who, '—');
+  }
+
+  document.getElementById('summary').textContent =
+    fail === 0 ? `全 ${pass} 件 合格` : `${pass} 件合格 / ${fail} 件 不合格`;
+  document.getElementById('summary').style.color = fail === 0 ? '#177a49' : '#b3261e';
+</script>
+</body>
+</html>

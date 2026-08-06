@@ -24,6 +24,7 @@ import {
   storageRef, uploadBytes, getDownloadURL, deleteObject,
 } from './firebase.js?v=2';
 import { cache } from './store.js?v=2';
+import { recordRateChange, tradeKey } from './rate-history.js?v=2';
 import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=2';
 import {
   DEFAULT_ROUGH_OPTIONS, WORK_TYPES, ITEM_KINDS,
@@ -330,23 +331,88 @@ export async function freezeRough(roughId, rough, items, staffName) {
   return { totals: t, band };
 }
 
-// ---------- 元請けごとの率を覚える（「次からも使う」） ----------
+// ---------- 元請けごとの率・単価を覚える（「次からも使う」） ----------
 // 元請けを先に登録する画面は作らない。ここを押したものだけが増える。
-export async function saveCustomerOverride(customerName, patch, staffName) {
-  const c = (cache.customers || []).find((x) => x.name === customerName);
-  if (!c) throw new Error('取引先が見つかりません: ' + customerName);
-  await updateDoc(doc(db, 'customers', c.id), patch);
-  await addDoc(collection(db, 'settings', 'rates', 'history'), {
-    at: serverTimestamp(), staff: staffName || '',
-    key: 'customer:' + customerName,
-    note: JSON.stringify(patch).slice(0, 400),
+// 履歴には「東レ愛媛 / 現場工事 / 4,000→3,800 / 野村 / 理由」を欄ごとに残す。
+
+// 率を1つ上書き（例: 諸経費 15% → 12%）
+export async function saveCustomerRate(customerName, key, value, { label, staff, reason } = {}) {
+  const c = requireCustomer(customerName);
+  const before = c.rates?.[key];
+  await updateDoc(doc(db, 'customers', c.id), { rates: { ...(c.rates || {}), [key]: value } });
+  await recordRateChange({
+    scope: 'customer', target: customerName, key,
+    label: label || key, unit: '%',
+    from: typeof before === 'number' ? before * 100 : null,
+    to: typeof value === 'number' ? value * 100 : null,
+    staff, reason,
   });
+}
+
+// 職種の1h単価を1つ上書き（例: 現場工事 4,000 → 3,800）
+export async function saveCustomerTradeRate(customerName, tradeName, rate, { staff, reason } = {}) {
+  const c = requireCustomer(customerName);
+  const trades = [...(c.unitRates?.trades || [])];
+  const i = trades.findIndex((t) => t.name === tradeName);
+  const before = i >= 0 ? trades[i].rate
+    : (cache.unitRates.trades || []).find((t) => t.name === tradeName)?.rate ?? null;
+  if (i >= 0) trades[i] = { ...trades[i], rate };
+  else trades.push({ name: tradeName, rate });
+  await updateDoc(doc(db, 'customers', c.id), { unitRates: { ...(c.unitRates || {}), trades } });
+  await recordRateChange({
+    scope: 'customer', target: customerName, key: tradeKey(tradeName),
+    label: tradeName, unit: '円/h', from: before, to: rate, staff, reason,
+  });
+}
+
+// 元請けの上書きを1つ消して、標準に戻す
+export async function clearCustomerRate(customerName, key, { label, staff, reason } = {}) {
+  const c = requireCustomer(customerName);
+  const rates = { ...(c.rates || {}) };
+  const before = rates[key];
+  delete rates[key];
+  await updateDoc(doc(db, 'customers', c.id), { rates });
+  await recordRateChange({
+    scope: 'customer', target: customerName, key, label: label || key, unit: '%',
+    from: typeof before === 'number' ? before * 100 : null,
+    to: null, staff, reason: reason || '標準に戻した',
+  });
+}
+
+// ---------- 法定福利費を分けて書く（元請けの書式指定） ----------
+// 【既定は false。元請けへの確認が済むまで誰も true にしない】
+// 公共工事では法定福利費を分けて書くよう求められることがある
+// （AI見積_仕様と準備メモ 第3部 4 — 住友重機械エンバイロメント等に要確認）。
+// これは「書き方」の指定であって計算は変わらない。金額には一切効かせていない。
+export async function setSeparateWelfare(customerName, on, { staff, reason } = {}) {
+  const c = requireCustomer(customerName);
+  await updateDoc(doc(db, 'customers', c.id), { separateWelfare: !!on });
+  await recordRateChange({
+    scope: 'customer', target: customerName, key: 'separateWelfare',
+    label: '法定福利費を分けて書く', unit: '',
+    from: c.separateWelfare ? 1 : 0, to: on ? 1 : 0, staff, reason,
+  });
+}
+
+export function separatesWelfare(customerName) {
+  const c = (cache.customers || []).find((x) => x.name === customerName);
+  return c?.separateWelfare === true;
+}
+
+function requireCustomer(name) {
+  const c = (cache.customers || []).find((x) => x.name === name);
+  if (!c) throw new Error('取引先が見つかりません: ' + name);
+  return c;
 }
 
 // ---------- 概算 → 本見積 ----------
 // 概算は消さない。引き継いだ先の id だけ書いておく（あとで差を見るため）。
 export async function convertToEstimate(roughId, rough, items, staffName) {
   const { rates, unitRates } = effectiveRates(rough);
+  // 写真は本見積へそのまま引き継ぐ（確認画面の「そのまま引き継ぐもの」に入っている）。
+  // Storage の実体は roughPhotos/ のまま共有する。二重に上げない。
+  // ※概算側で写真を消すと本見積からも消える。消すのは人が押したときだけなので、それでよい。
+  const photos = (rough.photos || []).map((p) => p.url).filter(Boolean);
   const est = await addDoc(collection(db, 'estimates'), {
     projectName: rough.projectName || '',
     site: rough.site || '',
@@ -358,9 +424,13 @@ export async function convertToEstimate(roughId, rough, items, staffName) {
     ratesEdited: false,
     rates: { ...rates },
     unitRates: { travelLabor: unitRates.travelLabor, kmRate: unitRates.kmRate },
-    adjust: 0, sketchPhotos: [],
+    adjust: 0, sketchPhotos: photos,
     linesCount: 0, pendingCount: 0, totalFinal: 0,
     fromRoughId: roughId,
+    // お客様に伝えた幅。本見積がこの中に収まっているかの判定に使う
+    roughBand: rough.bandFrozen || null,
+    roughTotal: rough.totalsFrozen?.withTax ?? rough.totalFinal ?? null,
+    roughDate: rough.frozenAt || rough.updatedAt || null,
     createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   });
 
@@ -371,6 +441,21 @@ export async function convertToEstimate(roughId, rough, items, staffName) {
   }
   await updateRough(roughId, { convertedEstimateId: est.id });
   return est.id;
+}
+
+// 概算の材料は「一式いくら」。本見積では1本ずつに割り直す。
+// どの材料行が割り直し待ちで、元は何だったのかを残す。
+//   'market'  相場を採用したもの   … あとで「相場はどれくらい外れていたか」を見る
+//   'manual'  金額を手で直したもの … 同上。直した人の見立てが当たったか
+//   'pending' 単価待ち（金額なし） … 割り直して初めて金額がつく
+export const MATERIAL_ORIGINS = ['market', 'manual', 'pending'];
+
+export function materialOriginOf(item) {
+  if (item.kind !== '材料') return null;
+  if (item.state === '単価待ち') return 'pending';
+  if (item.chosen === 'market') return 'market';
+  if (item.chosen === 'manual') return 'manual';
+  return null;   // よつばの単価を採ったものは、もう1本ずつになっている
 }
 
 // 概算の項目 → 本見積の明細行。
@@ -399,14 +484,49 @@ export function roughItemToLine(item, rates, unitRates) {
     return { ...base, kind: '外注', amount: item.amount ?? item.manualAmount ?? 0, supplier: item.supplier || '' };
   }
   // 材料
-  if (item.chosen === 'market' || item.chosen === 'manual') {
-    const sell = item.chosen === 'market' ? item.marketAmount : item.manualAmount;
+  const origin = materialOriginOf(item);
+  if (origin) {
+    const sell = origin === 'market' ? item.marketAmount
+      : origin === 'manual' ? item.manualAmount : null;
     const cost = typeof sell === 'number' ? sell / (1 + (rates.material || 0)) : 0;
-    return { ...base, kind: '材料', itemId: null, qty: 1, unit: '式', cost, handwritten: true, supplier: '' };
+    return {
+      ...base, kind: '材料', itemId: null, qty: 1, unit: '式', cost,
+      handwritten: true, supplier: '',
+      // 割り直しの対象。1本ずつに割り終わったら画面側で false にする
+      needsBreakdown: true,
+      roughOrigin: {
+        itemId: item.id || null,
+        name: item.name || '',
+        priceSource: origin,                                   // market / manual / pending
+        amount: typeof sell === 'number' ? sell : null,         // 概算での計上金額（税抜・売値）
+        reason: item.reason || '',                              // 手で直したときの一言
+        decidedBy: item.decidedBy || '',
+      },
+    };
   }
   return {
     ...base, kind: '材料', itemId: item.itemId || null,
     qty: item.qty ?? 0, unit: item.unit || '', cost: item.cost ?? 0,
     supplier: item.supplier || '',
+  };
+}
+
+// ---------- 相場はどれくらい外れていたか ----------
+// 割り直したあとの本見積の行と、概算で採った金額を比べる。
+// 実績が溜まるまでのあいだ、相場を信じてよいかの手がかりになる。
+export function originVariance(line, rates) {
+  const o = line?.roughOrigin;
+  if (!o || typeof o.amount !== 'number') return null;
+  const actual = typeof line.cost === 'number' && typeof line.qty === 'number'
+    ? line.qty * line.cost * (1 + (rates.material || 0))
+    : null;
+  if (actual == null) return null;
+  return {
+    priceSource: o.priceSource,
+    name: o.name,
+    guessed: o.amount,                                  // 概算で採った金額
+    actual,                                             // 割り直したあとの金額
+    diff: actual - o.amount,
+    rate: o.amount === 0 ? null : (actual - o.amount) / o.amount,
   };
 }

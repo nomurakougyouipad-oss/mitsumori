@@ -13,6 +13,7 @@ import {
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
 } from './firebase.js?v=2';
 import { openTallyPage } from './screen-tally.js?v=2';
+import { recordRateChange, tradeKey } from './rate-history.js?v=2';
 
 const RATE_DEFS = [
   ['material', '材料費 上乗せ%', '原価に対して'],
@@ -113,8 +114,9 @@ function openRatesPage() {
           const from = pctN(cache.rates[k]);
           try {
             await setDoc(doc(db, 'settings', 'rates'), { ...cache.rates, [k]: n / 100 });
-            await addDoc(collection(db, 'settings', 'rates', 'history'), {
-              at: Timestamp.now(), staff: local.get('staff', ''), key: k, label: def[1], from, to: n,
+            await recordRateChange({
+              scope: 'standard', key: k, label: def[1], unit: '%',
+              from, to: n, staff: local.get('staff', ''),
             });
             toast(`${def[1]}を ${from}% → ${n}% に変えました（今後の見積から反映）`);
             setTimeout(load, 400);
@@ -156,10 +158,18 @@ function openUnitRatesPage() {
     };
     ov.el.querySelectorAll('[data-ti]').forEach((el) => el.addEventListener('click', () => {
       const i = +el.dataset.ti;
-      openNumpad({ title: u.trades[i].name, value: u.trades[i].rate, unit: '円/h', allowDecimal: false, onDone: (n) => {
+      openNumpad({ title: u.trades[i].name, value: u.trades[i].rate, unit: '円/h', allowDecimal: false, onDone: async (n) => {
         if (n == null) return;
+        const from = u.trades[i].rate;
         const trades = u.trades.map((t, j) => j === i ? { ...t, rate: n } : t);
-        save({ trades });
+        await save({ trades });
+        // 職種の単価も履歴に残す（誰が・いつ・何を・いくらから いくらに）
+        try {
+          await recordRateChange({
+            scope: 'standard', key: tradeKey(u.trades[i].name), label: u.trades[i].name,
+            unit: '円/h', from, to: n, staff: local.get('staff', ''),
+          });
+        } catch (e) { console.warn('履歴を残せませんでした:', e); }
       } });
     }));
     ov.el.querySelectorAll('[data-uk]').forEach((el) => el.addEventListener('click', () => {

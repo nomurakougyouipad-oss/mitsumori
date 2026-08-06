@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8"><title>読み込みテスト</title>
+<style>
+  body { font-family: system-ui, sans-serif; background:#EEF0F3; margin:0; padding:20px; }
+  h1 { font-size:18px; color:#1B3A5C; }
+  .note { background:#fff; border-left:4px solid #1B3A5C; padding:10px 14px; font-size:13px;
+          line-height:1.7; border-radius:6px; margin-bottom:14px; }
+  pre { background:#fff; border-radius:8px; padding:14px; font-size:13px; line-height:1.8; }
+</style>
+</head>
+<body>
+<h1>読み込みテスト（各モジュールが読めて、関数が全部あるか）</h1>
+<div class="note">
+  ビルド工程が無いので、import のつづり間違いは実行するまで分からない。
+  ここを開けば全モジュールをまとめて読み込んで確かめられる。<br>
+  Firebase につながる（匿名サインインが走る）が、データは読み書きしない。
+</div>
+<pre id="o">…</pre>
+<script type="module">
+const o = document.getElementById('o');
+const log = (s) => { o.textContent += s + '\n'; };
+o.textContent = '';
+const expect = {
+  '../js/rough-calc.js?v=2': ['DISCLAIMER','WORK_TYPES','ITEM_KINDS','ITEM_STATES','PRICE_SOURCES','DEFAULT_ROUGH_OPTIONS','tradeRate','resolveRates','resolveUnitRates','stepAmount','stepsTotal','stepsManHours','yotsubaBase','yotsubaAmount','marketAmount','manualAmount','itemCandidates','itemAmount','itemRange','sumByKind','totalsFromKinds','roughTotals','counts','priceBand','itemBreakdown'],
+  '../js/rough-store.js?v=2': ['ratesFor','effectiveRates','optionsFor','createRough','subscribeRough','subscribeRoughItems','subscribeRoughQuestions','subscribeRoughList','updateRough','deleteRough','newItem','addItem','addItems','updateItem','deleteItem','reorderItems','decideItem','overrideItemAmount','markPending','clearDecision','newStep','setSteps','addStep','toggleStep','updateStep','addQuestion','answerQuestion','deleteQuestion','uploadPhoto','removePhoto','addSketch','addChatMessage','subscribeChat','saveRoughSummary','freezeRough','saveCustomerRate','saveCustomerTradeRate','clearCustomerRate','setSeparateWelfare','separatesWelfare','convertToEstimate','roughItemToLine','materialOriginOf','originVariance','MATERIAL_ORIGINS'],
+  '../js/rough-memory.js?v=2': ['ADOPT_AFTER','recordItemAdded','adoptedItems','adoptedToItem','recordPriceEdit','rememberedPrice','subscribeMemoryItems','subscribeMemoryPrices','forgetItem','forgetPrice','disableItem','disablePrice'],
+  '../js/rate-history.js?v=2': ['SCOPES','tradeKey','isTradeKey','tradeNameOf','recordRateChange','describe','subscribeHistory','fetchHistory','forCustomer'],
+  '../js/actuals.js?v=2': ['ACTUAL_SOURCES','ENOUGH_SAMPLES','newActual','addActual','updateActual','deleteActual','subscribeActuals','diffOf','diffRate','completeEstimate','summarizeByWorkType','perManDay'],
+  '../js/screen-settings.js?v=2': ['renderSettingsTab','openPendingPricePage','openReviewsPage'],
+};
+let bad = 0;
+for (const [path, names] of Object.entries(expect)) {
+  try {
+    const m = await import(path);
+    const missing = names.filter((n) => m[n] === undefined);
+    if (missing.length) { bad++; log('MISSING ' + path + ' -> ' + missing.join(', ')); }
+    else log('OK ' + path + ' (' + names.length + ' exports)');
+  } catch (e) { bad++; log('FAIL ' + path + ' -> ' + e.message); }
+}
+log(bad ? 'RESULT: NG' : 'RESULT: OK');
+</script></body></html>
