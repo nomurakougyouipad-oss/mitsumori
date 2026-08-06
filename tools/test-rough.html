@@ -34,8 +34,10 @@
     stepAmount, stepsTotal, stepsManHours,
     yotsubaBase, yotsubaAmount, itemAmount, itemRange, itemCandidates,
     sumByKind, totalsFromKinds, roughTotals, priceBand, counts, itemBreakdown,
-    DEFAULT_ROUGH_OPTIONS,
+    DEFAULT_ROUGH_OPTIONS, ITEM_KINDS,
   } from '../js/rough-calc.js?v=33';
+  import { templateItems, TEMPLATE_KEYS, TEMPLATE_LABELS } from '../js/rough-templates.js?v=33';
+  import { generateItems, isAiAvailable, SOURCES } from '../js/rough-generate.js?v=33';
 
   const out = document.getElementById('out');
   let pass = 0, fail = 0;
@@ -313,6 +315,88 @@
     const b = itemBreakdown({ kind: '材料', state: '確定', chosen: 'market', marketAmount: 250000 }, R, U, DEFAULT_ROUGH_OPTIONS);
     eq('材料に福利費はかからない', b.welfare, 0);
     eq('材料の損料5% = 12,500', b.depreciation, 12500);
+  }
+
+  // ---- ひな形（AIなしで項目を出す） ----
+  head('ひな形 — 押せば項目が並ぶ（AIなし）');
+  {
+    eq('3つとも用意されている', TEMPLATE_KEYS.length, 3);
+    // 試作の行数 ＋ 現場移動1行（試作では別セクションだったものを項目に寄せた）
+    eq('修理・整備 は12項目', templateItems('修理・整備').length, 12);
+    eq('製作もの は7項目', templateItems('製作もの').length, 7);
+    eq('配管工事 は8項目', templateItems('配管工事').length, 8);
+    eq('どのひな形にも現場移動が1行ある',
+       TEMPLATE_KEYS.every((k) => templateItems(k).filter((i) => i.kind === '移動').length === 1), true);
+    eq('知らない種類は空', templateItems('なにか').length, 0);
+    eq('画面に出す名前', TEMPLATE_LABELS['修理・整備'], '機械の修理・整備');
+
+    const oh = templateItems('修理・整備');
+    const byName = (n) => oh.find((i) => i.name === n);
+    eq('ひな形から来た印がつく', oh.every((i) => i.source === 'template'), true);
+    eq('費目はすべて正しい', oh.every((i) => ITEM_KINDS.includes(i.kind)), true);
+
+    const labor = byName('駆動部 分解・清掃・点検・組立');
+    eq('人工はたたき台として入る（2人×32h）', labor.persons + '人' + labor.hours + 'h', '2人32h');
+    eq('職種が入る', labor.trade, '整備');
+    eq('労務は確定で入る（すぐ金額が出る）', labor.state, '確定');
+    eq('整備 3,000×2×32 = 192,000', yotsubaAmount(labor, R, U), 192000);
+
+    const motor = byName('交換用モーター購入費');
+    eq('金額の分からない材料は単価待ち', motor.state, '単価待ち');
+    eq('単価待ちは合計に入らない', itemAmount(motor, R, U), null);
+
+    const carry = byName('運搬費');
+    eq('決め打ちの金額はそのまま（15%を乗せない）', itemAmount(carry, R, U), 30000);
+
+    const move = byName('現場移動');
+    eq('移動は人数と時間だけ入る', move.persons + '/' + move.hours, '2/1');
+    eq('距離は現場で入れるので空', move.km, null);
+    eq('距離が無くても人数×時間で金額は出る', itemAmount(move, R, U), 6000);
+
+    const sub = byName('配線脱着・絶縁確認・試運転');
+    eq('外注も金額0なら単価待ち', sub.state, '単価待ち');
+  }
+  head('ひな形を出した直後の合計（機械の修理・整備）');
+  {
+    const oh = templateItems('修理・整備');
+    const c = counts(oh);
+    eq('項目 12件', c.items, 12);
+    eq('単価待ち 3件（モーター・消耗部品・試運転）', c.pending, 3);
+    eq('未確定は0件（ひな形はAIの推測ではない）', c.undecided, 0);
+    const t = roughTotals(oh, R, U, DEFAULT_ROUGH_OPTIONS);
+    // 労務: 現場工事(1x8 + 2x8 + 2x16)=4000*56=224,000 / 整備(2x8+2x32+2x8)=3000*96=288,000
+    //       塗装 1x8=2,500*8=20,000  → 計 532,000
+    eq('労務費 = 532,000', t.labor, 532000);
+    eq('材料費 = 運搬費 30,000 だけ', t.material, 30000);
+    eq('移動費 = 2人×1h×3,000 = 6,000', t.travel, 6000);
+    eq('外注費 = 0（単価待ち）', t.subcontract, 0);
+    eq('諸経費15%は材+労のみ（移動費を含めない）', t.overhead, Math.round((532000 + 30000) * 0.15));
+    eq('法定福利費16%は労務のみ', t.welfare, Math.round(532000 * 0.16));
+    const band = priceBand(oh, R, U, DEFAULT_ROUGH_OPTIONS);
+    eq('金額が出るので幅が出る', band.hasAmount, true);
+    eq('下限は1万円単位', band.displayLow % 10000, 0);
+    eq('上限は下限より大きい', band.displayHigh > band.displayLow, true);
+  }
+  head('AIの差込口（いまはひな形が返る）');
+  {
+    eq('AIはまだ使えない', isAiAvailable(), false);
+    const res = await generateItems({ workType: '配管工事', oneLiner: '配管の引き直し' });
+    eq('ひな形から返る', res.source, SOURCES.TEMPLATE);
+    eq('項目が入っている', res.items.length, 8);
+    eq('ききたいことは空（AIが入ったら入る）', res.questions.length, 0);
+    eq('画面に出す名前も返す', res.label, '配管工事');
+  }
+  head('試作（参考/概算見積.html）との違いを固定する');
+  {
+    // 試作は諸経費・法定福利費・損料の対象に現場移動費を入れていた。
+    // Excel内訳書は入れない。こちらが正。
+    const oh = templateItems('修理・整備');
+    const t = roughTotals(oh, R, U, DEFAULT_ROUGH_OPTIONS);
+    const 試作の諸経費 = Math.round((30000 + 532000 + 6000) * 0.15);   // 移動費を含む
+    eq('諸経費に移動費を含めない', t.overhead === 試作の諸経費, false);
+    eq('その差は 900円', 試作の諸経費 - t.overhead, 900);
+    const 試作の福利費 = Math.round((532000 + 6000) * 0.16);
+    eq('法定福利費にも移動費を含めない', 試作の福利費 - t.welfare, 960);
   }
 
   document.getElementById('summary').textContent =

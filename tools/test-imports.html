@@ -30,6 +30,10 @@ const expect = {
   '../js/screen-handover.js?v=33': ['renderQuotesTab','convertSummaryHtml','openConvertPage','roughDiffHtml','openCompletePage','openActualsListPage','openActualEditPage'],
   '../js/screen-est.js?v=33': ['renderEstScreen','openCoverPage'],
   '../js/screen-home.js?v=33': ['renderHome'],
+  '../js/rough-templates.js?v=33': ['TEMPLATE_KEYS','TEMPLATE_LABELS','templateItems','templateRowCount'],
+  '../js/rough-generate.js?v=33': ['SOURCES','isAiAvailable','generateItems','generateByTemplate','generateByAi'],
+  '../js/screen-rough.js?v=33': ['renderRoughScreen','openRoughCover'],
+  '../js/app.js?v=33': [],
 };
 let bad = 0;
 for (const [path, names] of Object.entries(expect)) {

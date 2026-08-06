@@ -16,7 +16,7 @@ import { cache, onCacheChange } from './store.js?v=33';
 import { Timestamp } from './firebase.js?v=33';
 import { WORK_TYPES } from './rough-calc.js?v=33';
 import {
-  subscribeRoughItems, freezeRough, convertToEstimate, materialOriginOf,
+  createRough, subscribeRoughItems, freezeRough, convertToEstimate, materialOriginOf,
 } from './rough-store.js?v=33';
 import { addActual, completeEstimate, diffOf, newActual, summarizeByWorkType } from './actuals.js?v=33';
 
@@ -150,7 +150,8 @@ export function renderQuotesTab(container) {
         <div style="height:8px"></div>
       </div>
       <div class="bottom-action">
-        <button class="btn btn-block" id="q-actual" style="height:48px">${icons.flag}過去の工事を入れる</button>
+        <button class="btn btn-primary btn-block btn-big" id="q-new">${icons.plus}あたらしい概算</button>
+        <button class="btn btn-block" id="q-actual" style="height:48px;margin-top:8px">${icons.flag}過去の工事を入れる</button>
       </div>
     </div>`;
 
@@ -171,10 +172,18 @@ export function renderQuotesTab(container) {
       else openActualEditPage(a);
     } else if (kind === '実績') {
       openActualEditPage((cache.actuals || []).find((x) => x.id === id));
+    } else if (kind === '概算') {
+      location.hash = '#rough/' + id;
     }
-    // 概算はまだ画面が無い（写真から見積はAIが入ってから）
   }));
   container.querySelector('#q-actual').addEventListener('click', () => openActualEditPage(null));
+  container.querySelector('#q-new').addEventListener('click', async () => {
+    try {
+      const id = await createRough(local.get('staff', ''));
+      sessionStorage.setItem('openRoughCover', id);   // 新規はまず表紙から
+      location.hash = '#rough/' + id;
+    } catch (e) { console.error(e); toast('作れませんでした'); }
+  });
 }
 
 // ============================================================

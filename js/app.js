@@ -10,6 +10,7 @@ import { ready } from './firebase.js?v=33';
 import { startSubscriptions, onCacheChange, cache, createEstimate, addStaff } from './store.js?v=33';
 import { renderHome } from './screen-home.js?v=33';
 import { renderQuotesTab } from './screen-handover.js?v=33';
+import { renderRoughScreen, openRoughCover } from './screen-rough.js?v=33';
 import { renderEstScreen, openCoverPage, openConfirmPage } from './screen-est.js?v=33';
 import { renderSearchTab } from './screen-order.js?v=33';
 import { renderSettingsTab } from './screen-settings.js?v=33';
@@ -51,6 +52,8 @@ function parseRoute() {
     const parts = h.slice(4).split('/');
     return { kind: 'est', id: parts[0], sub: parts[1] || '' };
   }
+  // #rough/{id} … 写真から見積（概算）。本見積とは別の画面
+  if (h.startsWith('rough/')) return { kind: 'rough', id: h.slice(6).split('/')[0] };
   if (TABS.some((t) => t.id === h)) return { kind: 'tab', id: h };
   // ハッシュなし（アイコンから起動した直後）は表紙を出す
   return { kind: 'cover', id: '' };
@@ -206,6 +209,17 @@ function render() {
 
   if (route.kind === 'cover') { renderStartCover(app); return; }
   document.body.classList.add('has-tabbar');
+
+  if (route.kind === 'rough') {
+    app.innerHTML = '<div id="rough-root" style="flex:1;display:flex;flex-direction:column;min-height:0"></div>' + tabbarHtml('estimates');
+    cleanup = renderRoughScreen(document.getElementById('rough-root'), route.id);
+    // 新規作成直後は表紙から（工事名・宛先を先に入れてもらう）
+    if (sessionStorage.getItem('openRoughCover') === route.id) {
+      sessionStorage.removeItem('openRoughCover');
+      setTimeout(() => openRoughCover(route.id, () => cache.roughs.find((r) => r.id === route.id)), 500);
+    }
+    return;
+  }
 
   if (route.kind === 'est') {
     app.innerHTML = '<div id="est-root" style="flex:1;display:flex;flex-direction:column;min-height:0"></div>' + tabbarHtml('estimates');
