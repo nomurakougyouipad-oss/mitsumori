@@ -333,10 +333,11 @@ export function renderRoughScreen(container, roughId) {
 
     q('#ph-site').addEventListener('click', () => pickPhoto('現場'));
     q('#ph-plan').addEventListener('click', () => pickPhoto('図面'));
-    all('[data-ph]').forEach((el) => el.addEventListener('click', async () => {
-      if (await confirmDialog('この写真を消しますか?', '消す')) {
-        try { await removePhoto(roughId, el.dataset.ph); } catch (e) { console.error(e); toast('消せませんでした'); }
-      }
+    // 写真は押したら「大きく見る」。消すのは その中のボタンから。
+    // 見たいだけで押した人に、いきなり削除を聞かない。
+    all('[data-ph]').forEach((el) => el.addEventListener('click', () => {
+      const p = (rough.photos || []).find((x) => x.path === el.dataset.ph);
+      if (p) viewPhoto(p);
     }));
 
     q('#r-oneliner').addEventListener('click', () => {
@@ -410,6 +411,27 @@ export function renderRoughScreen(container, roughId) {
           else await overrideItemAmount(roughId, id, n, local.get('staff', ''));
         } catch (e) { console.error(e); toast('保存できませんでした'); }
       },
+    });
+  }
+
+  // 写真を大きく見る。AIが一致を出しても元の写真は必ず残す（CLAUDE.md）ので、
+  // ここはいつでも開けるようにしておく。
+  function viewPhoto(p) {
+    const root = document.getElementById('modal-root');
+    const v = document.createElement('div');
+    v.className = 'photo-view';
+    v.innerHTML = `
+      <img src="${esc(p.url)}" alt="">
+      <div class="pv-bar">
+        <button class="btn btn-danger" id="pv-del">この写真を消す</button>
+        <button class="btn" id="pv-x" style="color:#fff;border-color:#fff;background:transparent">閉じる</button>
+      </div>`;
+    root.appendChild(v);
+    v.querySelector('#pv-x').addEventListener('click', () => v.remove());
+    v.querySelector('#pv-del').addEventListener('click', async () => {
+      if (!(await confirmDialog('この写真を消しますか?', '消す'))) return;
+      try { await removePhoto(roughId, p.path); v.remove(); }
+      catch (e) { console.error(e); toast('消せませんでした'); }
     });
   }
 
