@@ -70,7 +70,6 @@ export function optionsFor(rough) {
   return {
     ...DEFAULT_ROUGH_OPTIONS,
     welfareOn: rough?.welfareOn !== false,
-    spreadBase: rough?.spreadBaseFrozen || rough?.spreadBase || DEFAULT_ROUGH_OPTIONS.spreadBase,
     bandUplift: uplift,
   };
 }
@@ -88,7 +87,6 @@ export async function createRough(staffName, seed = {}) {
     workType: WORK_TYPES.includes(seed.workType) ? seed.workType : WORK_TYPES[0],
     photos: [],                                          // {path,url,role,at}
     welfareOn: true,
-    spreadBase: DEFAULT_ROUGH_OPTIONS.spreadBase,
     rates: null, unitRates: null,                        // この見積だけの上書き（無ければ null）
     ratesFrozen: null, unitRatesFrozen: null,
     itemsCount: 0, decidedCount: 0, undecidedCount: 0, pendingCount: 0, openQuestions: 0,
@@ -323,7 +321,6 @@ export async function freezeRough(roughId, rough, items, staffName) {
   await updateRough(roughId, {
     ratesFrozen: rates,
     unitRatesFrozen: unitRates,
-    spreadBaseFrozen: opts.spreadBase,
     bandUpliftFrozen: opts.bandUplift,
     totalsFrozen: t,
     bandFrozen: { low: band.displayLow, high: band.displayHigh },

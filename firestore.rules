@@ -141,7 +141,6 @@ service cloud.firestore {
         && request.resource.data.get('status', '見積中') in ['見積中', '発注待ち', '進行中']
         && request.resource.data.get('workType', '修理・整備') in ['修理・整備', '製作もの', '配管工事']
         && request.resource.data.get('welfareOn', false) is bool
-        && request.resource.data.get('spreadBase', '材労') in ['材労', '全費目']
         && request.resource.data.get('photos', []) is list;
       allow delete: if signedIn();
 

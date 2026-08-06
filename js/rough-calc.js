@@ -9,11 +9,13 @@
 //        人が直した金額（売値。率は掛けない）
 //   ・人が押すまで合計に入らない（state が '確定' の項目だけ）
 //
-// 諸経費・損料の計算ベース（spreadBase）… 2026-08-06 決定
-//   「材料費＋労務費」が正（CLAUDE.md の率表・Excel内訳書・本見積 calc.js と同じ）。
-//   UIモック（写真から見積.dc.html のPC版）は「材料＋労務＋移動＋外注」で
-//   計算されているが、あれは見本用に置いた数字で計算を合わせていない。デザイン側の誤り。
-//   '全費目' の選択肢はモックの数字を再現できるように残してあるだけで、業務では使わない。
+// 【計算式の正はどこか】… 2026-08-06 決定
+//   Excel内訳書と本見積 calc.js が正。**UIモックの数字から計算式を導かないこと。**
+//   モックに入っている金額は見本用で、意図的に計算を合わせていない。
+//   例: 写真から見積.dc.html のPC版は諸経費を「材料＋労務＋移動＋外注」で
+//   出しているように見えるが（936,500×15%＝140,475）、これは見本の数字であって
+//   仕様ではない。諸経費・損料のベースは calc.js と同じ「材料費＋労務費」だけ。
+//   別ベースに切り替える口は用意しない（間違った金額を出せる経路を残さないため）。
 // ============================================================
 
 import { excelRound, travelLine } from './calc.js?v=2';
@@ -36,8 +38,6 @@ export const PRICE_SOURCES = ['yotsuba', 'market', 'manual'];
 
 export const DEFAULT_ROUGH_OPTIONS = {
   welfareOn: true,
-  // '材労'（正）| '全費目'（UIモックの数字を再現するためだけに残してある。業務では使わない）
-  spreadBase: '材労',
   // 提出価格の幅の丸め単位
   bandRoundTo: 10000,
   // 上限に掛ける倍率。概算は必ず幅で出す（2026-08-06 決定）
@@ -213,9 +213,9 @@ export function totalsFromKinds(kinds, rates, opts = {}) {
   const travel = kinds.移動 || 0;
   const subcontract = kinds.外注 || 0;
 
-  const spreadBase = o.spreadBase === '全費目'
-    ? material + labor + travel + subcontract
-    : material + labor;
+  // 諸経費・損料のベースは材料費＋労務費だけ（calc.js の totals() と同じ）。
+  // 移動費と外注費は入らない。
+  const spreadBase = material + labor;
 
   const overhead = excelRound(spreadBase * (rates.overhead || 0));
   const welfare = o.welfareOn ? excelRound(labor * (rates.welfare || 0)) : 0;
@@ -275,14 +275,15 @@ export function priceBand(items, rates, unitRates, opts = {}) {
 }
 
 // ---------- 項目1件の内訳（画面2「この項目にかかるもの」） ----------
-// モックに合わせて 諸経費 は項目単位では出さない（全体でしか按分できないため）。
+// 諸経費は項目単位では出さない（全体でしか按分できないため）。
 // 労務費 ＋ 損料5% ＋ 法定福利費16%（労務費のみ） ＝ この項目（税抜）
+// 損料は材料費・労務費の行にだけかかる。移動費・外注費の行にはかからない。
 export function itemBreakdown(item, rates, unitRates, opts = {}) {
   const o = { ...DEFAULT_ROUGH_OPTIONS, ...opts };
   const amount = itemAmount(item, rates, unitRates) ?? yotsubaAmount(item, rates, unitRates) ?? 0;
   const isLabor = item.kind === '労務';
   const isMaterial = item.kind === '材料';
-  const spreadBase = isLabor || isMaterial ? amount : (o.spreadBase === '全費目' ? amount : 0);
+  const spreadBase = isLabor || isMaterial ? amount : 0;
 
   const depreciation = excelRound(spreadBase * (rates.depreciation || 0));
   const welfare = o.welfareOn && isLabor ? excelRound(amount * (rates.welfare || 0)) : 0;

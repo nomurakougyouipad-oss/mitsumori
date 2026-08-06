@@ -18,17 +18,17 @@
 <body>
 <h1>概算見積 計算テスト（rough-calc.js）</h1>
 <div class="note">
-  <b>2026-08-06 決定ずみ</b><br>
-  ・諸経費／損料のベースは「材料費＋労務費」（<code>spreadBase:'材労'</code>）が正。
-  UIモックPC版の数字は「材料＋労務＋移動＋外注」だが、あれは見本用で計算を合わせていない（デザイン側の誤り）。
-  <code>'全費目'</code> はモックの数字を再現できるように残してあるだけ。<br>
+  <b>計算式の正は Excel内訳書と本見積 calc.js。UIモックの数字からは計算式を導かない。</b><br>
+  モックに入っている金額は見本用で、意図的に計算を合わせていない。
+  下の期待値はすべて Excel内訳書の式（＝<code>calc.js</code>）から手で計算したもので、モックから写したものではない。<br>
+  ・諸経費／損料のベースは<b>材料費＋労務費</b>だけ。移動費・外注費は入らない。切り替える口は用意していない。<br>
   ・提出価格は<b>必ず幅で出す</b>。下限＝合計を1万円単位に切り下げ／上限＝合計×1.1 を1万円単位に切り上げ。
   全項目を押し終わっても幅は消えない。未確定が残っていると、その不確かさぶんだけ幅が広がる。
 </div>
 <div id="summary">実行中…</div>
 <div id="out"></div>
 <script type="module">
-  import { DEFAULT_RATES } from '../js/calc.js?v=2';
+  import { DEFAULT_RATES, totals as calcTotals } from '../js/calc.js?v=2';
   import {
     tradeRate, resolveRates, resolveUnitRates,
     stepAmount, stepsTotal, stepsManHours,
@@ -80,8 +80,10 @@
     eq('職種の数は変わらない', u.trades.length, 6);
   }
 
-  // ---- 手順（モック「項目のくわしい中身」の4手順） ----
-  head('手順 — 既設モーター・駆動装置 取外し（モックの数字）');
+  // ---- 手順 ----
+  // 手順の並び（門型・玉掛け・トロリー・養生）はモックから借りた「場面」。
+  // 金額の期待値は 人数×時間×職種単価 を手で計算したもの。
+  head('手順 — 既設モーター・駆動装置 取外し');
   const steps = [
     { name: '門型 組立・解体', trade: '現場工事', persons: 2, hours: 4, enabled: true },
     { name: '玉掛け・チェンブロック2tで吊り', trade: '現場工事', persons: 2, hours: 2, enabled: true },
@@ -153,33 +155,57 @@
     eq('単価待ち 1件', c.pending, 1);
   }
 
-  // ---- 費目ごとの合計と率（UIモックの数字で検証） ----
-  head('費目 → 税込（UIモック「写真から見積」PC版 状態②の数字）');
+  // ---- 費目ごとの合計と率 ----
+  // 期待値は Excel内訳書の式から手で出したもの。モックの数字は使っていない。
+  //   諸経費 = ROUND((材+労) × 15%)      移動費・外注費は入らない
+  //   福利   = ROUND(労 × 16%)           労務費だけ
+  //   損料   = ROUND((材+労) × 5%)
+  //   税抜   = 材+労+移+外+諸+福+損       消費税 = ROUND(税抜 × 10%)
+  head('費目 → 税込（Excel内訳書の式どおり）');
   const kinds = { 材料: 402000, 労務: 388000, 移動: 26500, 外注: 120000 };
   {
-    const t = totalsFromKinds(kinds, R, { spreadBase: '全費目', welfareOn: true });
-    eq('諸経費15%（材+労+移+外 936,500ベース）= 140,475', t.overhead, 140475);
-    eq('法定福利費16%（労務費のみ）= 62,080', t.welfare, 62080);
-    eq('損料5%（同ベース）= 46,825', t.depreciation, 46825);
-    eq('税抜計 = 1,185,880', t.taxable, 1185880);
-    eq('消費税10% = 118,588', t.tax, 118588);
-    eq('税込 = 1,304,468', t.withTax, 1304468);
-  }
-  head('同じ費目を「材料＋労務」ベースで計算した場合（CLAUDE.md／Excel の既定）');
-  {
     const t = totalsFromKinds(kinds, R, DEFAULT_ROUGH_OPTIONS);
-    eq('諸経費15%（材+労 790,000ベース）= 118,500', t.overhead, 118500);
+    eq('諸経費のベースは材+労 = 790,000', t.spreadBase, 790000);
+    eq('諸経費15% = 118,500', t.overhead, 118500);
+    eq('法定福利費16%（労務費のみ）= 62,080', t.welfare, 62080);
     eq('損料5% = 39,500', t.depreciation, 39500);
-    eq('法定福利費は同じ 62,080', t.welfare, 62080);
     eq('税抜計 = 1,156,580', t.taxable, 1156580);
-    eq('税抜の差は 29,300円（諸経費21,975＋損料7,325）', 1185880 - t.taxable, 29300);
-    eq('税込の差は 32,230円', 1304468 - t.withTax, 32230);
+    eq('消費税10% = 115,658', t.tax, 115658);
+    eq('税込 = 1,272,238', t.withTax, 1272238);
+  }
+  head('移動費・外注費は諸経費・損料のベースに入らない');
+  {
+    const base = totalsFromKinds({ 材料: 100000, 労務: 100000, 移動: 0, 外注: 0 }, R, DEFAULT_ROUGH_OPTIONS);
+    const plus = totalsFromKinds({ 材料: 100000, 労務: 100000, 移動: 50000, 外注: 50000 }, R, DEFAULT_ROUGH_OPTIONS);
+    eq('移動・外注を足しても諸経費は変わらない', plus.overhead, base.overhead);
+    eq('移動・外注を足しても損料は変わらない', plus.depreciation, base.depreciation);
+    eq('移動・外注を足しても福利費は変わらない', plus.welfare, base.welfare);
+    eq('税抜計は移動・外注ぶんだけ増える', plus.taxable - base.taxable, 100000);
+  }
+  head('本見積 calc.js と1円まで一致すること');
+  {
+    // 同じ費目・同じ率なら、概算と本見積で金額がずれてはいけない
+    const lines = [
+      { kind: '材料', qty: 1, cost: 402000 / 1.15 },   // 計上402,000になる原価
+      { kind: '労務', persons: 1, hours: 1, rate: 388000 },
+      { kind: '外注', amount: 120000 },
+    ];
+    const U0 = { travelLabor: 3000, kmRate: 25 };
+    const honmitsu = calcTotals(lines, R, U0, true, 0);
+    const gaisan = totalsFromKinds(
+      { 材料: 402000, 労務: 388000, 移動: 0, 外注: 120000 }, R, DEFAULT_ROUGH_OPTIONS);
+    eq('諸経費が一致', gaisan.overhead, honmitsu.overhead);
+    eq('法定福利費が一致', gaisan.welfare, honmitsu.welfare);
+    eq('損料が一致', gaisan.depreciation, honmitsu.depreciation);
+    eq('税抜計が一致', Math.round(gaisan.taxable), Math.round(honmitsu.taxable));
+    eq('消費税が一致', gaisan.tax, honmitsu.tax);
+    eq('税込が一致', Math.round(gaisan.withTax), Math.round(honmitsu.withTax));
   }
   head('法定福利費オフ');
   {
-    const t = totalsFromKinds(kinds, R, { spreadBase: '全費目', welfareOn: false });
+    const t = totalsFromKinds(kinds, R, { ...DEFAULT_ROUGH_OPTIONS, welfareOn: false });
     eq('福利費 = 0', t.welfare, 0);
-    eq('税抜計が福利費分だけ減る', t.taxable, 1185880 - 62080);
+    eq('税抜計が福利費分だけ減る', t.taxable, 1156580 - 62080);
   }
 
   // ---- 提出価格の幅 ----
@@ -271,8 +297,9 @@
     eq('税別なら 上限 1,490,000（社長の実例は150万）', t.displayHigh, 1490000);
   }
 
-  // ---- 項目1件の内訳（モック「この項目にかかるもの」） ----
-  head('項目1件の内訳（モック 画面2 の数字）');
+  // ---- 項目1件の内訳（画面2「この項目にかかるもの」） ----
+  // 労務64,000 ＋ 損料5%(3,200) ＋ 福利16%(10,240) ＝ 77,440。すべて手計算。
+  head('項目1件の内訳');
   {
     const item = { kind: '労務', trade: '現場工事', persons: 2, hours: 8, steps, state: '確定', chosen: 'yotsuba' };
     const b = itemBreakdown(item, R, U, DEFAULT_ROUGH_OPTIONS);
