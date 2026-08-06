@@ -1,0 +1,50 @@
+# GitHub Pages へ出す
+#
+# Settings → Pages → Source を「GitHub Actions」にしてある前提。
+# 「Deploy from a branch」に戻すと、GitHubが自動で作るワークフローと
+# 二重に走るので、戻すときはこのファイルも消すこと。
+#
+# 自動生成のものと変えてあるのは3つ:
+#   ・待ち時間を10分 → 20分（自動生成のものはここで切れて失敗し続けた）
+#   ・詰まった実行は止めて、新しい方を通す（cancel-in-progress）
+#   ・手でも流せる（workflow_dispatch）
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 走っているものがあれば止めて、新しい方を通す。
+# 公開処理が固まったまま10分待たされる事故が続いたため、
+# GitHub推奨の false ではなく true にしてある。
+# 中身は静的ファイルを丸ごと置き換えるだけなので、途中で止めても壊れない。
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      # ビルドしない静的サイト（HTML/CSS/JSのみ）なので、そのまま固める
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
+        with:
+          timeout: 1200000
