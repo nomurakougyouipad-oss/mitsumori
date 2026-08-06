@@ -246,8 +246,14 @@
     const inside = text(roughDiffHtml(est, { material: 358000, labor: 424000, travel: 26500, subcontract: 120000, final: 1466300 }));
     eq('材料費の差 −44,000', inside.includes('402,000 358,000 −44,000'), true);
     eq('労務費の差 +36,000', inside.includes('388,000 424,000 +36,000'), true);
+    eq('現場移動費も出す（隠すと行が合計に届かない）', inside.includes('現場移動費 26,500 26,500'), true);
+    eq('差ゼロは ±0（−0 と書かない）', inside.includes('±0'), true);
+    eq('「−0」とは書かない', /−0(?![,0-9])/.test(inside), false);
     eq('税込合計の差 +9,020', inside.includes('1,457,280 1,466,300 +9,020'), true);
     eq('幅の中に収まっている', inside.includes('の中に収まっています'), true);
+    eq('移動費が0なら行を出さない',
+       text(roughDiffHtml({ ...est, roughKinds: { ...est.roughKinds, travel: 0 } },
+         { material: 1, labor: 1, travel: 0, subcontract: 1, final: 1 })).includes('現場移動費'), false);
 
     const over = text(roughDiffHtml(est, { material: 478000, labor: 424000, travel: 26500, subcontract: 120000, final: 1566000 }));
     eq('超えた額を出す', over.includes('￥1,490,000 を ￥76,000 超えています'), true);

@@ -31,6 +31,16 @@ const BADGE = {
 
 const ms = (v) => { const d = toDate(v); return d ? d.getTime() : 0; };
 
+// 差の書き方。ぴったり同じときに「−0」と出さない
+function gapText(gap) {
+  if (gap === 0) return '±0';
+  return (gap > 0 ? '+' : '−') + Math.abs(gap).toLocaleString('ja-JP');
+}
+function gapColor(gap) {
+  if (gap === 0) return 'var(--muted2)';
+  return gap < 0 ? 'var(--green)' : '#B0480F';
+}
+
 function buildRows() {
   const rows = [];
 
@@ -97,10 +107,9 @@ function cardHtml(row) {
     const gap = d.roughTotal != null ? d.vsRough : d.vsEstimate;
     const label = d.roughTotal != null ? '概算' : '本見積';
     if (base != null && gap != null) {
-      const color = gap <= 0 ? 'var(--green)' : '#B0480F';
       foot = `<div style="font-size:12px;color:var(--muted);padding-top:6px">
         ${label} <span class="num">${YEN(base)}</span> → 実績 <span class="num">${YEN(d.billed)}</span>
-        <span style="color:${color};font-weight:700">（${gap > 0 ? '+' : '−'}${Math.abs(gap).toLocaleString('ja-JP')}）</span></div>`;
+        <span style="color:${gapColor(gap)};font-weight:700">（${gapText(gap)}）</span></div>`;
     } else if (row.actual?.source === 'memory') {
       foot = '<div style="font-size:12px;color:var(--muted2);padding-top:6px">思い出して入れた実績（見積なし）</div>';
     }
@@ -286,18 +295,19 @@ export function openConvertPage(roughId) {
 // ============================================================
 export function roughDiffHtml(est, t) {
   if (!est || est.roughTotal == null) return '';
+  // 費目は4つとも出す。移動費を隠すと、行を足しても税込合計に届かなくなる
   const rows = [
     ['材料費', est.roughKinds?.material, t.material],
     ['労務費', est.roughKinds?.labor, t.labor],
+    ['現場移動費', est.roughKinds?.travel, t.travel],
     ['外注費', est.roughKinds?.subcontract, t.subcontract],
-  ].filter((r) => r[1] != null || r[2]);
+  ].filter((r) => r[1] || r[2]);
 
   const cell = (v) => v == null ? '—' : Math.round(v).toLocaleString('ja-JP');
   const gapCell = (a, b) => {
     if (a == null || b == null) return '<span style="color:var(--muted2)">—</span>';
     const g = Math.round(b - a);
-    if (g === 0) return '<span style="color:var(--muted2)">0</span>';
-    return `<span style="color:${g < 0 ? 'var(--green)' : '#B0480F'}">${g > 0 ? '+' : '−'}${Math.abs(g).toLocaleString('ja-JP')}</span>`;
+    return `<span style="color:${gapColor(g)}">${gapText(g)}</span>`;
   };
   const grid = 'display:grid;grid-template-columns:1fr 68px 68px 62px;gap:4px;align-items:center';
 
@@ -378,13 +388,12 @@ export function openCompletePage({ estimateId = null, roughId = null }) {
     const label = roughTotal != null ? '概算' : '本見積';
     if (base == null || billed == null) return '';
     const gap = billed - base;
-    const color = gap <= 0 ? 'var(--green)' : '#B0480F';
     return `
       <div style="background:#fff;border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:16px">
         <div style="font-size:12px;color:var(--muted);padding-bottom:4px">一覧にはこう出ます</div>
         <div style="font-size:13.5px;line-height:1.7">
           ${label} <span class="num">${YEN(base)}</span> → 実績 <span class="num">${YEN(billed)}</span>
-          <span style="color:${color};font-weight:700">（${gap > 0 ? '+' : '−'}${Math.abs(gap).toLocaleString('ja-JP')}）</span>
+          <span style="color:${gapColor(gap)};font-weight:700">（${gapText(gap)}）</span>
         </div>
       </div>`;
   }
@@ -516,7 +525,7 @@ export function openActualsListPage() {
               ${base != null && gap != null ? `
                 <div style="font-size:12px;color:var(--muted);padding-top:4px">
                   ${d.roughTotal != null ? '概算' : '本見積'} <span class="num">${YEN(base)}</span> →
-                  <span style="color:${gap <= 0 ? 'var(--green)' : '#B0480F'};font-weight:700">${gap > 0 ? '+' : '−'}${Math.abs(gap).toLocaleString('ja-JP')}</span></div>` : ''}
+                  <span style="color:${gapColor(gap)};font-weight:700">${gapText(gap)}</span></div>` : ''}
             </div>`;
         }).join('') : '<div class="empty">まだありません</div>'}
       </div></div>
