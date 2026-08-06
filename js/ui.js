@@ -22,11 +22,15 @@ export function toast(msg, undoLabel = null, onUndo = null) {
 // 位置が先頭に戻る。下の方の項目を選ぶたびに画面が上に飛んでしまう。
 // 入れ替えの前後で scrollTop を持ち回って、見ていた場所に留める。
 // ※ 中身が短くなったときはブラウザが自動で詰めるので、それ以上の調整はしない
+// スクロールしている要素は、オーバーレイは .page-body、画面本体は .scroll。
+// 写真から見積は .scroll なので、.page-body だけを見ていたころは
+// ＋8h を押すたびに一覧の先頭へ飛んでいた。両方を見る。
+const SCROLLER = '.page-body, .scroll';
 export function setHtmlKeepScroll(root, html) {
-  const prev = root.querySelector('.page-body')?.scrollTop || 0;
+  const prev = root.querySelector(SCROLLER)?.scrollTop || 0;
   root.innerHTML = html;
   if (prev) {
-    const body = root.querySelector('.page-body');
+    const body = root.querySelector(SCROLLER);
     if (body) body.scrollTop = prev;
   }
 }

@@ -209,6 +209,9 @@ function render() {
 
   if (route.kind === 'cover') { renderStartCover(app); return; }
   document.body.classList.add('has-tabbar');
+  // 入ってきたタブを覚えておく。概算はホームからも見積タブからも入れるので、
+  // 「‹」で戻る先を決め打ちにすると、押した人と違う画面に着いてしまう
+  if (route.kind === 'tab') sessionStorage.setItem('lastTab', '#' + route.id);
 
   if (route.kind === 'rough') {
     app.innerHTML = '<div id="rough-root" style="flex:1;display:flex;flex-direction:column;min-height:0"></div>' + tabbarHtml('estimates');

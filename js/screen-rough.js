@@ -21,7 +21,7 @@ import { icons } from './icons.js?v=33';
 import { openOverlay, openNumpad, openTextInput, toast, confirmDialog, setHtmlKeepScroll } from './ui.js?v=33';
 import { cache } from './store.js?v=33';
 import {
-  WORK_TYPES, ITEM_KINDS, tradeRate, itemAmount, itemCandidates,
+  WORK_TYPES, ITEM_KINDS, itemAmount, itemCandidates,
   yotsubaAmount, marketAmount, roughTotals, priceBand, counts, DISCLAIMER,
 } from './rough-calc.js?v=33';
 import {
@@ -47,6 +47,9 @@ export function renderRoughScreen(container, roughId) {
   let busy = false;
   let lastSig = '';
   let detail = null;        // 開いている「項目のくわしい中身」
+  let topCollapsed = false; // 上（ヘッダー本体・写真・すること）を畳んでいるか
+  let scrollY = 0;          // 描き直しても見ていた場所に留まるように持ち回る
+  let lastBig = null;       // 直前が「まだ項目が無い」画面だったか
 
   const stops = [
     subscribeRough(roughId, (r) => {
@@ -94,27 +97,24 @@ export function renderRoughScreen(container, roughId) {
   const NAVY_GRAD = 'linear-gradient(180deg,#24507A 0%,#1B3A5C 100%)';
 
   // ---------- ヘッダー ----------
+  // 寸法・色は app.css の .r-head が持つ（畳んだときの縮み方も同じ所に置く）
   function headerHtml() {
     return `
-      <div style="background:${NAVY_GRAD};display:flex;align-items:center;gap:10px;
-        padding:calc(8px + env(safe-area-inset-top, 0px)) 12px 10px 8px;flex:none">
-        <button id="r-back" style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;
-          color:#fff;background:none;border:0;font-size:24px;flex:none;cursor:pointer">‹</button>
-        <button id="r-cover" style="flex:1;min-width:0;background:none;border:0;padding:0;text-align:left;cursor:pointer">
-          <div style="color:#fff;font-size:19px;font-weight:700;line-height:1.2;font-family:var(--font)">写真から見積</div>
-          <div style="color:rgba(255,255,255,0.72);font-size:11.5px;margin-top:3px;white-space:nowrap;
-            overflow:hidden;text-overflow:ellipsis">${esc(rough.projectName || '工事名を入れる')}</div>
+      <div class="r-head">
+        <button id="r-back" class="r-back">‹</button>
+        <button id="r-cover" class="r-title">
+          <div class="t1">写真から見積</div>
+          <div class="t2">${esc(rough.projectName || '工事名を入れる')}</div>
         </button>
       </div>`;
   }
 
-  // ---------- 写真 ----------
-  // 項目を出す前は78px、出したあとは56px（モックの①と②③の違い）
-  function photosHtml(big) {
+  // ---------- 写真（項目を出す前・モックの①） ----------
+  function photosHtml() {
     const list = rough.photos || [];
     const site = list.filter((p) => p.role !== '図面');
     const plans = list.filter((p) => p.role === '図面');
-    const s = big ? 78 : 56;
+    const s = 78;
 
     const thumb = (p) => `
       <div data-ph="${esc(p.path)}" style="width:${s}px;height:${s}px;border-radius:6px;background:#5B6B7C;
@@ -131,55 +131,39 @@ export function renderRoughScreen(container, roughId) {
       </div>`;
 
     return `
-      <div style="display:flex;gap:8px;padding:12px 0 ${big ? '4px' : '0'}">
+      <div style="display:flex;gap:8px;padding:12px 0 4px">
         ${site.map(thumb).join('')}
         <button id="ph-site" style="width:${s}px;height:${s}px;border-radius:6px;border:1.5px dashed #A9B3BE;
           background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
           color:#1B3A5C;flex:none;cursor:pointer;font-family:var(--font)">
-          <span style="font-size:${big ? 26 : 22}px;display:grid;place-items:center">${big ? icons.camera : icons.plus}</span>
-          ${big ? '<span style="font-size:11px;font-weight:700">ふやす</span>' : ''}
+          <span style="font-size:26px;display:grid;place-items:center">${icons.camera}</span>
+          <span style="font-size:11px;font-weight:700">ふやす</span>
         </button>
-        ${big ? '' : `<div style="flex:1;display:flex;align-items:center;justify-content:flex-end;
-          font-size:11.5px;color:#8A96A3">写真 ${site.length}枚</div>`}
       </div>
-      ${big ? `<div style="font-size:11.5px;color:#8A96A3;padding:6px 2px 0">現場の写真 ${site.length}枚</div>` : ''}
+      <div style="font-size:11.5px;color:#8A96A3;padding:6px 2px 0">現場の写真 ${site.length}枚</div>
 
-      <div style="display:flex;align-items:center;gap:8px;padding:${big ? '12px' : '8px'} 0 0">
-        ${big ? '<div style="font-size:13px;font-weight:700;color:#1B3A5C;flex:none;width:100%;padding-bottom:6px">図面・スケッチ（あれば）</div>' : ''}
-      </div>
+      <div style="font-size:13px;font-weight:700;color:#1B3A5C;padding:12px 0 6px">図面・スケッチ（あれば）</div>
       <div style="display:flex;align-items:center;gap:8px">
         ${plans.map(planThumb).join('')}
         <button id="ph-plan" style="width:${s}px;height:${s}px;border-radius:6px;border:1.5px dashed #A9B3BE;
           background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
           color:#1B3A5C;flex:none;cursor:pointer;font-family:var(--font)">
-          <span style="font-size:${big ? 24 : 20}px;display:grid;place-items:center">${big ? icons.camera : icons.filePlus}</span>
-          <span style="font-size:${big ? 11 : 10}px;font-weight:700">${big ? '紙を撮る' : '図面'}</span>
+          <span style="font-size:24px;display:grid;place-items:center">${icons.camera}</span>
+          <span style="font-size:11px;font-weight:700">紙を撮る</span>
         </button>
         <div style="flex:1;font-size:11.5px;color:#8A96A3;line-height:1.5">
           ${plans.length ? `図面 ${plans.length}枚を残しています` : '図面があれば<br>あとで寸法も読み取ります'}</div>
       </div>`;
   }
 
-  // ---------- すること ----------
-  function oneLinerHtml(big) {
-    if (big) {
-      return `
-        <div style="padding:14px 0 0">
-          <div style="font-size:13px;font-weight:700;color:#1B3A5C;padding-bottom:6px">すること</div>
-          <button id="r-oneliner" style="width:100%;min-height:52px;background:#fff;border:1px solid #D9DEE4;
-            border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;
-            font-size:16px;font-family:var(--font);text-align:left;cursor:pointer;
-            color:${rough.oneLiner ? '#16202B' : '#A9B3BE'}">
-            <span style="flex:1;min-width:0;line-height:1.4">${esc(rough.oneLiner || 'ポンプの駆動部を全部やりかえ')}</span>
-            <span style="color:#8A96A3;font-size:18px;flex:none;display:grid;place-items:center">${icons.pencil}</span>
-          </button>
-        </div>`;
-    }
+  // ---------- すること（項目を出す前・モックの①） ----------
+  function oneLinerHtml() {
     return `
-      <div style="padding:12px 0 0">
-        <button id="r-oneliner" style="width:100%;min-height:48px;background:#fff;border:1px solid #D9DEE4;
-          border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;
-          padding:6px 12px 6px 14px;font-size:15px;font-family:var(--font);text-align:left;cursor:pointer;
+      <div style="padding:14px 0 0">
+        <div style="font-size:13px;font-weight:700;color:#1B3A5C;padding-bottom:6px">すること</div>
+        <button id="r-oneliner" style="width:100%;min-height:52px;background:#fff;border:1px solid #D9DEE4;
+          border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;
+          font-size:16px;font-family:var(--font);text-align:left;cursor:pointer;
           color:${rough.oneLiner ? '#16202B' : '#A9B3BE'}">
           <span style="flex:1;min-width:0;line-height:1.4">${esc(rough.oneLiner || 'ポンプの駆動部を全部やりかえ')}</span>
           <span style="color:#8A96A3;font-size:18px;flex:none;display:grid;place-items:center">${icons.pencil}</span>
@@ -187,14 +171,49 @@ export function renderRoughScreen(container, roughId) {
       </div>`;
   }
 
+  // ---------- 写真・図面・すること の帯（項目が並んだあと） ----------
+  // 【なぜ小さくしたか】ここが約190pxあったので、項目が2つ半しか見えなかった。
+  // 写真と一言は「項目を出す前」に入れるもので、出したあとは見えていれば足りる。
+  // 押すところは前と同じ（写真を見る／写真をふやす／図面／すること）。増やしていない。
+  // 下へスクロールすると .r-strip ごと畳まれる（app.css）。
+  function stripHtml() {
+    const list = rough.photos || [];
+    const site = list.filter((p) => p.role !== '図面');
+    const plans = list.filter((p) => p.role === '図面');
+    const S = 'width:40px;height:40px;border-radius:5px;flex:none;overflow:hidden;position:relative;cursor:pointer';
+    const ADD = 'width:40px;height:40px;border-radius:5px;border:1.5px dashed #A9B3BE;background:#fff;'
+      + 'display:grid;place-items:center;color:#1B3A5C;flex:none;cursor:pointer;font-size:18px';
+
+    return `
+      <div class="r-thumbs">
+        ${site.map((p) => `<div data-ph="${esc(p.path)}" style="${S};background:#5B6B7C">
+          <img src="${esc(p.url)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>`).join('')}
+        ${plans.map((p) => `<div data-ph="${esc(p.path)}" style="${S};background:#DDE3EA;border:1px solid #C3CBD4">
+          <img src="${esc(p.url)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">
+          <span style="position:absolute;left:0;right:0;bottom:0;background:rgba(27,58,92,.85);color:#fff;
+            font-size:9px;text-align:center">図面</span></div>`).join('')}
+        <button id="ph-site" style="${ADD}" aria-label="写真をふやす">${icons.camera}</button>
+        <button id="ph-plan" style="${ADD}" aria-label="図面をふやす">${icons.filePlus}</button>
+        <span style="flex:1;text-align:right;font-size:11px;color:#8A96A3;white-space:nowrap">
+          写真${site.length}${plans.length ? `・図面${plans.length}` : ''}</span>
+      </div>
+      <button id="r-oneliner" style="width:100%;height:40px;margin-top:6px;background:#fff;border:1px solid #D9DEE4;
+        border-radius:6px;display:flex;align-items:center;gap:8px;padding:0 10px 0 12px;
+        font-size:14px;font-family:var(--font);text-align:left;cursor:pointer;
+        color:${rough.oneLiner ? '#16202B' : '#A9B3BE'}">
+        <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${esc(rough.oneLiner || 'すること を一言で')}</span>
+        <span style="color:#8A96A3;font-size:16px;flex:none;display:grid;place-items:center">${icons.pencil}</span>
+      </button>`;
+  }
+
   // ---------- 項目を出す ----------
-  function generateHtml(big) {
+  // 【芯5】項目が並んだあとは「出しなおす」を出さない。
+  // モックの一覧状態にも無い。押し間違えると全部消える危ないボタンでもある。
+  // 出しなおしたいときは表紙から工事の種類を選び直す。
+  function generateHtml() {
     const label = TEMPLATE_LABELS[rough.workType] || rough.workType;
     const n = templateRowCount(rough.workType);
-    // 【芯5】項目が並んだあとは「出しなおす」を出さない。
-    // モックの一覧状態にも無い。押し間違えると全部消える危ないボタンでもある。
-    // 出しなおしたいときは表紙から工事の種類を選び直す。
-    if (!big) return '';
     return `
       <div style="padding:16px 0 0">
         <button class="r-gen" style="width:100%;height:56px;background:${NAVY_GRAD};border:0;border-radius:6px;
@@ -230,13 +249,22 @@ export function renderRoughScreen(container, roughId) {
   }
 
   // ---------- 項目カード ----------
-  const CARD = 'background:#fff;border:1px solid #D9DEE4;border-radius:6px;padding:12px 14px';
-  const TITLE = 'font-size:16px;font-weight:700;color:#16202B;line-height:1.4';
-  const AMT = 'font-family:var(--mono);font-size:26px;font-weight:700;color:#1B3A5C;letter-spacing:-.01em;line-height:1.1';
-  const STEP_BTN = 'width:56px;height:44px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;color:#1B3A5C;'
-    + 'font-family:var(--mono);font-size:15px;font-weight:700;cursor:pointer';
-  const SUB_BTN = 'height:44px;padding:0 14px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;'
-    + 'color:#1B3A5C;font-size:14px;font-weight:700;font-family:var(--font);cursor:pointer';
+  // 【詰めた理由】11〜12項目あるのに1画面に2つ半しか入らなかった。
+  // 高さを削ったのは余白と行数だけで、名前16px・金額22pxの読みやすさは残している。
+  //   ・名前と金額を同じ行に置く（前は金額が下段だった）
+  //   ・材料/外注は「金額を直す」ボタンを金額そのものにした（押すところは減っている）
+  // 1枚 約90px。ヘッダーが畳まれた状態で4〜5枚が一度に見える。
+  const CARD = 'background:#fff;border:1px solid #D9DEE4;border-radius:6px;padding:10px 12px';
+  const TITLE = 'font-size:16px;font-weight:700;color:#16202B;line-height:1.35';
+  const AMT = 'font-family:var(--mono);font-size:22px;font-weight:700;color:#1B3A5C;letter-spacing:-.01em;'
+    + 'line-height:1.1;white-space:nowrap';
+  const STEP_BTN = 'width:46px;height:40px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;color:#1B3A5C;'
+    + 'font-family:var(--mono);font-size:14px;font-weight:700;cursor:pointer;flex:none';
+  const SUB_BTN = 'height:40px;padding:0 10px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;'
+    + 'color:#1B3A5C;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;flex:none';
+  // 金額そのものを押させる（材料・外注の「金額を直す」）
+  const AMT_BTN = 'display:flex;align-items:center;gap:6px;height:44px;padding:0 10px;background:#fff;'
+    + 'border:1px solid #C3CBD4;border-radius:6px;cursor:pointer;flex:none;font-family:var(--font)';
 
   // 【芯5】押すところを増やさない。
   // モックの項目カードに削除ボタンは無いので、こちらでも出さない。
@@ -279,72 +307,68 @@ export function renderRoughScreen(container, roughId) {
     }
 
     // 単価待ち … 左に山吹の帯。合計に入らない
+    // 札は名前と同じ行に流し込む（前は説明が2行あり、1枚で110px使っていた）
     if (it.state === '単価待ち') {
       return `
         <div style="${CARD};border-left:4px solid #BA7517">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-            <div style="${TITLE};flex:1;min-width:0">${esc(it.name || '（名前なし）')}</div>
-            <span style="display:flex;align-items:center;gap:3px;font-size:11px;font-weight:700;color:#fff;
-              background:#BA7517;border-radius:3px;padding:3px 6px;flex:none">
-              <span style="font-size:12px;display:grid;place-items:center">${icons.clock}</span>単価待ち</span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="flex:1;min-width:0">
+              <div style="${TITLE}">
+                <span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;color:#fff;
+                  background:#BA7517;border-radius:3px;padding:2px 6px;vertical-align:2px;margin-right:5px">
+                  <span style="font-size:12px;display:grid;place-items:center">${icons.clock}</span>単価待ち</span>${esc(it.name || '（名前なし）')}</div>
+              <div style="font-size:11.5px;color:#8A96A3;padding-top:3px">聞いてから入れます。空けたまま先へ進めます</div>
+            </div>
+            <button data-edit="${it.id}" style="${SUB_BTN};height:44px">金額を入れる</button>
             ${delBtn(it.id)}
-          </div>
-          <div style="font-size:13px;color:#6B7783;padding-top:6px;line-height:1.5">
-            仕入先に単価を聞いてから入れます。<br>この1件を空けたまま先へ進めます。</div>
-          <div style="display:flex;align-items:flex-end;justify-content:space-between;padding-top:8px">
-            <button data-edit="${it.id}" style="${SUB_BTN}">金額を入れる</button>
-            <span style="${AMT};color:#A9B3BE">￥—</span>
           </div>
         </div>`;
     }
 
     // 労務・移動 … 人数×時間をその場で増減
     if (it.kind === '労務' || it.kind === '移動') {
-      const rate = it.kind === '移動' ? unitRates.travelLabor : (num(it.rate) ?? tradeRate(unitRates, it.trade));
       const step = it.kind === '移動' ? 1 : 8;
       return `
         <div style="${CARD}">
-          <div style="display:flex;align-items:flex-start;gap:8px">
-            <div style="${TITLE};flex:1;min-width:0">${esc(it.name || '（名前なし）')}</div>${delBtn(it.id)}
+          <div style="display:flex;align-items:baseline;gap:8px">
+            <div style="${TITLE};flex:1;min-width:0">${esc(it.name || '（名前なし）')}</div>
+            <span style="${AMT};flex:none">${YEN(amt || 0)}</span>${delBtn(it.id)}
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;gap:10px">
-            <div style="font-size:13px;color:#4A5A6B">${esc(it.kind === '移動' ? '移動労務' : (it.trade || ''))}
+          <div style="display:flex;align-items:center;gap:6px;padding-top:6px">
+            <div style="flex:1;min-width:0;font-size:12.5px;color:#4A5A6B;line-height:1.4">
+              ${esc(it.kind === '移動' ? '移動労務' : (it.trade || ''))}
               <b data-np="${it.id}" style="font-family:var(--mono);font-weight:700;color:#16202B;cursor:pointer">${it.persons ?? 0}</b>人 ×
               <b data-nh="${it.id}" style="font-family:var(--mono);font-weight:700;color:#16202B;cursor:pointer">${it.hours ?? 0}</b>h</div>
-            <div style="display:flex;gap:6px;flex:none">
-              <button data-h="${it.id}" data-d="-${step}" style="${STEP_BTN}">−${step}h</button>
-              <button data-h="${it.id}" data-d="${step}" style="${STEP_BTN}">＋${step}h</button>
-            </div>
+            <button data-h="${it.id}" data-d="-${step}" style="${STEP_BTN}">−${step}h</button>
+            <button data-h="${it.id}" data-d="${step}" style="${STEP_BTN}">＋${step}h</button>
+            ${it.kind === '労務' ? `<button data-steps="${it.id}" style="${SUB_BTN};display:flex;align-items:center;gap:2px;
+              background:#1B3A5C;border:0;color:#fff">くわしく<span style="font-size:11px;display:grid;place-items:center">${icons.caretRight}</span></button>` : ''}
           </div>
           ${it.kind === '移動' ? `
-            <div style="font-size:12.5px;color:#6B7783;padding-top:8px">片道
+            <div style="font-size:12px;color:#6B7783;padding-top:6px">片道
               <b data-km="${it.id}" style="font-family:var(--mono);color:#16202B;cursor:pointer">${it.km ?? '—'}</b> km
               <span style="color:#A9B3BE">（往復で計算・${unitRates.kmRate}円/km）</span></div>` : ''}
-          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px">
-            ${it.kind === '労務' ? `<button data-steps="${it.id}" style="display:flex;align-items:center;gap:4px;height:36px;
-              padding:0 12px;background:#1B3A5C;border:0;border-radius:6px;font-size:13px;font-weight:700;color:#fff;
-              font-family:var(--font);cursor:pointer">くわしく<span style="font-size:12px;display:grid;place-items:center">${icons.caretRight}</span></button>`
-              : '<span></span>'}
-            <span style="${AMT}">${YEN(amt || 0)}</span>
-          </div>
         </div>`;
     }
 
     // 材料・外注（確定）
+    // 金額そのものが「金額を直す」ボタン。押すところが1つ減り、1行に収まる
     const isMarket = it.chosen === 'market';
     return `
       <div style="${CARD}">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <div style="${TITLE};flex:1;min-width:0">${esc(it.name || '（名前なし）')}</div>
-          ${isMarket ? `<span style="display:flex;align-items:center;gap:3px;font-size:11px;font-weight:700;color:#1F6B5B;
-            background:#E3F0EC;border-radius:3px;padding:3px 6px;flex:none">
-            <span style="font-size:12px;display:grid;place-items:center">${icons.check}</span>相場で確定</span>` : ''}
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="flex:1;min-width:0">
+            <div style="${TITLE}">${esc(it.name || '（名前なし）')}</div>
+            ${it.kind === '外注' ? '<div style="font-size:11.5px;color:#8A96A3;padding-top:3px">外注費 1式</div>' : ''}
+            ${isMarket ? `<div style="padding-top:4px"><span style="display:inline-flex;align-items:center;gap:3px;
+              font-size:11px;font-weight:700;color:#1F6B5B;background:#E3F0EC;border-radius:3px;padding:2px 6px">
+              <span style="font-size:12px;display:grid;place-items:center">${icons.check}</span>相場で確定</span></div>` : ''}
+          </div>
+          <button data-edit="${it.id}" style="${AMT_BTN}" aria-label="金額を直す">
+            <span style="${AMT}">${YEN(amt || 0)}</span>
+            <span style="color:#8A96A3;font-size:15px;display:grid;place-items:center">${icons.pencil}</span>
+          </button>
           ${delBtn(it.id)}
-        </div>
-        ${it.kind === '外注' ? '<div style="font-size:13px;color:#4A5A6B;padding-top:8px">外注費 1式</div>' : ''}
-        <div style="display:flex;align-items:flex-end;justify-content:space-between;padding-top:8px">
-          <button data-edit="${it.id}" style="${SUB_BTN}">金額を直す</button>
-          <span style="${AMT}">${YEN(amt || 0)}</span>
         </div>
       </div>`;
   }
@@ -353,42 +377,49 @@ export function renderRoughScreen(container, roughId) {
   // 幅のバー: 中央値の±30%を目盛りにして、そこに幅を置く。
   // 決めるほど幅が狭まり、山吹の帯が短くなる。
   function bandBarHtml(band) {
-    if (!band.hasAmount) return '<div style="height:8px;border-radius:4px;background:rgba(255,255,255,0.14);margin-top:8px"></div>';
+    if (!band.hasAmount) return '<div style="height:6px;border-radius:3px;background:rgba(255,255,255,0.14);margin-top:6px"></div>';
     const mid = (band.displayLow + band.displayHigh) / 2 || 1;
     const lo = mid * 0.7, hi = mid * 1.3;
     const pct = (v) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100));
     const left = pct(band.displayLow);
     const w = Math.max(4, pct(band.displayHigh) - left);
     return `
-      <div style="height:8px;border-radius:4px;background:rgba(255,255,255,0.16);margin-top:8px;display:flex">
+      <div style="height:6px;border-radius:3px;background:rgba(255,255,255,0.16);margin-top:6px;display:flex">
         <div style="width:${left}%"></div>
-        <div style="width:${w}%;background:#BA7517;border-radius:4px"></div>
+        <div style="width:${w}%;background:#BA7517;border-radius:3px"></div>
       </div>`;
   }
 
+  // 帯を薄くした：
+  //   ・見出しと「まだ決めていない〜」を同じ行に置く（1行ぶん＝約20px）
+  //   ・下の env(safe-area-inset-bottom) をやめた。#app が
+  //     「タブバー57px＋セーフエリア」ぶんの余白をすでに持っているので、
+  //     ここで足すと iPhone では34pxを二重に空けていた（約34px）
   function bandHtml(band, c) {
     const note = !band.hasAmount
-      ? '<div style="font-size:11.5px;color:rgba(255,255,255,0.68);padding-top:8px">項目を出すと目安が出ます</div>'
+      ? '<span style="font-size:11.5px;color:rgba(255,255,255,0.68)">項目を出すと目安が出ます</span>'
       : c.undecided
-        ? `<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#F0C888;padding-top:8px">
-             <span style="font-size:13px;display:grid;place-items:center">${icons.warning}</span>まだ決めていない項目が ${c.undecided} 件あります</div>`
+        ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:#F0C888;white-space:nowrap">
+             <span style="font-size:13px;display:grid;place-items:center">${icons.warning}</span>未確定 ${c.undecided}件</span>`
         : c.pending
-          ? `<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#F0C888;padding-top:8px">
-               <span style="font-size:13px;display:grid;place-items:center">${icons.clock}</span>単価待ちが ${c.pending} 件あります</div>`
-          : `<div style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#9FD5BE;padding-top:8px">
-               <span style="font-size:14px;display:grid;place-items:center">${icons.checkCircle}</span>${c.decided}件 確定</div>`;
+          ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:#F0C888;white-space:nowrap">
+               <span style="font-size:13px;display:grid;place-items:center">${icons.clock}</span>単価待ち ${c.pending}件</span>`
+          : `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:#9FD5BE;white-space:nowrap">
+               <span style="font-size:14px;display:grid;place-items:center">${icons.checkCircle}</span>${c.decided}件 確定</span>`;
 
     // 未確定が残っているあいだは「文面を作る」を押させない（モックと同じ）
     const canQuote = band.hasAmount && !c.undecided;
     return `
-      <div style="flex:none;background:#1B3A5C;padding:12px 14px calc(14px + env(safe-area-inset-bottom, 0px))">
-        <div style="font-size:11.5px;color:rgba(255,255,255,0.68)">提出価格の目安（税込）</div>
-        <div style="font-family:var(--mono);font-size:28px;font-weight:700;letter-spacing:-.01em;padding-top:2px;
-          color:${band.hasAmount ? '#fff' : 'rgba(255,255,255,0.34)'}">
+      <div style="flex:none;background:#1B3A5C;padding:8px 14px 10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+          <span style="font-size:11.5px;color:rgba(255,255,255,0.68);white-space:nowrap">提出価格の目安（税込）</span>
+          ${note}
+        </div>
+        <div style="font-family:var(--mono);font-size:26px;font-weight:700;letter-spacing:-.02em;padding-top:2px;
+          line-height:1.15;white-space:nowrap;color:${band.hasAmount ? '#fff' : 'rgba(255,255,255,0.34)'}">
           ${band.hasAmount ? `${YEN(band.displayLow)} 〜 ${YEN(band.displayHigh)}` : '￥— 〜 ￥—'}</div>
         ${bandBarHtml(band)}
-        ${note}
-        <div style="display:flex;gap:8px;padding-top:10px">
+        <div style="display:flex;gap:8px;padding-top:8px">
           <button id="r-add" style="flex:1;height:48px;background:rgba(255,255,255,0.14);
             border:1px solid rgba(255,255,255,0.4);border-radius:6px;color:#fff;font-family:var(--font);
             font-size:16px;font-weight:700;cursor:pointer">項目を足す</button>
@@ -404,14 +435,28 @@ export function renderRoughScreen(container, roughId) {
   }
 
   // ---------- 全体 ----------
+  // 項目が無いあいだ（モックの①）は写真・すること・「項目を出す」を本文に置く。
+  // 項目が並んだら、写真とすることは上の帯（.r-strip）へ移して本文を項目だけにする。
+  // 本文が項目だけになるので、スクロールの長さが項目の数そのものになる。
   function paint() {
     if (!rough) return;
     const { rates, unitRates, band, c } = calcAll();
     const open = questions.filter((q) => !q.answer);
     const big = items.length === 0;          // まだ項目が無いとき＝モックの①
+    // ①→②に変わる瞬間は中身が丸ごと入れ替わる。前の位置は引き継がない
+    if (lastBig !== big) { lastBig = big; scrollY = 0; topCollapsed = false; }
 
-    const list = items.length ? `
-      <div style="display:flex;align-items:center;gap:8px;padding:16px 2px 8px">
+    const body = big ? `
+      ${photosHtml()}
+      ${oneLinerHtml()}
+      ${generateHtml()}
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+        color:#8A96A3;border:1.5px dashed #C3CBD4;border-radius:6px;margin:16px 0 4px;padding:28px 20px">
+        <span style="font-size:44px;color:#A9B3BE;display:grid;place-items:center">${icons.images}</span>
+        <div style="font-size:14px;color:#6B7783;text-align:center;line-height:1.8">
+          「項目を出す」を押すと、ここに項目が並びます。<br>金額はあとから一つずつ直せます。</div>
+      </div>` : `
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 2px 8px">
         <span style="font-size:13px;font-weight:700;color:#1B3A5C">読み取った項目</span>
         <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:#7A8794">${c.items}件</span>
         <span style="flex:1;height:1px;background:#D2D8E0"></span>
@@ -424,22 +469,16 @@ export function renderRoughScreen(container, roughId) {
         ${open.map(questionHtml).join('')}
         ${items.map((it) => itemCard(it, rates, unitRates)).join('')}
       </div>
-      <div style="height:12px"></div>` : `
-      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
-        color:#8A96A3;border:1.5px dashed #C3CBD4;border-radius:6px;margin:16px 0 4px;padding:28px 20px">
-        <span style="font-size:44px;color:#A9B3BE;display:grid;place-items:center">${icons.images}</span>
-        <div style="font-size:14px;color:#6B7783;text-align:center;line-height:1.8">
-          「項目を出す」を押すと、ここに項目が並びます。<br>金額はあとから一つずつ直せます。</div>
-      </div>`;
+      <div style="height:12px"></div>`;
 
     setHtmlKeepScroll(container, `
       <div class="screen" style="background:#EEF0F3">
-        ${headerHtml()}
-        <div class="scroll est-list-scroll" style="padding:0 12px 12px">
-          ${photosHtml(big)}
-          ${oneLinerHtml(big)}
-          ${generateHtml(big)}
-          ${list}
+        <div class="r-top${!big && topCollapsed ? ' collapsed' : ''}" id="r-top">
+          ${headerHtml()}
+          ${big ? '' : `<div class="r-strip">${stripHtml()}</div>`}
+        </div>
+        <div class="scroll est-list-scroll" id="r-scroll" style="padding:0 12px 12px">
+          ${body}
         </div>
         ${bandHtml(band, c)}
       </div>`);
@@ -447,12 +486,44 @@ export function renderRoughScreen(container, roughId) {
     bind();
   }
 
+  // ---------- スクロールしたら上を引っ込める ----------
+  // 押すところは増やさない（芯5）。指を下へ動かせば畳み、上へ戻せばまた出る。
+  // 畳んでも scrollTop は動かないので、見ている項目はその場に留まる。
+  function bindScroll() {
+    const sc = container.querySelector('#r-scroll');
+    const top = container.querySelector('#r-top');
+    if (!sc || !top) return;
+    if (scrollY) sc.scrollTop = scrollY;      // 描き直しのあとも同じ場所を見せる
+
+    let lastY = sc.scrollTop;
+    let upAcc = 0;                             // 上へ戻した量。少し戻せば上をまた出す
+    const setCollapsed = (on) => {
+      if (topCollapsed === on) return;
+      topCollapsed = on;
+      top.classList.toggle('collapsed', on);
+    };
+
+    sc.addEventListener('scroll', () => {
+      const y = sc.scrollTop;
+      const d = y - lastY;
+      lastY = y;
+      scrollY = y;
+      if (items.length === 0) return;          // 項目が無いうちは畳まない
+      if (d > 0) { upAcc = 0; if (y > 40) setCollapsed(true); }
+      else if (d < 0) { upAcc -= d; if (y < 8 || upAcc > 56) setCollapsed(false); }
+    }, { passive: true });
+  }
+
   // ---------- 操作 ----------
   function bind() {
     const q = (s) => container.querySelector(s);
     const all = (s) => container.querySelectorAll(s);
 
-    q('#r-back').addEventListener('click', () => { location.hash = '#estimates'; });
+    bindScroll();
+    // 入ってきたタブへ戻す（ホームから入ればホーム）。app.js が覚えている
+    q('#r-back').addEventListener('click', () => {
+      location.hash = sessionStorage.getItem('lastTab') || '#estimates';
+    });
     q('#r-cover').addEventListener('click', () => openRoughCover(roughId, () => rough));
 
     q('#ph-site').addEventListener('click', () => pickPhoto('現場'));
