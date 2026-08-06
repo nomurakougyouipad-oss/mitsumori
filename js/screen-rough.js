@@ -31,6 +31,7 @@ import {
   uploadPhoto, removePhoto, saveRoughSummary, freezeRough, addQuestion, answerQuestion,
 } from './rough-store.js?v=33';
 import { generateItems, isAiAvailable } from './rough-generate.js?v=33';
+import { buildQuoteText, subjectOf, addressOf, pendingNames } from './rough-quote.js?v=33';
 import { TEMPLATE_LABELS, templateRowCount } from './rough-templates.js?v=33';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
@@ -264,8 +265,8 @@ export function renderRoughScreen(container, roughId) {
         <div style="display:flex;gap:8px;padding-top:10px">
           <button class="btn btn-sm" id="r-add" style="flex:1;height:48px;background:rgba(255,255,255,.14);
             border-color:rgba(255,255,255,.4);color:#fff;font-size:16px">項目を足す</button>
-          <button class="btn btn-sm" id="r-save" style="flex:1;height:48px;background:#fff;color:var(--navy);
-            border-color:#fff;font-size:16px" ${band.hasAmount ? '' : 'disabled'}>この金額で残す</button>
+          <button class="btn btn-sm" id="r-quote" style="flex:1;height:48px;background:#fff;color:var(--navy);
+            border-color:#fff;font-size:16px" ${band.hasAmount ? '' : 'disabled'}>${icons.note}文面を作る</button>
         </div>
       </div>`;
   }
@@ -355,7 +356,12 @@ export function renderRoughScreen(container, roughId) {
 
     q('#r-gen').addEventListener('click', generate);
     q('#r-add').addEventListener('click', addBlank);
-    q('#r-save').addEventListener('click', save);
+    // 文面を作る前に、そのときの率と金額を焼き付ける。
+    // 客に出した金額と、あとで見る金額がずれないようにするため。
+    q('#r-quote').addEventListener('click', async () => {
+      await save({ quiet: true });
+      openQuotePage(roughId, () => ({ rough, items, ...calcAll() }));
+    });
 
     // 人工の増減
     all('[data-h]').forEach((el) => el.addEventListener('click', () => {
@@ -496,17 +502,114 @@ export function renderRoughScreen(container, roughId) {
     }));
   }
 
-  async function save() {
+  async function save({ quiet = false } = {}) {
     if (busy) return;
     busy = true;
     try {
       const f = await freezeRough(roughId, rough, items, local.get('staff', ''));
-      toast(`この金額で残しました（${YEN(f.band.displayLow)} 〜 ${YEN(f.band.displayHigh)}）`);
+      if (!quiet) toast(`この金額で残しました（${YEN(f.band.displayLow)} 〜 ${YEN(f.band.displayHigh)}）`);
     } catch (e) { console.error(e); toast('残せませんでした'); }
     finally { busy = false; }
   }
 
   return () => stops.forEach((s) => s && s());
+}
+
+// ============================================================
+// 文面を作る（画面4）
+// 客先に出す文章。単価待ちは隠さず「追って連絡」と書く。
+// getState() は { rough, items, rates, unitRates, t, band } を返す
+// ============================================================
+export function openQuotePage(roughId, getState) {
+  const ov = openOverlay();
+  const s = getState();
+  const auto = buildQuoteText(s.rough, s.items, s.t, s.band, s.rates, s.unitRates);
+  // 直したものがあればそれを出す。無ければ組み立てたものを出す
+  let text = s.rough.quoteText || auto;
+  const pend = pendingNames(s.items);
+
+  function paint() {
+    const edited = text !== auto;
+    ov.el.innerHTML = `
+      <div class="page-head"><div class="bar">
+        <button class="icon-btn" id="q-x">←</button><span class="ttl">文面を作る</span>
+      </div></div>
+      <div class="page-body"><div class="form-page">
+        ${pend.length ? `
+          <div style="display:flex;gap:8px;background:#FBF2E4;border:1px solid var(--accent);border-radius:6px;
+            padding:10px 12px;margin-bottom:12px;font-size:12.5px;color:#5C3D0B;line-height:1.6">
+            <span style="color:var(--accent);flex:none">${icons.clock}</span>
+            <span>単価待ちが ${pend.length}件 あります。文面には<b>「追って連絡」</b>と入れています</span>
+          </div>` : ''}
+
+        <div class="field">
+          <label>宛先</label>
+          <div style="background:#fff;border:1px solid var(--line);border-radius:6px;padding:12px 14px;font-size:15px">
+            ${esc(addressOf(s.rough) || '（宛先が入っていません。表紙の情報から入れてください）')}</div>
+        </div>
+        <div class="field">
+          <label>件名</label>
+          <div style="background:#fff;border:1px solid var(--line);border-radius:6px;padding:12px 14px;font-size:15px">
+            ${esc(subjectOf(s.rough))}</div>
+        </div>
+
+        <div class="field">
+          <label>本文${edited ? '（直したもの）' : ''}</label>
+          <div id="q-body" style="background:#fff;border:1px solid var(--line);border-radius:6px;padding:14px;
+            font-size:13.5px;line-height:1.9;white-space:pre-wrap;word-break:break-word">${esc(text)}</div>
+        </div>
+
+        <div style="background:var(--navy);border-radius:6px;padding:14px 16px;margin-bottom:14px">
+          <div style="font-size:11.5px;color:rgba(255,255,255,.68)">御見積金額（税込）</div>
+          <div class="num" style="font-size:24px;font-weight:700;color:#fff;padding-top:2px">
+            ${YEN(s.band.displayLow)} 〜 ${YEN(s.band.displayHigh)}</div>
+        </div>
+
+        <button class="btn btn-block" style="height:52px;margin-bottom:8px" id="q-edit">文面を直す</button>
+        ${edited ? `<button class="btn btn-block" style="height:44px;margin-bottom:8px" id="q-reset">作り直す（直した分は消えます）</button>` : ''}
+      </div></div>
+      <div class="bottom-bar" style="display:flex;gap:8px">
+        <button class="btn" style="flex:1;height:52px" id="q-copy">コピーする</button>
+        <button class="btn btn-primary" style="flex:1;height:52px" id="q-share">共有する</button>
+      </div>`;
+
+    ov.el.querySelector('#q-x').addEventListener('click', ov.close);
+    ov.el.querySelector('#q-edit').addEventListener('click', () => {
+      openTextInput({
+        title: '文面を直す', value: text, multiline: true,
+        hint: '直したものはこの見積に残ります。作り直せば元に戻せます。',
+        onDone: async (v) => {
+          if (v == null) return;
+          text = v;
+          try { await updateRough(roughId, { quoteText: v }); } catch (e) { console.error(e); toast('保存できませんでした'); }
+          paint();
+        },
+      });
+    });
+    const reset = ov.el.querySelector('#q-reset');
+    if (reset) reset.addEventListener('click', async () => {
+      if (!(await confirmDialog('直した分を消して、作り直しますか?', '作り直す'))) return;
+      text = auto;
+      try { await updateRough(roughId, { quoteText: '' }); } catch (e) { console.error(e); }
+      paint();
+    });
+
+    ov.el.querySelector('#q-copy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(text); toast('コピーしました。メールやLINEに貼り付けてください'); }
+      catch (e) { console.warn(e); toast('コピーできませんでした。本文を長押しして選んでください'); }
+    });
+    ov.el.querySelector('#q-share').addEventListener('click', async () => {
+      // iPhone は共有シート。使えない端末はコピーで代用する
+      if (navigator.share) {
+        try { await navigator.share({ title: subjectOf(s.rough), text }); return; }
+        catch (e) { if (e.name === 'AbortError') return; console.warn(e); }
+      }
+      try { await navigator.clipboard.writeText(text); toast('この端末では共有が使えないのでコピーしました'); }
+      catch (_) { toast('共有もコピーもできませんでした。本文を長押しして選んでください'); }
+    });
+  }
+
+  paint();
 }
 
 // ============================================================

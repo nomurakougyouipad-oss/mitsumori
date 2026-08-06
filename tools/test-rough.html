@@ -38,6 +38,7 @@
   } from '../js/rough-calc.js?v=33';
   import { templateItems, TEMPLATE_KEYS, TEMPLATE_LABELS } from '../js/rough-templates.js?v=33';
   import { generateItems, isAiAvailable, SOURCES } from '../js/rough-generate.js?v=33';
+  import { buildQuoteText, subjectOf, addressOf, pendingNames } from '../js/rough-quote.js?v=33';
 
   const out = document.getElementById('out');
   let pass = 0, fail = 0;
@@ -397,6 +398,57 @@
     eq('その差は 900円', 試作の諸経費 - t.overhead, 900);
     const 試作の福利費 = Math.round((532000 + 6000) * 0.16);
     eq('法定福利費にも移動費を含めない', 試作の福利費 - t.welfare, 960);
+  }
+
+  // ---- 文面 ----
+  head('文面を作る');
+  {
+    const rough = { projectName: '駆動装置モーター更新工事', customer: '東レ株式会社愛媛工場', site: '松山市 湯の山' };
+    const items = [
+      { kind: '労務', name: '駆動部 分解整備', trade: '整備', persons: 2, hours: 16, state: '確定', chosen: 'yotsuba' },
+      { kind: '材料', name: '交換用モーター', state: '確定', chosen: 'market', marketAmount: 250000 },
+      { kind: '材料', name: 'カップリング一式', state: '単価待ち' },
+      { kind: '材料', name: '消耗部品', state: '単価待ち' },
+      { kind: '移動', name: '現場移動', persons: 2, hours: 1, km: 30, state: '確定', chosen: 'yotsuba' },
+      { kind: '外注', name: '足場', amount: 120000, state: '未確定' },      // 未確定は出さない
+      { kind: '労務', name: '', trade: '整備', persons: 1, hours: 1, state: '確定', chosen: 'yotsuba' }, // 名無しは出さない
+    ];
+    const t = roughTotals(items, R, U, DEFAULT_ROUGH_OPTIONS);
+    const b = priceBand(items, R, U, DEFAULT_ROUGH_OPTIONS);
+    const txt = buildQuoteText(rough, items, t, b, R, U, { today: new Date(2026, 7, 6) });
+
+    eq('表題が入る', txt.includes('概　算　御　見　積　書'), true);
+    eq('宛先に御中が付く', txt.includes('東レ株式会社愛媛工場 御中'), true);
+    eq('工事名が入る', txt.includes('工事名：駆動装置モーター更新工事'), true);
+    eq('施工場所が入る', txt.includes('施工場所：松山市 湯の山'), true);
+    eq('作成日が入る', txt.includes('作成日：2026年8月6日'), true);
+    eq('確定した項目は金額つきで出る', txt.includes('・駆動部 分解整備　￥96,000'), true);
+    eq('相場で確定したものも出る', txt.includes('・交換用モーター　￥250,000'), true);
+    eq('単価待ちは金額を書かない', txt.includes('・カップリング一式　… 単価確認中'), true);
+    eq('移動費は1行にまとめる', txt.includes('・現場移動費　￥7,500'), true);
+    eq('未確定は文面に出さない', txt.includes('足場'), false);
+    eq('名前の無い行は出さない', /・　/.test(txt), false);
+    eq('見積条件（消せない一文）が入る', txt.includes('別途協議とします'), true);
+    eq('単価待ちを隠さない', txt.includes('追って連絡いたします'), true);
+    eq('単価待ちの品名を並べる', txt.includes('カップリング一式、消耗部品'), true);
+    eq('御見積金額は幅で出す', txt.includes(`￥${b.displayLow.toLocaleString('ja-JP')} 〜 ￥${b.displayHigh.toLocaleString('ja-JP')}`), true);
+    eq('会社名が入る', txt.includes('株式会社よつば建設工業'), true);
+    eq('電話番号が入る', txt.includes('TEL 089-994-5162'), true);
+    eq('件名', subjectOf(rough), '【概算御見積】駆動装置モーター更新工事');
+    eq('単価待ちの数', pendingNames(items).length, 2);
+  }
+  head('文面 — 宛先と福利費の書き分け');
+  {
+    eq('すでに御中が付いていれば足さない', addressOf({ customer: '東レ 御中' }), '東レ 御中');
+    eq('様でも足さない', addressOf({ customer: '野村 様' }), '野村 様');
+    eq('宛先が空なら空', addressOf({}), '');
+    const items = [{ kind: '材料', name: '鋼材', state: '確定', chosen: 'manual', manualAmount: 100000 }];
+    const off = { ...DEFAULT_ROUGH_OPTIONS, welfareOn: false };
+    const t = roughTotals(items, R, U, off);
+    const txt = buildQuoteText({}, items, t, priceBand(items, R, U, off), R, U);
+    eq('福利費0のときは行ごと出さない', txt.includes('法定福利費'), false);
+    eq('単価待ちが無ければ注記も出ない', txt.includes('追って連絡'), false);
+    eq('宛先が無くても文面は作れる', txt.includes('概　算　御　見　積　書'), true);
   }
 
   document.getElementById('summary').textContent =
