@@ -2,12 +2,12 @@
 // ホーム — 自分の工事／会社全体。状態3分類のカード
 // ============================================================
 
-import { esc, YEN, fmtDateJa, local } from './util.js?v=2';
-import { icons } from './icons.js?v=2';
-import { toast } from './ui.js?v=2';
-import { cache, createEstimate } from './store.js?v=2';
-import { openOrderWaitPage } from './screen-order.js?v=2';
-import { openPendingPricePage, openReviewsPage } from './screen-settings.js?v=2';
+import { esc, YEN, fmtDateJa, local } from './util.js?v=33';
+import { icons } from './icons.js?v=33';
+import { toast } from './ui.js?v=33';
+import { cache, createEstimate } from './store.js?v=33';
+import { openOrderWaitPage, confirmDeleteEstimate } from './screen-order.js?v=33';
+import { openPendingPricePage, openReviewsPage } from './screen-settings.js?v=33';
 
 const STATUSES = ['見積中', '発注待ち', '進行中'];
 
@@ -22,8 +22,9 @@ export function renderHome(container, opts = {}) {
     const priceWait = all.filter((e) => (e.pendingCount || 0) > 0).length;
 
     const card = (e) => `
-      <div class="card" data-est="${e.id}" style="cursor:pointer">
-        <div class="ttl">${esc(e.projectName || '（工事名なし）')}</div>
+      <div class="card" data-est="${e.id}" style="cursor:pointer;position:relative">
+        <button class="card-del corner" data-del="${e.id}" aria-label="この見積を削除">🗑</button>
+        <div class="ttl" style="padding-right:46px">${esc(e.projectName || '（工事名なし）')}</div>
         ${e.customer ? `<div class="meta">${esc(e.customer)}</div>` : ''}
         <div class="meta num" style="margin-top:2px">${e.orderNo ? '注番 ' + esc(e.orderNo) : ''}</div>
         <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-top:8px">
@@ -56,10 +57,10 @@ export function renderHome(container, opts = {}) {
           <div class="bdg" id="bdg-price">単価待ち<b>${priceWait}</b></div>
           <div class="bdg" id="bdg-review">判断待ち<b>—</b></div>
         </div>
-        <div class="scroll">
+        <div class="scroll home-scroll">
           ${mine.length ? STATUSES.map(section).join('') : `
             <div class="empty"><div class="big">見積はまだありません</div>下の「＋あたらしい見積」から作りましょう</div>`}
-          <div style="height:8px"></div>
+          <div class="pad-end"></div>
         </div>
         <div class="bottom-action">
           <button class="btn btn-primary btn-block btn-big" id="new-estimate">${icons.plus}あたらしい見積</button>
@@ -76,6 +77,10 @@ export function renderHome(container, opts = {}) {
     container.querySelectorAll('[data-est]').forEach((el) => el.addEventListener('click', () => {
       location.hash = '#est/' + el.dataset.est;
     }));
+    container.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async (ev) => {
+      ev.stopPropagation();   // カードを開かない
+      await confirmDeleteEstimate(cache.estimates.find((x) => x.id === b.dataset.del));
+    }));
     container.querySelector('#new-estimate').addEventListener('click', async () => {
       try {
         const id = await createEstimate(local.get('staff', ''));
@@ -88,5 +93,6 @@ export function renderHome(container, opts = {}) {
   paint();
 }
 
-// 見積タブは screen-handover.js の renderQuotesTab が持つ
-// （概算・本見積・完工を1本の流れで見せるため。ここにあった簡易版は畳んだ）
+// 見積タブは screen-handover.js の renderQuotesTab が持つ。
+// 概算・本見積・完工を1本の流れで見せるため、ここにあった簡易版は畳んだ。
+// PC で中央寄せする .est-list-scroll は renderQuotesTab 側に引き継いである。

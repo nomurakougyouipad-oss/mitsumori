@@ -22,14 +22,14 @@ import {
   db, storage, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp,
   storageRef, uploadBytes, getDownloadURL, deleteObject,
-} from './firebase.js?v=2';
-import { cache } from './store.js?v=2';
-import { recordRateChange, tradeKey } from './rate-history.js?v=2';
-import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=2';
+} from './firebase.js?v=33';
+import { cache } from './store.js?v=33';
+import { recordRateChange, tradeKey } from './rate-history.js?v=33';
+import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=33';
 import {
   DEFAULT_ROUGH_OPTIONS, WORK_TYPES, ITEM_KINDS,
   resolveRates, resolveUnitRates, roughTotals, priceBand, counts, sumByKind,
-} from './rough-calc.js?v=2';
+} from './rough-calc.js?v=33';
 
 const COL = 'roughEstimates';
 const ref = (id) => doc(db, COL, id);

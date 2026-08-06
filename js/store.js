@@ -6,9 +6,9 @@
 
 import {
   db, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
-  getDoc, onSnapshot, query, orderBy, serverTimestamp,
-} from './firebase.js?v=2';
-import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=2';
+  getDoc, getDocs, onSnapshot, query, where, orderBy, serverTimestamp,
+} from './firebase.js?v=33';
+import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=33';
 
 // ---------- 検索の正規化 ----------
 // ひらがな→カタカナ、全角→半角(NFKC)、大文字→小文字、記号ゆれ(×→x等)を吸収
@@ -21,6 +21,80 @@ export function norm(s) {
   return t;
 }
 
+// ---------- 検索の言い換え辞書（同義語） ----------
+// 現場は社内マスターの表記（SGP・ｱﾝｸﾞﾙ等）ではなく普段の言葉で打つ。
+// 「配管 25A」で SGP(溶協品) 25Ax5.5m が出るように、打った言葉を内部で置き換える。
+// ※ 集計表の別名辞書（items.aliases）とは別物。
+//    あちら＝品目単位（この行はこの品目）／こちら＝言葉単位（この言葉はこの表記）。
+// この初期セットはコードに持つ（初回から設定なしで効く）。
+// 追加・変更は Firestore の synonyms コレクションが上書きする（設定画面から編集）。
+//
+// 【この9件だけにしている理由】2026-08-01に実データ1,567件で確認して確定。
+// ・入れたのは「そのまま打つと0件になる言葉」だけ
+// ・配管には TP-A（小野建SUS・信栄のステンレス配管42件）も含める
+// ・TPA … ハイフンを飛ばして打つと0件になるので TP-A に寄せる
+// ・パイプは入れない … 今は角パイプ42件が正しく出る。SGPを足すと角パイプが
+//   探しにくくなる。配管の方で拾う
+// ・ボルト/ナット/ビス/ネジ/アンカー/寸切/角パイプ/丸棒/ｱﾝｸﾞﾙ/平鋼/チェッカーは
+//   そのまま打てば出るので不要
+// ・ステン→SUS304、鉄→SS400 は該当が659件・123件と多すぎて選べない。
+//   材質は絞り込みで選ぶ
+// ・C・L・FB のような1〜2文字への置き換えは誤ヒットするため入れない（下の guard 参照）
+// ※ 半角の「ﾁｬﾝﾈﾙ」は norm() が全角に揃えるので「チャンネル」1件で両方に効く。
+export const DEFAULT_SYNONYMS = [
+  ['配管', ['SGP', 'STK', 'STPG', 'TP-A']],
+  ['TPA', ['TP-A']],
+  ['丸鋼', ['丸棒']],
+  ['山形鋼', ['ｱﾝｸﾞﾙ']],
+  ['フラットバー', ['平鋼']],
+  ['縞鋼板', ['縞板']],
+  ['チャンネル', ['溝形鋼']],
+  ['H鋼', ['H形鋼']],
+  ['エッチ', ['H形鋼']],
+];
+
+// 1〜2文字の英数字（C・L・FB等）への置き換えは、無関係な品目まで拾うので禁止。
+// 設定画面でも保存前に弾く（この判定を共用する）。
+export const isTooShortTerm = (t) => /^[0-9a-z]{1,2}$/i.test(norm(t));
+
+// 「SGP、STK」「SGP STK」「SGP/STK」どれでも区切れるようにする
+export const splitTerms = (s) => String(s || '').split(/[、,，／/｜|\s]+/).map((x) => x.trim()).filter(Boolean);
+
+// 初期セット＋Firestoreの追加/上書き を合わせた辞書を作る
+// （同じ言葉がFirestoreにあればそちらが勝つ。中身を空にすると初期セットを無効化できる）
+export function synonymMap() {
+  const m = new Map();
+  const put = (word, terms) => {
+    const w = norm(word);
+    if (!w) return;
+    const list = terms.map(norm).filter(Boolean);
+    if (list.length) m.set(w, list); else m.delete(w);
+  };
+  for (const [w, t] of DEFAULT_SYNONYMS) put(w, t);
+  for (const s of cache.synonyms) put(s.name, splitTerms(s.terms));
+  return m;
+}
+
+// 1〜2文字の英字への置き換えは禁止（設定画面で弾く）が、古い端末が書いた
+// データが残っていても暴発しないよう、当てる位置を絞る保険を残しておく。
+//  ・2文字: 前後が英字でなければ当てる
+//  ・1文字: 寸法の頭に付く形（L-6x65・C-125x65）だけに当てる
+// これがないと L が AL6063・PL型切 に、C が S45C( や FB-C) に当たってしまう。
+function termHit(key, term) {
+  if (!/^[a-z]{1,2}$/.test(term)) return key.includes(term);
+  const single = term.length === 1;
+  let i = key.indexOf(term);
+  while (i !== -1) {
+    const before = i > 0 ? key[i - 1] : ' ';
+    const after = i + term.length < key.length ? key[i + term.length] : ' ';
+    const okBefore = !/[a-z]/.test(before);
+    const okAfter = single ? /[-0-9]/.test(after) : !/[a-z]/.test(after);
+    if (okBefore && okAfter) return true;
+    i = key.indexOf(term, i + 1);
+  }
+  return false;
+}
+
 // ---------- メモリキャッシュ ----------
 export const cache = {
   rates: { ...DEFAULT_RATES },
@@ -28,9 +102,11 @@ export const cache = {
   items: [],          // 単価マスター（searchKey付き）
   itemsLoaded: false,
   staff: [],
+  staffLoaded: false,  // 一覧が一度でも届いたか。届く前に追加させると重複が作れてしまう
   customers: [],
   suppliers: [],
   standingOrders: [],
+  synonyms: [],       // 検索の言い換え（追加・上書き分）
   estimates: [],      // 本見積の一覧（更新が新しい順）
   roughs: [],         // 概算見積の一覧（同）
   actuals: [],        // 実績（完工が新しい順）
@@ -55,10 +131,12 @@ export function startSubscriptions() {
   const simple = [
     ['staff', 'staff'], ['customers', 'customers'],
     ['suppliers', 'suppliers'], ['standingOrders', 'standingOrders'],
+    ['synonyms', 'synonyms'],
   ];
   for (const [col, key] of simple) {
     onSnapshot(query(collection(db, col), orderBy('name')), (snap) => {
       cache[key] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      if (key === 'staff') cache.staffLoaded = true;
       emit();
     }, (e) => console.error(col + '購読失敗:', e));
   }
@@ -93,17 +171,33 @@ export function startSubscriptions() {
 
 // ---------- 品目検索 ----------
 // 「アングル 65」→ 全トークンを含む品目。よく使う順→更新日新しい順
-export function searchItems(q, max = 30) {
+//
+// 使用停止（discontinued）の品目は候補に出さない。もう発注しない物なので
+// 現場に選ばせない。ただし消しはしない:
+//  ・過去の見積は itemId でこの行を指している
+//  ・集計表の突き合わせ（screen-tally.js）は今まで通り当てる必要がある
+// そのため cache.items からは外さず、ここ（検索）と規格カタログでだけ除く。
+// 設定 > 単価マスター の「使用停止も表示」で見られる。
+export function searchItems(q, max = 30, opts = {}) {
+  const pool = opts.withDiscontinued ? cache.items : cache.items.filter((it) => !it.discontinued);
   const tokens = norm(q).split(' ').filter(Boolean);
   if (!tokens.length) {
     // 空検索: よく使う順に上位を出す
-    return [...cache.items]
+    return [...pool]
       .sort((a, b) => (b.useCount || 0) - (a.useCount || 0))
       .slice(0, max);
   }
+  // 打った言葉を言い換え辞書で展開する。
+  // トークン同士はAND（「配管 25A」は両方必要）、展開した候補同士はOR
+  // （「配管」は SGP でも STK でも STPG でもよい）。
+  const syn = synonymMap();
+  const groups = tokens.map((t) => {
+    const alts = syn.get(t);
+    return alts ? [t, ...alts] : [t];
+  });
   const hits = [];
-  for (const it of cache.items) {
-    if (tokens.every((t) => it.searchKey.includes(t))) hits.push(it);
+  for (const it of pool) {
+    if (groups.every((g) => g.some((t) => termHit(it.searchKey, t)))) hits.push(it);
   }
   hits.sort((a, b) =>
     (b.useCount || 0) - (a.useCount || 0) ||
@@ -113,11 +207,32 @@ export function searchItems(q, max = 30) {
 
 function tsMillis(v) { return v && v.toMillis ? v.toMillis() : 0; }
 
-// 更新日が半年以上前（または不明）の品目に色をつける判定
+// 単価が古い品目に色をつける判定。
+//
+// 適用日(effectiveDate)＝業者がその単価を答えた日。入っていればこれを見る。
+// **空欄は「古い」とみなさない。** 分からないものを警告に混ぜると、
+// 警告そのものが見られなくなるため（2026/8に決めた運用）。
+// 適用日が空のときだけ、従来どおり updatedAt（アプリでの更新時刻）で見る。
+const HALF_YEAR = 183 * 24 * 3600 * 1000;
 export function isStale(item) {
+  const eff = parseEffectiveDate(item.effectiveDate);
+  if (eff != null) return Date.now() - eff > HALF_YEAR;
+  if (item.effectiveDate) return false;   // 日付として読めない文字が入っている → 判定しない
+  // updatedAt が無い行（31件。あべ工房の樹脂板など）は、従来どおり「古い」に含める。
+  // 適用日の運用が回り始めたら、ここも「分からないものは警告に混ぜない」に
+  // 揃えるかどうかを決める
   const ms = tsMillis(item.updatedAt);
   if (!ms) return true;
-  return Date.now() - ms > 183 * 24 * 3600 * 1000;
+  return Date.now() - ms > HALF_YEAR;
+}
+
+// 「2026/08/01」「2026/8/1」どちらでも読む。読めなければ null
+function parseEffectiveDate(v) {
+  if (!v) return null;
+  const m = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/.exec(String(v).trim());
+  if (!m) return null;
+  const t = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getTime();
+  return isFinite(t) ? t : null;
 }
 
 export async function bumpUseCount(itemId) {
@@ -178,6 +293,13 @@ export async function saveSummary(estimateId, t, lines) {
   });
 }
 
+// 見積を明細ごと削除する（元に戻せないので、呼ぶ側で必ず確認をとること）
+export async function deleteEstimateDeep(estimateId) {
+  const snap = await getDocs(collection(db, 'estimates', estimateId, 'lines'));
+  for (const d of snap.docs) await deleteDoc(d.ref);
+  await deleteDoc(doc(db, 'estimates', estimateId));
+}
+
 // 見積一覧（自分の工事／会社全体）
 export function subscribeEstimates(cb) {
   return onSnapshot(query(collection(db, 'estimates'), orderBy('updatedAt', 'desc')), (snap) => {
@@ -189,4 +311,24 @@ export function subscribeEstimates(cb) {
 export async function addNamed(col, data) {
   const ref = await addDoc(collection(db, col), data);
   return ref.id;
+}
+
+// ---------- 担当者の追加（重複させない） ----------
+// 「野村」が2件できたのは、キャッシュだけを見て重複判定していたため。
+// 一覧がまだ届いていない端末では cache.staff が空で、判定が素通りする。
+// 書き込む直前にサーバへ問い合わせて、キャッシュの状態に関係なく止める。
+// 戻り値: 追加できたら id、すでに在れば null
+export async function addStaff(name) {
+  const nm = String(name || '').trim();
+  if (!nm) return null;
+  const snap = await getDocs(query(collection(db, 'staff'), where('name', '==', nm)));
+  if (!snap.empty) return null;
+  const ref = await addDoc(collection(db, 'staff'), { name: nm });
+  return ref.id;
+}
+
+// 担当者が見積で使われているか。estimates は担当者をIDではなく名前で持つため、
+// 使用中の名前を消すとマスターと見積の名前が食い違う（「本山」が実例）。
+export function staffInUse(name) {
+  return cache.estimates.filter((e) => e.staff === name).length;
 }

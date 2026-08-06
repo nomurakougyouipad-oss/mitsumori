@@ -4,17 +4,21 @@
 // 単価マスター・取引先・仕入先・常設注番／集計表読み込み／書き戻しCSV
 // ============================================================
 
-import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=2';
-import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=2';
-import { cache, searchItems, isStale, updateEstimate, saveSummary, addNamed } from './store.js?v=2';
-import { totals } from './calc.js?v=2';
+import { esc, YEN, fmtDate, downloadCsv, local } from './util.js?v=33';
+import { openOverlay, openNumpad, openTextInput, toast, confirmDialog, bindSearch, isPc, onPcChange } from './ui.js?v=33';
+import {
+  cache, searchItems, isStale, updateEstimate, saveSummary, addNamed,
+  addStaff, staffInUse,
+  norm, DEFAULT_SYNONYMS, splitTerms, isTooShortTerm,
+} from './store.js?v=33';
+import { totals } from './calc.js?v=33';
 import {
   db, doc, collection, addDoc, updateDoc, deleteDoc, getDocs, setDoc,
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
-} from './firebase.js?v=2';
-import { openTallyPage } from './screen-tally.js?v=2';
-import { recordRateChange, tradeKey } from './rate-history.js?v=2';
-import { openActualsListPage, openActualEditPage } from './screen-handover.js?v=2';
+} from './firebase.js?v=33';
+import { openTallyPage } from './screen-tally.js?v=33';
+import { recordRateChange, tradeKey } from './rate-history.js?v=33';
+import { openActualsListPage, openActualEditPage } from './screen-handover.js?v=33';
 
 const RATE_DEFS = [
   ['material', '材料費 上乗せ%', '原価に対して'],
@@ -53,6 +57,10 @@ export function renderSettingsTab(container) {
         <div class="meta">発注統合名・単価変動ありフラグ</div></div>
       <div class="card" id="st-standing" style="cursor:pointer"><div class="ttl" style="font-size:14px">常設注番 ${cache.standingOrders.length}件</div>
         <div class="meta">工場・区分ごとの受け皿</div></div>
+      <div class="card" id="st-staffm" style="cursor:pointer"><div class="ttl" style="font-size:14px">担当者 ${cache.staff.length}件</div>
+        <div class="meta">名前の直し・削除。使用中の担当者は消せない</div></div>
+      <div class="card" id="st-synonyms" style="cursor:pointer"><div class="ttl" style="font-size:14px">言葉の言い換え（材料検索）</div>
+        <div class="meta">「配管」でSGPが出るようにする。現場の言葉のまま打てる</div></div>
       <div class="sec-head"><span class="ttl">実績</span><span class="rule"></span></div>
       <div class="card" id="st-actuals" style="cursor:pointer"><div class="ttl" style="font-size:14px">完工した工事 ${cache.actuals.length}件</div>
         <div class="meta">${cache.actuals.length < 3
@@ -86,6 +94,8 @@ export function renderSettingsTab(container) {
   container.querySelector('#st-customers').addEventListener('click', () => openNamedMaster('customers', '取引先', [['email', 'メール'], ['noWelfare', '法定福利費なし', 'bool']]));
   container.querySelector('#st-suppliers').addEventListener('click', () => openNamedMaster('suppliers', '仕入先', [['email', 'メール'], ['mergeName', '発注統合名'], ['priceVolatile', '単価変動あり', 'bool']]));
   container.querySelector('#st-standing').addEventListener('click', () => openNamedMaster('standingOrders', '常設注番', [['orderNo', '注番'], ['staff', '担当者']]));
+  container.querySelector('#st-staffm').addEventListener('click', () => openNamedMaster('staff', '担当者', []));
+  container.querySelector('#st-synonyms').addEventListener('click', openSynonymsPage);
   container.querySelector('#st-actuals').addEventListener('click', openActualsListPage);
   container.querySelector('#st-actual-add').addEventListener('click', () => openActualEditPage(null));
   container.querySelector('#st-tally').addEventListener('click', openTallyPage);
@@ -101,7 +111,7 @@ function openRatesPage() {
   function paint() {
     ov.el.innerHTML = `
       <div class="page-head"><div class="bar"><button class="icon-btn" id="r-back">←</button><span class="ttl">率の設定（会社で1つ）</span></div></div>
-      <div class="page-body"><div class="form-page">
+      <div class="page-body"><div class="form-page form-2col">
         ${RATE_DEFS.map(([k, lbl, note]) => `
           <div class="rate-row"><span class="lb">${lbl}<br><small style="color:var(--muted2)">${note}</small></span>
             <div class="rate-input" data-rk="${k}"><b>${pctN(cache.rates[k])}</b><span>%</span></div></div>`).join('')}
@@ -152,7 +162,7 @@ function openUnitRatesPage() {
     const u = cache.unitRates;
     ov.el.innerHTML = `
       <div class="page-head"><div class="bar"><button class="icon-btn" id="u-back">←</button><span class="ttl">時間単価</span></div></div>
-      <div class="page-body"><div class="form-page">
+      <div class="page-body"><div class="form-page form-2col">
         ${(u.trades || []).map((t, i) => `
           <div class="rate-row"><span class="lb">${esc(t.name)}</span>
             <div class="rate-input" data-ti="${i}"><b>${t.rate.toLocaleString('ja-JP')}</b><span>円/h</span></div></div>`).join('')}
@@ -194,28 +204,45 @@ function openUnitRatesPage() {
 function openItemsPage() {
   const ov = openOverlay();
   let q = '';
+  let showStopped = false;   // 使用停止も表示するか
+  const stoppedCount = () => cache.items.filter((x) => x.discontinued).length;
+  // iPhone対策: 検索inputは一度だけ生成し、絞り込みでは結果リストだけ描き直す
+  //（詳細は ui.js の bindSearch のコメント参照）
+  ov.el.innerHTML = `
+    <div class="page-head"><div class="bar"><button class="icon-btn" id="i-back">←</button><span class="ttl">単価マスター ${cache.items.length}件</span></div></div>
+    <div class="search-block"><div class="search-box" style="height:48px">
+      <input id="i-q" placeholder="品名・仕入先・材質で検索" style="font-size:16px" autocomplete="off"></div>
+      <label style="display:flex;align-items:center;gap:8px;padding:8px 2px 0;font-size:13.5px;min-height:44px">
+        <input type="checkbox" id="i-stopped" style="width:20px;height:20px">
+        使用停止も表示<span id="i-stopped-n" style="color:var(--muted2)"></span></label>
+    </div>
+    <div class="page-body" id="i-list"></div>`;
+  ov.el.querySelector('#i-back').addEventListener('click', ov.close);
+  const listEl = ov.el.querySelector('#i-list');
+  bindSearch(ov.el.querySelector('#i-q'), (v) => { q = v; paint(); });
+  ov.el.querySelector('#i-stopped').addEventListener('change', (e) => { showStopped = e.target.checked; paint(); });
+
   function paint() {
-    const hits = searchItems(q, 30);
-    ov.el.innerHTML = `
-      <div class="page-head"><div class="bar"><button class="icon-btn" id="i-back">←</button><span class="ttl">単価マスター ${cache.items.length}件</span></div></div>
-      <div class="search-block"><div class="search-box" style="height:48px">
-        <input id="i-q" placeholder="品名・仕入先・材質で検索" value="${esc(q)}" style="font-size:16px" autocomplete="off"></div></div>
-      <div class="page-body">
+    // PCは行を詰めた表形式（1画面に20行以上見えるように）。件数も多めに出す
+    const pc = isPc();
+    const hits = searchItems(q, pc ? 80 : 30, { withDiscontinued: showStopped });
+    const nEl = ov.el.querySelector('#i-stopped-n');
+    if (nEl) nEl.textContent = `（${stoppedCount()}件）`;
+    listEl.innerHTML = `
+        ${pc ? `<div class="item-head">
+          <span>品名・規格</span><span>仕入先</span><span>原価</span><span>単位</span><span>更新日</span><span>別名</span>
+        </div>` : ''}
         ${hits.map((it) => `
-          <div class="cand" data-id="${it.id}" style="padding-left:14px">
-            <div style="display:flex;align-items:center">
-              <div style="flex:1;min-width:0">
-                <div class="nm">${esc(it.name)}</div>
-                <div class="sub">${esc(it.supplier || '—')} ／ <b>${it.cost != null ? YEN(it.cost) : '—'}</b>／${esc(it.unit || '')} ／ 更新 ${it.updatedAt ? fmtDate(it.updatedAt) : esc(it.updatedAtRaw || '不明')}${(it.aliases || []).length ? ' ／ 別名' + it.aliases.length : ''}</div>
-              </div>
-              ${isStale(it) ? '<span class="cand-badge stale">単価が古い</span>' : ''}
-            </div>
-          </div>`).join('')}
-      </div>`;
-    ov.el.querySelector('#i-back').addEventListener('click', ov.close);
-    const input = ov.el.querySelector('#i-q');
-    input.addEventListener('input', () => { q = input.value; paint(); const i2 = ov.el.querySelector('#i-q'); i2.focus(); i2.setSelectionRange(i2.value.length, i2.value.length); });
-    ov.el.querySelectorAll('[data-id]').forEach((el) => el.addEventListener('click', () => editItem(cache.items.find((x) => x.id === el.dataset.id), paint)));
+          <div class="cand item-row" data-id="${it.id}" ${it.discontinued ? 'style="opacity:.6"' : ''}>
+            <span class="nm">${esc(it.name)}${it.discontinued
+              ? '<span class="cand-badge stale">使用停止</span>' : ''}${isStale(it) ? '<span class="cand-badge stale">古い</span>' : ''}</span>
+            <span class="c-sup">${esc(it.supplier || '—')}</span>
+            <span class="c-cost num">${it.cost != null ? YEN(it.cost) : '—'}</span>
+            <span class="c-unit">${esc(it.unit || '')}</span>
+            <span class="c-upd">${it.updatedAt ? fmtDate(it.updatedAt) : esc(it.updatedAtRaw || '不明')}</span>
+            <span class="c-alias">${(it.aliases || []).length ? '別名' + it.aliases.length : ''}</span>
+          </div>`).join('')}`;
+    listEl.querySelectorAll('[data-id]').forEach((el) => el.addEventListener('click', () => editItem(cache.items.find((x) => x.id === el.dataset.id), paint)));
   }
   paint();
 }
@@ -231,26 +258,72 @@ function editItem(it, onDone) {
       <div style="font-size:14px;font-weight:700">${esc(it.name)}</div>
       <div class="rate-row"><span class="lb">原価</span><div class="rate-input" id="ie-cost"><b>${it.cost != null ? it.cost.toLocaleString('ja-JP') : '—'}</b><span>円</span></div></div>
       ${it.kgPrice != null ? `<div class="rate-row"><span class="lb">kg単価（原価を自動再計算）</span><div class="rate-input" id="ie-kg"><b>${it.kgPrice}</b><span>円/kg</span></div></div>` : ''}
+      <div class="rate-row"><span class="lb">適用日<br><small style="color:var(--muted2)">業者の回答日</small></span>
+        <div class="rate-input" id="ie-eff" style="min-width:130px"><b>${esc(it.effectiveDate || '未記入')}</b></div></div>
+      <div class="rate-row"><span class="lb">メモ<br><small style="color:var(--muted2)">重量の出どころなど</small></span>
+        <div class="rate-input" id="ie-note" style="min-width:130px;text-align:left">
+          <b style="font-weight:400;font-size:12.5px">${esc(it.note || '（なし）')}</b></div></div>
       ${(it.aliases || []).length ? `<div style="font-size:12px;color:var(--muted)">別名: ${it.aliases.map(esc).join(' ／ ')}</div>` : ''}
+      ${it.discontinued ? `<div style="font-size:12.5px;color:#8A560F;line-height:1.7;margin-top:6px">
+        ⛔ 使用停止中。検索と規格の一覧には出ません。過去の見積と集計表の突き合わせは今まで通りです
+        ${it.discontinuedNote ? `<div style="color:var(--muted);margin-top:4px">${esc(it.discontinuedNote)}</div>` : ''}</div>` : ''}
+      <button class="btn btn-block" id="ie-stop" style="min-height:44px;margin-top:8px">
+        ${it.discontinued ? '使用停止をやめる（また使う）' : 'この品目を使用停止にする'}</button>
       <button class="btn btn-danger btn-block" id="ie-del">この品目を削除</button>
     </div></div>`;
   root.appendChild(back);
   const close = () => back.remove();
   back.querySelector('#ie-x').addEventListener('click', close);
+  // 単価を触ったら適用日も必ず入れる（運用で忘れないよう、その場で今日を入れる）。
+  // 適用日が入っていないと「いつの単価か分からない」ままになり、古さの判断ができない
+  const today = () => {
+    const d = new Date();
+    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+  };
   back.querySelector('#ie-cost').addEventListener('click', () => openNumpad({
     title: '原価', value: it.cost ?? '', unit: '円', onDone: async (n) => {
       if (n == null) return;
-      await updateDoc(doc(db, 'items', it.id), { cost: n, updatedAt: Timestamp.now() });
-      toast('原価を更新しました'); close(); onDone();
+      await updateDoc(doc(db, 'items', it.id), { cost: n, effectiveDate: today(), updatedAt: Timestamp.now() });
+      toast('原価を更新しました（適用日 ' + today() + '）'); close(); onDone();
     } }));
   back.querySelector('#ie-kg')?.addEventListener('click', () => openNumpad({
     title: 'kg単価', value: it.kgPrice ?? '', unit: '円/kg', onDone: async (n) => {
       if (n == null) return;
-      const patch = { kgPrice: n, updatedAt: Timestamp.now() };
+      const patch = { kgPrice: n, effectiveDate: today(), updatedAt: Timestamp.now() };
       if (it.weight != null) patch.cost = Math.round(it.weight * n);
       await updateDoc(doc(db, 'items', it.id), patch);
       toast('kg単価を更新しました' + (patch.cost != null ? `（原価 ${YEN(patch.cost)}）` : '')); close(); onDone();
     } }));
+  // 適用日は業者の回答日を入れるので、今日とは限らない。手で直せるようにする
+  back.querySelector('#ie-eff').addEventListener('click', () => openTextInput({
+    title: '適用日', value: it.effectiveDate || today(), placeholder: 'YYYY/MM/DD',
+    hint: '業者が単価を答えた日を入れる。空のままでも構わないが、その行は古さの判定に出てこない',
+    onDone: async (v) => {
+      await updateDoc(doc(db, 'items', it.id), { effectiveDate: v, updatedAt: Timestamp.now() });
+      toast(v ? '適用日を入れました' : '適用日を空にしました'); close(); onDone();
+    } }));
+  back.querySelector('#ie-note').addEventListener('click', () => openTextInput({
+    title: 'メモ', value: it.note || '', multiline: true,
+    placeholder: '例: 重量は業者回答の値／重量はJIS表から計算',
+    hint: '重量をどこから取ったかなど、あとで見て分かるように残す',
+    onDone: async (v) => {
+      await updateDoc(doc(db, 'items', it.id), { note: v, updatedAt: Timestamp.now() });
+      toast('メモを保存しました'); close(); onDone();
+    } }));
+  // 使用停止の切り替え。消さずに候補から外すだけなので、確認は軽くでよい。
+  // いつ・どうして止めたか分からなくならないよう、経緯を必ず残す
+  back.querySelector('#ie-stop').addEventListener('click', async () => {
+    const to = !it.discontinued;
+    const d = new Date();
+    const stamp = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+    await updateDoc(doc(db, 'items', it.id), {
+      discontinued: to,
+      discontinuedNote: to ? `画面から使用停止にした（${stamp}）` : '',
+      updatedAt: Timestamp.now(),
+    });
+    toast(to ? '使用停止にしました' : '使用停止をやめました');
+    close(); onDone();
+  });
   back.querySelector('#ie-del').addEventListener('click', async () => {
     if ((it.useCount || 0) > 0) { toast('見積で使用中のため削除できません'); return; }
     if (!(await confirmDialog(`「${it.name}」を削除しますか?`, '削除する'))) return;
@@ -259,20 +332,27 @@ function editItem(it, onDone) {
   });
 }
 
-// ---------- 汎用マスタ（取引先・仕入先・常設注番） ----------
+// ---------- 汎用マスタ（取引先・仕入先・常設注番・担当者） ----------
 function openNamedMaster(col, title, fields) {
   const ov = openOverlay();
   function paint() {
     const list = cache[col === 'standingOrders' ? 'standingOrders' : col] || [];
+    // 担当者は一覧が届く前に追加させない（重複の作られ方は store.js の addStaff 参照）
+    const loaded = col !== 'staff' || cache.staffLoaded;
+    const meta = (m) => (col === 'staff'
+      ? (staffInUse(m.name) ? `見積 ${staffInUse(m.name)}件で使用中` : '未使用')
+      : (fields.map(([k, lbl, type]) => type === 'bool' ? (m[k] ? lbl : '') : (m[k] ? lbl + ': ' + esc(String(m[k])) : '')).filter(Boolean).join(' ／ ') || '—'));
     ov.el.innerHTML = `
       <div class="page-head"><div class="bar"><button class="icon-btn" id="n-back">←</button><span class="ttl">${title}マスター</span></div></div>
       <div class="page-body"><div style="padding:12px">
+        ${loaded ? '' : '<div class="empty" style="padding:16px">読み込み中…</div>'}
         ${list.map((m) => `
           <div class="card" style="margin-bottom:8px;cursor:pointer" data-id="${m.id}">
             <div class="ttl" style="font-size:14px">${esc(m.name)}${col === 'standingOrders' ? `　<span class="num" style="font-weight:500">${esc(m.orderNo || '')}</span>` : ''}</div>
-            <div class="meta">${fields.map(([k, lbl, type]) => type === 'bool' ? (m[k] ? lbl : '') : (m[k] ? lbl + ': ' + esc(String(m[k])) : '')).filter(Boolean).join(' ／ ') || '—'}</div>
+            <div class="meta">${meta(m)}</div>
           </div>`).join('')}
-        <button class="btn btn-block" id="n-add">＋ ${title}を追加</button>
+        <button class="btn btn-block" id="n-add" ${loaded ? '' : 'disabled'}>＋ ${title}を追加</button>
+        ${loaded ? '' : '<div class="search-hint" style="text-align:center">一覧を読み込んでいます</div>'}
       </div></div>`;
     ov.el.querySelector('#n-back').addEventListener('click', ov.close);
     ov.el.querySelector('#n-add').addEventListener('click', () => editNamed(col, title, fields, null, paint));
@@ -308,19 +388,155 @@ function editNamed(col, title, fields, m, onDone) {
     if (!name) { toast('名称を入れてください'); return; }
     const data = { name };
     for (const [k, , type] of fields) data[k] = type === 'bool' ? back.querySelector('#ne-' + k).checked : back.querySelector('#ne-' + k).value.trim();
+    const btn = back.querySelector('#ne-save');
+    btn.disabled = true;
     try {
-      if (m) await updateDoc(doc(db, col, m.id), data);
-      else await addNamed(col, data);
+      if (m) {
+        // 担当者の改名は、見積が名前で紐づいている以上マスターとの対応が切れる
+        if (col === 'staff' && name !== m.name) {
+          const used = staffInUse(m.name);
+          if (used) {
+            btn.disabled = false;
+            toast(`見積${used}件で使用中のため名前を変えられません`);
+            return;
+          }
+          if (cache.staff.some((s) => s.id !== m.id && s.name === name)) {
+            btn.disabled = false; toast('同じ名前がすでにあります'); return;
+          }
+        }
+        await updateDoc(doc(db, col, m.id), data);
+      } else if (col === 'staff') {
+        // キャッシュではなくサーバへ問い合わせて重複を止める
+        if (!(await addStaff(name))) { btn.disabled = false; toast('同じ名前がすでにあります'); return; }
+      } else await addNamed(col, data);
       toast('保存しました'); close(); setTimeout(onDone, 400);
-    } catch (e) { console.error(e); toast('保存できませんでした'); }
+    } catch (e) { console.error(e); btn.disabled = false; toast('保存できませんでした'); }
   });
   back.querySelector('#ne-del')?.addEventListener('click', async () => {
     // 使用中は削除させないガード（見積の宛先・担当者に使われていないか）
     if (col === 'customers' && cache.estimates.some((e) => e.customer === m.name)) { toast('見積で使用中のため削除できません'); return; }
     if (col === 'standingOrders' && cache.estimates.some((e) => e.orderNo === m.orderNo)) { toast('見積で使用中のため削除できません'); return; }
+    // estimates は担当者を名前で持つ。使用中の名前を消すと見積の担当者名がマスターに無くなる
+    if (col === 'staff') {
+      const used = staffInUse(m.name);
+      if (used) { toast(`見積${used}件で使用中のため削除できません`); return; }
+    }
     if (!(await confirmDialog(`「${m.name}」を削除しますか?`, '削除する'))) return;
     await deleteDoc(doc(db, col, m.id));
     toast('削除しました'); close(); setTimeout(onDone, 400);
+  });
+}
+
+// ---------- 検索の言い換え辞書（言葉単位） ----------
+// 初期セットはコード（store.js の DEFAULT_SYNONYMS）にあり、設定なしで効く。
+// ここで足した・直した分は Firestore の synonyms に入り、同じ言葉なら上書きする。
+function openSynonymsPage() {
+  const ov = openOverlay();
+
+  // 初期セット＋追加分を、画面に出す1本のリストにまとめる
+  function rows() {
+    const edited = new Map(cache.synonyms.map((s) => [norm(s.name), s]));
+    const list = DEFAULT_SYNONYMS.map(([word, terms]) => {
+      const o = edited.get(norm(word));
+      return { word, terms: o ? splitTerms(o.terms) : terms, builtin: true, doc: o || null };
+    });
+    for (const s of cache.synonyms) {
+      if (DEFAULT_SYNONYMS.some(([w]) => norm(w) === norm(s.name))) continue;
+      list.push({ word: s.name, terms: splitTerms(s.terms), builtin: false, doc: s });
+    }
+    return list;
+  }
+
+  function paint() {
+    const list = rows();
+    ov.el.innerHTML = `
+      <div class="page-head"><div class="bar"><button class="icon-btn" id="sy-back">←</button>
+        <span class="ttl">言葉の言い換え（材料検索）</span></div></div>
+      <div class="page-body"><div style="padding:12px">
+        <div class="card" style="margin-bottom:10px">
+          <div style="font-size:13px;line-height:1.7;color:var(--muted)">
+            現場の言葉で打っても、マスターの表記で探しにいきます。<br>
+            例：<b>配管 25A</b> → SGP・STK・STPG の 25A を探す。<br>
+            <span style="color:var(--muted2)">
+              ※ そのまま打って出る言葉は入れなくて大丈夫です（ボルト・角パイプ等）。<br>
+              ※ C・L・FBのような1〜2文字は、関係ない品目まで出るので入れられません。<br>
+              ※ 集計表の別名辞書とは別物です（あちらは品目ごと、こちらは言葉ごと）</span>
+          </div>
+        </div>
+        ${list.map((r, i) => `
+          <div class="card" style="margin-bottom:8px;cursor:pointer" data-i="${i}">
+            <div class="ttl" style="font-size:14px">${esc(r.word)}
+              <span style="font-size:10.5px;font-weight:500;color:${r.builtin ? 'var(--muted2)' : 'var(--navy)'};margin-left:6px">
+                ${r.builtin ? (r.doc ? '標準（変更あり）' : '標準') : '追加'}</span></div>
+            <div class="meta">→ ${r.terms.length ? esc(r.terms.join('、')) : '（使わない）'}</div>
+          </div>`).join('')}
+        <button class="btn btn-block" id="sy-add">＋ 言い換えを追加</button>
+        <div style="height:16px"></div>
+      </div></div>`;
+
+    ov.el.querySelector('#sy-back').addEventListener('click', ov.close);
+    ov.el.querySelector('#sy-add').addEventListener('click', () => editSynonym(null, paint));
+    ov.el.querySelectorAll('[data-i]').forEach((el) => el.addEventListener('click', () =>
+      editSynonym(list[+el.dataset.i], paint)));
+  }
+  paint();
+}
+
+function editSynonym(r, onDone) {
+  const root = document.getElementById('modal-root');
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = `
+    <div class="modal"><div class="modal-head">言い換え${r ? 'を編集' : 'を追加'}<button class="x" id="sy-x">×</button></div>
+    <div class="modal-body">
+      <div class="field"><label>現場が打つ言葉</label>
+        <input class="input" id="sy-word" value="${esc(r?.word || '')}" placeholder="パイプ" ${r?.builtin ? 'readonly style="background:#F3F5F8"' : ''}></div>
+      <div class="field"><label>マスターの言葉（読点や空白で区切って何個でも）</label>
+        <input class="input" id="sy-terms" value="${esc((r?.terms || []).join('、'))}" placeholder="SGP、STK、STPG、丸ﾊﾟｲﾌﾟ"></div>
+      <div style="font-size:11.5px;color:var(--muted2);line-height:1.6">
+        ${r?.builtin ? '標準の言葉です。中身を空にして保存すると、この言い換えを使わなくなります。' : ''}</div>
+      <div style="display:flex;gap:8px">
+        ${r?.doc ? `<button class="btn btn-danger" id="sy-del" style="flex:1">${r.builtin ? '標準に戻す' : '削除'}</button>` : ''}
+        <button class="btn btn-primary" id="sy-save" style="flex:2">保存</button>
+      </div>
+    </div></div>`;
+  root.appendChild(back);
+  const close = () => back.remove();
+  back.querySelector('#sy-x').addEventListener('click', close);
+
+  back.querySelector('#sy-save').addEventListener('click', async () => {
+    const word = back.querySelector('#sy-word').value.trim();
+    const terms = back.querySelector('#sy-terms').value.trim();
+    if (!word) { toast('言葉を入れてください'); return; }
+    if (!terms && !r?.builtin) { toast('マスターの言葉を入れてください'); return; }
+    // C・L・FB のような1〜2文字は、無関係な品目まで拾うので入れさせない
+    const tooShort = splitTerms(terms).filter(isTooShortTerm);
+    if (tooShort.length) {
+      toast(`「${tooShort.join('、')}」は短すぎて関係ない品目まで出ます。3文字以上か日本語で入れてください`);
+      return;
+    }
+    // 同じ言葉が既にあるなら、増やさずそこを直す
+    const exist = r?.doc || cache.synonyms.find((s) => norm(s.name) === norm(word));
+    try {
+      if (exist) await updateDoc(doc(db, 'synonyms', exist.id), { name: word, terms });
+      else await addNamed('synonyms', { name: word, terms });
+      toast('保存しました。次の検索から効きます'); close(); setTimeout(onDone, 400);
+    } catch (e) {
+      console.error(e);
+      // synonyms はルールを更新しないと書き込めない（初期セットは更新なしで効く）
+      toast(e.code === 'permission-denied'
+        ? 'Firestoreのルール更新が必要です（firestore.rulesを貼り直してください）'
+        : '保存できませんでした');
+    }
+  });
+
+  back.querySelector('#sy-del')?.addEventListener('click', async () => {
+    const msg = r.builtin ? `「${r.word}」を標準の内容に戻しますか?` : `「${r.word}」を削除しますか?`;
+    if (!(await confirmDialog(msg, r.builtin ? '戻す' : '削除する'))) return;
+    try {
+      await deleteDoc(doc(db, 'synonyms', r.doc.id));
+      toast(r.builtin ? '標準に戻しました' : '削除しました'); close(); setTimeout(onDone, 400);
+    } catch (e) { console.error(e); toast('削除できませんでした'); }
   });
 }
 
@@ -373,31 +589,92 @@ export function openPendingPricePage() {
 }
 
 // ---------- 判断待ち（priceReviews） ----------
+// PCでは左に一覧・右に選んだ1件の詳細（2カラム）。
+// 1件ずつ画面が切り替わると6件でも疲れるため、決めながら次を選べる形にする。
 export function openReviewsPage() {
   const ov = openOverlay();
-  async function paint() {
+  let all = [];
+  let selId = null;          // 右ペインで開いている1件
+  const offBp = onPcChange(() => render());
+  const origClose = ov.close;
+  ov.close = () => { offBp(); origClose(); };
+
+  async function load() {
     const snap = await getDocs(query(collection(db, 'priceReviews'), orderBy('createdAt', 'desc')));
-    const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    render();
+  }
+
+  function diff(r) {
+    return `<b class="num">${r.currentCost != null ? YEN(r.currentCost) : '—'}</b>`
+      + ` → <b class="num" style="color:var(--navy)">${r.newCost != null ? YEN(r.newCost) : '—'}</b>`
+      + `${r.unitKind ? '／' + esc(r.unitKind) : ''}`;
+  }
+
+  // 右ペイン（PC）— 選んだ1件を大きく見せて、そこで決める
+  function detailHtml(r) {
+    if (!r) return '<div class="empty" style="padding-top:60px">左の一覧から1件選んでください</div>';
+    const decided = r.status !== '判断待ち';
+    return `
+      <div class="rv-detail">
+        <div class="nm">${esc(r.name || r.itemId || '')}</div>
+        <div class="reason">${esc(r.reason || '')}</div>
+        <div class="price">${diff(r)}</div>
+        <dl class="rv-meta">
+          <dt>出典</dt><dd>${esc(r.source || '—')}</dd>
+          <dt>単価の種類</dt><dd>${esc(r.unitKind || '—')}</dd>
+          <dt>備考</dt><dd>${esc(r.note || '—')}</dd>
+          <dt>状態</dt><dd>${esc(r.status)}${r.decidedAt ? '　' + fmtDate(r.decidedAt) : ''}</dd>
+        </dl>
+        ${decided ? '' : `
+          <div class="rv-actions">
+            <button class="btn btn-primary btn-block" data-ok="${r.id}">承認（マスターを更新）</button>
+            <button class="btn btn-block" data-keep="${r.id}">据え置き（記録だけ残す）</button>
+          </div>`}
+      </div>`;
+  }
+
+  function render() {
     const open = all.filter((r) => r.status === '判断待ち');
     const done = all.filter((r) => r.status !== '判断待ち').slice(0, 20);
+    const pc = isPc();
+    if (pc && !all.some((r) => r.id === selId)) selId = open.length ? open[0].id : null;
+
+    // 一覧の1行。PCは選択式（右に詳細）、スマホは行内にボタンを置く
     const row = (r, withBtns) => `
-      <div class="card" style="margin-bottom:8px">
+      <div class="card rv-card ${pc && r.id === selId ? 'on' : ''}" data-pick="${r.id}"
+           style="margin-bottom:8px${pc ? ';cursor:pointer' : ''}">
         <div class="ttl" style="font-size:14px">${esc(r.name || r.itemId || '')}</div>
-        <div class="meta">${esc(r.reason || '')}　<b class="num">${r.currentCost != null ? YEN(r.currentCost) : '—'}</b> → <b class="num" style="color:var(--navy)">${r.newCost != null ? YEN(r.newCost) : '—'}</b>${r.unitKind ? '／' + esc(r.unitKind) : ''}　<span style="color:var(--muted2)">${esc(r.source || '')}</span></div>
-        ${withBtns ? `<div style="display:flex;gap:8px;margin-top:8px">
+        <div class="meta">${esc(r.reason || '')}　${diff(r)}　<span style="color:var(--muted2)">${esc(r.source || '')}</span></div>
+        ${withBtns && !pc ? `<div style="display:flex;gap:8px;margin-top:8px">
           <button class="btn btn-sm" data-ok="${r.id}">承認（マスター更新）</button>
           <button class="btn btn-sm" data-keep="${r.id}">据え置き（記録だけ）</button></div>`
-        : `<div class="meta">${esc(r.status)}　${r.decidedAt ? fmtDate(r.decidedAt) : ''}</div>`}
+        : (withBtns ? '' : `<div class="meta">${esc(r.status)}　${r.decidedAt ? fmtDate(r.decidedAt) : ''}</div>`)}
       </div>`;
+
+    const listHtml = `
+      ${open.map((r) => row(r, true)).join('') || '<div class="empty">判断待ちはありません</div>'}
+      ${done.length ? `<div class="sec-head"><span class="ttl">決めたもの（据え置きも日付つきで残る）</span><span class="rule"></span></div>${done.map((r) => row(r, false)).join('')}` : ''}`;
+
     ov.el.innerHTML = `
       <div class="page-head"><div class="bar"><button class="icon-btn" id="rv-back">←</button><span class="ttl">単価の判断待ち ${open.length}件</span></div></div>
-      <div class="page-body"><div style="padding:12px">
-        ${open.map((r) => row(r, true)).join('') || '<div class="empty">判断待ちはありません</div>'}
-        ${done.length ? `<div class="sec-head"><span class="ttl">決めたもの（据え置きも日付つきで残る）</span><span class="rule"></span></div>${done.map((r) => row(r, false)).join('')}` : ''}
-      </div></div>`;
+      <div class="page-body">
+        ${pc ? `
+          <div class="rv-split">
+            <div class="rv-list">${listHtml}</div>
+            <div class="rv-pane">${detailHtml(all.find((r) => r.id === selId))}</div>
+          </div>`
+        : `<div style="padding:12px">${listHtml}</div>`}
+      </div>`;
+
     ov.el.querySelector('#rv-back').addEventListener('click', ov.close);
+    if (pc) {
+      ov.el.querySelectorAll('[data-pick]').forEach((el) => el.addEventListener('click', () => {
+        selId = el.dataset.pick; render();
+      }));
+    }
     ov.el.querySelectorAll('[data-ok]').forEach((b) => b.addEventListener('click', async () => {
-      const r = open.find((x) => x.id === b.dataset.ok);
+      const r = all.find((x) => x.id === b.dataset.ok);
       try {
         if (r.itemId) {
           const patch = { updatedAt: Timestamp.now() };
@@ -409,15 +686,22 @@ export function openReviewsPage() {
           await updateDoc(doc(db, 'items', r.itemId), patch);
         }
         await updateDoc(doc(db, 'priceReviews', r.id), { status: '承認', decidedAt: serverTimestamp() });
-        toast('承認してマスターを更新しました'); paint();
+        toast('承認してマスターを更新しました'); nextAfterDecide(r.id); load();
       } catch (e) { console.error(e); toast('保存できませんでした'); }
     }));
     ov.el.querySelectorAll('[data-keep]').forEach((b) => b.addEventListener('click', async () => {
       await updateDoc(doc(db, 'priceReviews', b.dataset.keep), { status: '据え置き', decidedAt: serverTimestamp() });
-      toast('据え置きで記録しました（次回また調べ直さないため）'); paint();
+      toast('据え置きで記録しました（次回また調べ直さないため）'); nextAfterDecide(b.dataset.keep); load();
     }));
   }
-  paint();
+
+  // 1件決めたら、右ペインは残りの先頭に送る（続けて片付けられるように）
+  function nextAfterDecide(decidedId) {
+    const rest = all.filter((r) => r.status === '判断待ち' && r.id !== decidedId);
+    selId = rest.length ? rest[0].id : null;
+  }
+
+  load();
 }
 
 // ---------- 単価マスターの書き戻しCSV（A〜K列） ----------

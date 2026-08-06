@@ -3,11 +3,15 @@
 // 「入力は1件1ページ。保存して次へで画面は移動しない」（README第4章）
 // ============================================================
 
-import { esc, YEN, local } from './util.js?v=2';
-import { icons } from './icons.js?v=2';
-import { openOverlay, openNumpad, toast } from './ui.js?v=2';
-import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=2';
-import { excelRound } from './calc.js?v=2';
+import { esc, YEN, local } from './util.js?v=33';
+import { icons } from './icons.js?v=33';
+import { openOverlay, openNumpad, toast, bindSearch, setHtmlKeepScroll } from './ui.js?v=33';
+import { cache, searchItems, isStale, addLine, updateLine, bumpUseCount, addNamed } from './store.js?v=33';
+import { excelRound } from './calc.js?v=33';
+import {
+  buildCatalog, catalogKinds, catalogMaterials,
+  fillPattern, makeName, shapeName, buildNameIndex, lookupName,
+} from './catalog.js?v=33';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
@@ -24,7 +28,7 @@ function recentBandHtml(recent) {
 // prefill: 複製・編集時の初期値 {lineId?, itemId, name, qty, unit, cost, supplier, handwritten}
 // ============================================================
 export function openMaterialPage(estimateId, est, opts = {}) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   const recent = [];
   let selected = null;   // 選択中の品目（マスター）
   let qty = opts.prefill?.qty ?? 1;
@@ -32,6 +36,12 @@ export function openMaterialPage(estimateId, est, opts = {}) {
 
   if (opts.prefill?.itemId) {
     selected = cache.items.find((i) => i.id === opts.prefill.itemId) || null;
+  }
+  if (opts.prefill?.catalog) {
+    // 規格から選んだ行は、同じ選び方の画面へ戻す
+    ov.close();
+    openCatalogPage(estimateId, est, opts);
+    return;
   }
   if (opts.prefill?.handwritten) {
     // 手打ち行の複製・編集は手打ちページへ
@@ -47,12 +57,11 @@ export function openMaterialPage(estimateId, est, opts = {}) {
 
   let query = '';
 
-  function paint() {
-    const results = query || !selected ? searchItems(query, 20) : [];
-    const rate = est.rates?.material ?? cache.rates.material;
-    const base = selected && num(selected.cost) != null ? qty * selected.cost : null;
-    const amount = base != null ? base * (1 + rate) : null;
-
+  // iPhone対策の要：検索inputと下部ボタンは一度だけ生成し、以後は絶対に作り直さない。
+  // 入力のたびにinputをinnerHTMLで再生成すると、iOSはキーボードを既定（かな）で
+  // 出し直す・IME変換中の文字が二重に入る・タップ中のボタンが消えて押せない、が起きる。
+  // 再描画するのは候補リスト等の可変部分（#m-body）だけ。
+  function renderShell() {
     ov.el.innerHTML = `
       <div class="page-head"><div class="bar">
         <span class="ttl">${editingLineId ? '材料を直す' : '材料を追加'}</span>
@@ -63,8 +72,47 @@ export function openMaterialPage(estimateId, est, opts = {}) {
           <input id="m-q" placeholder="アングル 65 のように部材と寸法で" value="${esc(query)}" autocomplete="off">
         </div>
         <div class="search-hint">ひらがな・カタカナ・全角半角は気にせず打てます</div>
+        <div class="entry-row">
+          <button class="entry-btn" id="m-manual">📐 規格から選ぶ</button>
+          <button class="entry-btn" id="m-pending">⏱ 単価がわからない<span>（あとで事務所が入れる）</span></button>
+        </div>
       </div>
-      <div class="page-body">
+      <div class="page-body" id="m-body"></div>
+      <div class="bottom-bar">
+        <div id="m-recent"></div>
+        <button class="btn btn-primary btn-block btn-big" id="m-next" disabled>
+          ${editingLineId ? '保存して戻る' : '保存して次へ'}</button>
+        ${editingLineId ? '' : '<button class="btn btn-block" id="m-back" style="margin-top:8px" disabled>保存して戻る</button>'}
+      </div>`;
+
+    // inputは再生成しないので、変換中でもフォーカスとIME状態はそのまま保たれる
+    bindSearch(ov.el.querySelector('#m-q'), (v) => { query = v; paintBody(); });
+    // 手打ち行は例外ではなく本線（README v2 第4章）。候補が0件でも長くても
+    // 同じ位置に出るよう、再描画されない検索ブロック側に置く。
+    ov.el.querySelector('#m-manual').addEventListener('click', () => { ov.close(); openCatalogPage(estimateId, est, {}); });
+    ov.el.querySelector('#m-pending').addEventListener('click', () => { ov.close(); openPendingPage(estimateId, est, {}); });
+    ov.el.querySelector('#m-close').addEventListener('click', ov.close);
+    ov.el.querySelector('#m-next').addEventListener('click', () => save(true));
+    ov.el.querySelector('#m-back')?.addEventListener('click', () => save(false));
+  }
+
+  function updateBottom() {
+    const next = ov.el.querySelector('#m-next');
+    const back = ov.el.querySelector('#m-back');
+    if (next) next.disabled = !selected;
+    if (back) back.disabled = !selected;
+    const r = ov.el.querySelector('#m-recent');
+    if (r) r.innerHTML = recentBandHtml(recent);
+  }
+
+  function paintBody() {
+    const results = query || !selected ? searchItems(query, 20) : [];
+    const rate = est.rates?.material ?? cache.rates.material;
+    const base = selected && num(selected.cost) != null ? qty * selected.cost : null;
+    const amount = base != null ? base * (1 + rate) : null;
+    const body = ov.el.querySelector('#m-body');
+
+    body.innerHTML = `
         ${selected ? `
           <div style="padding:14px 12px 0">
             <div class="sel-card">
@@ -96,51 +144,24 @@ export function openMaterialPage(estimateId, est, opts = {}) {
                   ${isStale(it) ? '<span class="cand-badge stale">単価が古い</span>' : ((it.useCount || 0) > 3 ? '<span class="cand-badge">よく使う</span>' : '')}
                 </div>
               </div>`).join('')}
-          </div>` : (query ? '<div class="empty" style="padding:24px">見つかりませんでした</div>' : '')}
-        <div style="padding:14px 0 4px;text-align:center">
-          <span id="m-pending" style="font-size:13.5px;color:#4A5A6B;text-decoration:underline;text-underline-offset:3px;cursor:pointer">
-            ⏱ 単価がわからない（あとで事務所が入れる）</span>
-        </div>
-        <div style="padding:6px 0 16px;text-align:center">
-          <span id="m-manual" style="font-size:13.5px;color:#4A5A6B;text-decoration:underline;text-underline-offset:3px;cursor:pointer">
-            ✎ マスターに無いものを手打ちで入れる</span>
-        </div>
-      </div>
-      <div class="bottom-bar">
-        ${recentBandHtml(recent)}
-        <button class="btn btn-primary btn-block btn-big" id="m-next" ${selected ? '' : 'disabled'}>
-          ${editingLineId ? '保存して戻る' : '保存して次へ'}</button>
-        ${editingLineId ? '' : '<button class="btn btn-block" id="m-back" style="margin-top:8px" ' + (selected ? '' : 'disabled') + '>保存して戻る</button>'}
-      </div>`;
+          </div>` : (query ? '<div class="empty" style="padding:24px">見つかりませんでした</div>' : '')}`;
 
-    // --- events ---
-    const q = ov.el.querySelector('#m-q');
-    q.addEventListener('input', () => { query = q.value; paintKeepFocus(); });
-    ov.el.querySelector('#m-close').addEventListener('click', ov.close);
-    ov.el.querySelectorAll('.cand').forEach((el) => el.addEventListener('click', () => {
+    // --- 可変部分のイベント（#m-body内だけ。検索inputと下部ボタンはrenderShellで配線済み） ---
+    body.querySelectorAll('.cand').forEach((el) => el.addEventListener('click', () => {
       selected = cache.items.find((i) => i.id === el.dataset.id);
       query = '';
-      paint();
+      const q = ov.el.querySelector('#m-q');
+      q.value = '';
+      paintBody();
     }));
-    ov.el.querySelector('#m-qty')?.addEventListener('click', () => {
-      openNumpad({ title: '数量', value: qty, unit: selected.unit || '', onDone: (n) => { if (n != null) { qty = n; paint(); } } });
+    body.querySelector('#m-qty')?.addEventListener('click', () => {
+      openNumpad({ title: '数量', value: qty, unit: selected.unit || '', onDone: (n) => { if (n != null) { qty = n; paintBody(); } } });
     });
-    ov.el.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
-      qty = (num(qty) || 0) + Number(b.dataset.add); paint();
+    body.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
+      qty = (num(qty) || 0) + Number(b.dataset.add); paintBody();
     }));
-    ov.el.querySelector('#m-pending').addEventListener('click', () => { ov.close(); openPendingPage(estimateId, est, {}); });
-    ov.el.querySelector('#m-manual').addEventListener('click', () => { ov.close(); openManualPage(estimateId, est, {}); });
-    ov.el.querySelector('#m-next')?.addEventListener('click', () => save(true));
-    ov.el.querySelector('#m-back')?.addEventListener('click', () => save(false));
-  }
 
-  // 入力中の検索でフォーカスを失わないよう、候補部分だけ差し替えたいが
-  // シンプルさ優先で全再描画→フォーカス復元
-  function paintKeepFocus() {
-    paint();
-    const q = ov.el.querySelector('#m-q');
-    q.focus();
-    q.setSelectionRange(q.value.length, q.value.length);
+    updateBottom();
   }
 
   async function save(stay) {
@@ -165,30 +186,397 @@ export function openMaterialPage(estimateId, est, opts = {}) {
       if (stay) {
         toast('保存しました。そのまま次を入れられます');
         selected = null; qty = 1; query = '';
+        const q = ov.el.querySelector('#m-q');
+        q.value = '';
+        paintBody();
+        q.focus();
+      } else ov.close();
+    } catch (e) { console.error(e); toast('保存できませんでした'); }
+  }
+
+  renderShell();
+  paintBody();
+  if (!opts.prefill) ov.el.querySelector('#m-q').focus();
+}
+
+// ============================================================
+// 規格から選んで入れる（種類 → 材質 → 寸法）
+// 手打ちの品名は人によって書き方が割れ、単価マスターに同じ物が別名で溜まる。
+// 選択式にして書き方を1つに決める。表記は単価マスターの実データに合わせる
+//（詳細は catalog.js のコメント）。
+// 単価はここでは入れない。マスターに同じ品名があればその単価を使い、
+// 無ければ単価待ち（時計マーク）で事務所が業者に聞いて入れる。
+// ============================================================
+export function openCatalogPage(estimateId, est, opts = {}) {
+  const ov = openOverlay({ narrow: true });
+  const p = opts.prefill || {};
+  const editingLineId = p.lineId || null;
+  const recent = [];
+  const cat = buildCatalog(cache.items);
+  const nameIndex = buildNameIndex(cache.items);    // 品名→単価マスター（毎回1,567件なめない）
+
+  let kindKey = '', matLabel = '', shapeKey = '', lenKey = '', picked = null;  // picked: {name, unit, cost, itemId}
+  let composing = false, values = [];
+  let qty = p.qty ?? 1;
+
+  // 編集で開いたときは、品名から種類・材質を割り出して選択済みにしておく
+  if (p.name) picked = { name: p.name, unit: p.unit || '', cost: p.cost ?? null, itemId: p.itemId || null };
+
+  const group = () => {
+    if (!kindKey || !matLabel) return null;
+    return catalogMaterials(cat, kindKey).find((m) => m.label === matLabel) || null;
+  };
+
+  function pickSize(s) {
+    picked = { name: s.name, unit: s.unit, cost: s.cost ?? null, itemId: s.id, supplier: s.supplier || '' };
+    composing = false;
+    paint();
+  }
+
+  // 一覧に無いサイズを、その種類×材質の書き方どおりに組み立てる
+  function composedName() {
+    const g = group();
+    if (!g || !g.pattern) return '';
+    return makeName(g.head, g.material, fillPattern(g.pattern, values));
+  }
+  function applyComposed() {
+    const g = group();
+    const name = composedName();
+    if (!name || name.includes('?')) { toast('寸法をすべて入れてください'); return; }
+    pickName(g, name);
+  }
+
+  // 組み立てた品名を選ぶ。同じ品名がマスターにあれば、その単価を使う（単価待ちにしない）
+  function pickName(g, name) {
+    const hit = lookupName(nameIndex, name);
+    picked = hit
+      ? { name: hit.name, unit: hit.unit || g.unit, cost: hit.cost ?? null, itemId: hit.id, supplier: hit.supplier || '' }
+      : { name, unit: g.unit, cost: null, itemId: null, supplier: '' };
+    composing = false;
+    paint();
+  }
+
+  const shape = () => {
+    const g = group();
+    if (!g || !g.hasLength) return null;
+    return g.shapes.find((s) => s.key === shapeKey) || null;
+  };
+
+  // マスターの品目をそのまま並べる（形×長さに割れない材質・変則表記用）
+  function sizeListHtml(sizes) {
+    if (!sizes.length) return '';
+    return `<div style="border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#fff">
+      ${sizes.map((s) => `
+        <div class="cand" data-size="${esc(s.id)}" style="border-top:1px solid #E6EAEE">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="nm" style="flex:1">${esc(s.dims)}${s.mods.length ? `<small style="color:var(--muted2)"> ${esc(s.mods.join('・'))}</small>` : ''}
+              ${s.supplier ? `<small style="color:var(--muted2);display:block">${esc(s.supplier)}</small>` : ''}</span>
+            <span class="num" style="font-weight:700;color:${num(s.cost) != null ? 'var(--navy)' : 'var(--accent)'}">
+              ${num(s.cost) != null ? YEN(s.cost) : '単価待ち'}</span>
+          </div>
+        </div>`).join('')}
+    </div>`;
+  }
+
+  // ③ 形（長さを除いた寸法）。過去に買った形を上に、JIS標準はその下にまとめる。
+  // 形の一覧は長いので、選んだら畳んで④を見せる
+  function shapeStepHtml(g) {
+    const sel = shape();
+    if (sel) return `
+      <div class="field" style="margin-top:14px"><label>③ 形（${esc(g.head)}）</label>
+        <div class="cand" style="border:1px solid var(--line);border-radius:6px;background:#EDF3FA">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="nm num" style="flex:1;font-weight:700">${esc(sel.label)}${sel.sch
+              ? `<small style="color:var(--muted2);font-weight:400"> ／ Sch${esc(sel.sch)}</small>` : ''}</span>
+            <button class="btn" id="cg-reshape" style="min-height:44px;padding:0 14px">形を変える</button>
+          </div>
+        </div>
+      </div>`;
+
+    const mine = g.shapes.filter((s) => s.master.length);
+    const jis = g.shapes.filter((s) => !s.master.length);
+    // Sch（10S等）は規格の呼び名であって寸法ではないので、mm は付けない。
+    // 寸法の桁に出るのは肉厚のほうで、そちらにだけ mm が付く（TP-Aの品名は 100Ax3mm）
+    const row = (s) => `
+      <div class="cand" data-shape="${esc(s.key)}" style="border-top:1px solid #E6EAEE">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="nm num" style="flex:1;font-weight:600">${esc(s.label)}${s.sch
+            ? `<small style="color:var(--muted2);font-weight:400"> ／ Sch${esc(s.sch)}</small>` : ''}</span>
+          <span style="font-size:11.5px;color:var(--muted2);text-align:right">
+            ${s.master.length ? `買った実績 ${s.master.length}件` : 'JIS標準'}
+            ${s.kgm != null ? `<br>${s.kgm}kg/m` : ''}</span>
+        </div>
+      </div>`;
+    const box = (rows) => `<div style="border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#fff;max-height:320px;overflow-y:auto">${rows}</div>`;
+    return `
+      <div class="field" style="margin-top:14px"><label>③ 形（${esc(g.head)}）</label>
+        ${mine.length ? box(mine.map(row).join('')) : ''}
+        ${jis.length ? `
+          <div style="font-size:11.5px;color:var(--muted);margin:${mine.length ? '10px' : '0'} 0 4px">
+            JIS標準サイズ（買った実績は無い形）</div>
+          ${box(jis.map(row).join(''))}` : ''}
+      </div>`;
+  }
+
+  // 形×長さでは出せないもの（変則表記）と、最後の手段の組み立て
+  function otherStepHtml(g) {
+    return `
+      <div class="field" style="margin-top:14px">
+        ${g.oddSizes && g.oddSizes.length ? `
+          <label>書き方が違うもの</label>
+          ${sizeListHtml(g.oddSizes)}` : ''}
+        <button class="btn btn-block" id="cg-compose" style="margin-top:8px">＋ 一覧に無いサイズを組み立てる</button>
+      </div>`;
+  }
+
+  // その形×長さで実在するマスター行（修飾付きの品名も拾える）
+  const lenRows = (s, val) => (s && s.byLen && s.byLen.get(val)) || [];
+
+  // ④ 長さ。実在する行があればその単価を、無ければ単価待ちと出す
+  function lengthStepHtml(g) {
+    const s = shape();
+    if (!s) return '';
+    return `
+      <div class="field" style="margin-top:14px"><label>④ 長さ</label>
+        <div class="chips" style="flex-wrap:wrap">
+          ${g.lengths.map((L) => {
+            const rows = lenRows(s, L.value);
+            const hit = rows.length === 1 ? rows[0] : (rows.length ? null : lookupName(nameIndex, shapeName(g, s, L.value)));
+            const on = lenKey === L.value;
+            const sub = rows.length > 1 ? `${rows.length}件から選ぶ`
+              : (hit && num(hit.cost) != null ? YEN(hit.cost) : '単価待ち');
+            return `<div class="chip ${on ? 'on' : ''}" data-len="${esc(L.value)}"
+              style="flex:none;display:block;text-align:center;line-height:1.35;padding:8px 12px">
+              <b>${esc(L.label)}</b><br>
+              <small style="color:${on ? 'inherit' : (hit || rows.length > 1 ? 'var(--navy)' : 'var(--accent)')}">
+                ${esc(sub)}</small></div>`;
+          }).join('')}
+        </div>
+        ${s.kgm != null ? `<div style="font-size:11.5px;color:var(--muted);margin-top:6px">
+          参考重量 ${s.kgm}kg/m（JIS）。金額の計算には使っていません</div>` : ''}
+      </div>
+      ${lenPickHtml()}`;
+  }
+
+  // 同じ寸法でマスターに複数ある場合（引抜／No1 など修飾違い）は選ばせる。
+  // 値段が違うので、こちらで勝手に決めない
+  function lenPickHtml() {
+    const s = shape();
+    const rows = lenRows(s, lenKey);
+    if (rows.length < 2) return '';
+    return `<div class="field" style="margin-top:14px">
+      <label>⑤ どれにしますか（同じ寸法で${rows.length}件あります）</label>
+      ${sizeListHtml(rows)}</div>`;
+  }
+
+  function paint() {
+    const kinds = catalogKinds(cat);
+    const mats = kindKey ? catalogMaterials(cat, kindKey) : [];
+    const g = group();
+    const rate = est.rates?.material ?? cache.rates.material;
+    const base = picked && num(picked.cost) != null ? qty * picked.cost : null;
+    const amount = base != null ? base * (1 + rate) : null;
+    const waiting = picked && num(picked.cost) == null;
+
+    // 選ぶたびに全部作り直すので、見ていた位置を保ったまま入れ替える
+    setHtmlKeepScroll(ov.el, `
+      <div class="page-head"><div class="bar">
+        <span class="ttl">${editingLineId ? '規格から選び直す' : '規格から選ぶ'}</span>
+        <button class="icon-btn" id="cg-close">✕</button>
+      </div></div>
+      <div class="page-body"><div style="padding:14px 12px">
+
+        <div class="field"><label>① 種類</label>
+          <div class="kind-grid">
+            ${kinds.map((k) => `<button class="kind-btn ${kindKey === k.key ? 'on' : ''}"
+              data-kind="${k.key}">${esc(k.label)}</button>`).join('')}
+          </div></div>
+
+        ${kindKey ? (mats.length === 1 ? `
+          <div class="field" style="margin-top:14px"><label>② 材質</label>
+            <div style="font-size:13px;color:var(--muted)">
+              <b class="num" style="color:var(--text)">${esc(mats[0].label)}</b>
+              しかないので選ばれています（${mats[0].sizes.length}件）</div></div>` : `
+          <div class="field" style="margin-top:14px"><label>② 材質</label>
+            <div class="kind-grid">
+              ${mats.map((m) => `<button class="kind-btn ${matLabel === m.label ? 'on' : ''}" data-mat="${esc(m.label)}"
+                ><span>${esc(m.label)}<small>${m.sizes.length}件</small></span></button>`).join('')}
+            </div></div>`) : ''}
+
+        ${g && !composing && g.hasLength ? shapeStepHtml(g) + lengthStepHtml(g) + otherStepHtml(g) : ''}
+
+        ${g && !composing && !g.hasLength ? `
+          <div class="field" style="margin-top:14px"><label>③ 寸法（${esc(g.head)}）</label>
+            ${sizeListHtml(g.sizes)}
+            <button class="btn btn-block" id="cg-compose" style="margin-top:8px">＋ 一覧に無いサイズを組み立てる</button>
+          </div>` : ''}
+
+        ${g && composing ? `
+          <div class="field" style="margin-top:14px"><label>③ 寸法を組み立てる</label>
+            <div class="card">
+              <div style="font-size:12px;color:var(--muted);line-height:1.7">
+                この材質の書き方：<b class="num">${esc(g.pattern)}</b><br>
+                例：${g.sizes.slice(0, 2).map((s) => esc(s.name)).join('<br>例：')}
+              </div>
+              <div class="qty-row" style="flex-wrap:wrap;margin-top:10px">
+                ${values.map((v, i) => `
+                  <div style="text-align:center">
+                    <div style="font-size:11px;color:var(--muted);margin-bottom:2px">${esc(g.labels[i] || ('寸法' + (i + 1)))}</div>
+                    <div class="qty-box" data-slot="${i}" style="min-width:74px"><b>${esc(String(v || '—'))}</b></div>
+                  </div>`).join('')}
+              </div>
+              <div style="margin-top:12px;font-size:13px">できる品名：<b>${esc(composedName() || '—')}</b></div>
+              <div style="display:flex;gap:8px;margin-top:10px">
+                <button class="btn" style="flex:1" id="cg-cancel-compose">やめる</button>
+                <button class="btn btn-primary" style="flex:1" id="cg-apply">この品名にする</button>
+              </div>
+            </div>
+          </div>` : ''}
+
+        ${picked ? `
+          <div class="sel-card" style="margin-top:16px">
+            <div class="head">✓ 選んだ品目</div>
+            <div class="nm">${esc(picked.name)}</div>
+            <div class="sub">${waiting
+              ? '<span style="color:var(--accent);font-weight:700">⏱ 単価待ち</span>　事務所が業者に聞いて入れます'
+              : `原価 <b>${YEN(picked.cost)}</b>／${esc(picked.unit || '本')}`}</div>
+          </div>
+          <div class="qty-row" style="margin-top:12px">
+            <div class="qty-box" id="cg-qty"><b>${qty}</b><span>${esc(picked.unit || '本')}</span></div>
+            ${[1, 5, 10].map((n) => `<button class="qty-plus" data-add="${n}">＋${n}</button>`).join('')}
+          </div>
+          ${amount != null ? `
+            <div class="amount-band" style="margin-top:12px">
+              <div><div class="lbl">原価計</div><div class="v" style="font-size:17px;color:#4A5A6B">${YEN(base)}</div></div>
+              <div style="flex:1"></div>
+              <div style="text-align:right"><div class="lbl">計上</div>
+                <div class="v" style="font-size:26px;color:var(--navy)">${YEN(excelRound(amount))}</div></div>
+            </div>` : `
+            <div style="margin-top:12px;font-size:12.5px;color:#8A560F;line-height:1.7">
+              単価が入るまで金額は出ません。見積は「暫定」の扱いになります。</div>`}
+        ` : ''}
+
+        <div style="padding:20px 0 8px;text-align:center">
+          <span id="cg-free" style="font-size:13px;color:#4A5A6B;text-decoration:underline;text-underline-offset:3px;cursor:pointer">
+            ✎ 一覧にどうしても無い → 自由入力で入れる</span>
+        </div>
+      </div></div>
+      <div class="bottom-bar">
+        ${recentBandHtml(recent)}
+        <button class="btn btn-primary btn-block btn-big" id="cg-next" ${picked ? '' : 'disabled'}>
+          ${editingLineId ? '保存して戻る' : '保存して次へ'}</button>
+        ${editingLineId ? '' : `<button class="btn btn-block" id="cg-back" style="margin-top:8px" ${picked ? '' : 'disabled'}>保存して戻る</button>`}
+      </div>`);
+
+    ov.el.querySelector('#cg-close').addEventListener('click', ov.close);
+    ov.el.querySelectorAll('[data-kind]').forEach((el) => el.addEventListener('click', () => {
+      kindKey = el.dataset.kind; matLabel = ''; shapeKey = ''; lenKey = ''; composing = false; picked = null;
+      const ms = catalogMaterials(cat, kindKey);
+      // 材質が1つなら選ばせずそのまま③へ進む（TP-A・H形鋼。タップが1回無駄になるため）。
+      // 何が選ばれたかは②の欄に文字で出す
+      if (ms.length === 1) matLabel = ms[0].label;
+      paint();
+    }));
+    ov.el.querySelectorAll('[data-mat]').forEach((el) => el.addEventListener('click', () => {
+      matLabel = el.dataset.mat; shapeKey = ''; lenKey = ''; composing = false; picked = null; paint();
+    }));
+    ov.el.querySelectorAll('[data-shape]').forEach((el) => el.addEventListener('click', () => {
+      shapeKey = el.dataset.shape; lenKey = ''; picked = null; paint();
+    }));
+    ov.el.querySelector('#cg-reshape')?.addEventListener('click', () => {
+      shapeKey = ''; lenKey = ''; picked = null; paint();
+    });
+    ov.el.querySelectorAll('[data-len]').forEach((el) => el.addEventListener('click', () => {
+      const g = group(), s = shape();
+      if (!g || !s) return;
+      lenKey = el.dataset.len;
+      const rows = lenRows(s, lenKey);
+      if (rows.length === 1) pickSize(rows[0]);          // 実在する行をそのまま使う
+      else if (rows.length > 1) { picked = null; paint(); }  // 修飾違いが複数 → ⑤で選ばせる
+      else pickName(g, shapeName(g, s, lenKey));         // 無ければ組み立てて単価待ち
+    }));
+    ov.el.querySelectorAll('[data-size]').forEach((el) => el.addEventListener('click', () => {
+      const s = group().sizes.find((x) => x.id === el.dataset.size);
+      if (s) pickSize(s);
+    }));
+    ov.el.querySelector('#cg-compose')?.addEventListener('click', () => {
+      // 初期値は、その材質で実際に使われているサイズ（型と桁数が合うもの）
+      values = (group().seedValues || []).slice();
+      composing = true; paint();
+    });
+    ov.el.querySelectorAll('[data-slot]').forEach((el) => el.addEventListener('click', () => {
+      const i = +el.dataset.slot;
+      const gg = group();
+      openNumpad({
+        title: (gg.labels[i] || ('寸法' + (i + 1))) + '（よく使う値：' + (gg.slotValues[i] || []).slice(0, 8).join('・') + '）',
+        value: values[i] ?? '', unit: 'mm',
+        onDone: (n) => { if (n != null) { values[i] = String(n); paint(); } },
+      });
+    }));
+    ov.el.querySelector('#cg-cancel-compose')?.addEventListener('click', () => { composing = false; paint(); });
+    ov.el.querySelector('#cg-apply')?.addEventListener('click', applyComposed);
+    ov.el.querySelector('#cg-qty')?.addEventListener('click', () =>
+      openNumpad({ title: '数量', value: qty, unit: picked.unit || '本', onDone: (n) => { if (n != null) { qty = n; paint(); } } }));
+    ov.el.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
+      qty = (num(qty) || 0) + Number(b.dataset.add); paint();
+    }));
+    ov.el.querySelector('#cg-free').addEventListener('click', () => { ov.close(); openManualPage(estimateId, est, {}); });
+    ov.el.querySelector('#cg-next')?.addEventListener('click', () => save(true));
+    ov.el.querySelector('#cg-back')?.addEventListener('click', () => save(false));
+  }
+
+  async function save(stay) {
+    if (!picked) return;
+    const waiting = num(picked.cost) == null;
+    const line = {
+      kind: '材料', itemId: picked.itemId || null, name: picked.name,
+      // 単位はマスターの値をそのまま書く。検索から入れた行（unit: selected.unit || ''）と
+      // 同じ物が違う単位で入ると集計が食い違うため、ここで '本' に置き換えない
+      qty: num(qty) || 0, unit: picked.unit || '',
+      cost: num(picked.cost) || 0, supplier: picked.supplier || '',
+      handwritten: false,
+      pendingPrice: waiting,     // 単価が無いものは単価待ち（時計マーク）
+      catalog: true,             // 規格から選んだ行（編集でまたこの画面に戻す目印）
+    };
+    try {
+      if (editingLineId) {
+        await updateLine(estimateId, editingLineId, line);
+        ov.close();
+        return;
+      }
+      await addLine(estimateId, { ...line, order: Date.now() });
+      if (picked.itemId) bumpUseCount(picked.itemId);
+      recent.push({ name: picked.name, qty: line.qty, unit: line.unit });
+      if (stay) {
+        toast(waiting ? '単価待ちで保存しました' : '保存しました。そのまま次を入れられます');
+        picked = null; qty = 1; composing = false;
         paint();
-        ov.el.querySelector('#m-q').focus();
       } else ov.close();
     } catch (e) { console.error(e); toast('保存できませんでした'); }
   }
 
   paint();
-  if (!opts.prefill) ov.el.querySelector('#m-q').focus();
 }
 
 // ============================================================
-// 手打ち行（✎）— マスターに無いもの・「◯◯工事 一式」も
+// 手打ち行（✎）— 規格に無いもの・「◯◯工事 一式」も（最後の手段）
 // ============================================================
 export function openManualPage(estimateId, est, opts = {}) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   const p = opts.prefill || {};
   let name = p.name || '', unit = p.unit || '式', qty = p.qty ?? 1, cost = p.cost ?? null;
   let registerToMaster = false;
   const editingLineId = p.lineId || null;
   const recent = [];
 
+  // 0円は「まだ分からない」の結果としてしか生まれない（2026/8 に決めた運用）。
+  // 現場で0円を確定させず、事務所が承認した0円だけを0円にする。
+  const isPending = () => !(num(cost) > 0);
+
   function paint() {
     const rate = est.rates?.material ?? cache.rates.material;
     const amount = num(cost) != null ? qty * cost * (1 + rate) : null;
+    const pending = isPending();
     ov.el.innerHTML = `
       <div class="page-head"><div class="bar">
         <span class="ttl">✎ 手打ちで入れる</span>
@@ -205,18 +593,24 @@ export function openManualPage(estimateId, est, opts = {}) {
         </div>
         <div class="field"><label>単価（原価）</label>
           <div class="qty-box" id="mn-cost" style="width:100%"><b>${num(cost) != null ? cost.toLocaleString('ja-JP') : '—'}</b><span>円</span></div></div>
-        ${amount != null ? `<div class="amount-band"><div><div class="lbl">計上（上乗せ${Math.round(rate * 100)}%込み）</div>
-          <div class="v" style="font-size:24px;color:var(--navy)">${YEN(excelRound(amount))}</div></div></div>` : ''}
+        ${pending ? `
+          <div class="pending-note">⏱ このまま保存すると<b>単価待ち</b>になります。
+            事務所が業者に聞いて金額を入れます。金額はまだ入れなくて構いません</div>`
+    : `<div class="amount-band"><div><div class="lbl">計上（上乗せ${Math.round(rate * 100)}%込み）</div>
+          <div class="v" style="font-size:24px;color:var(--navy)">${YEN(excelRound(amount))}</div></div></div>`}
         <div class="field" style="margin-top:16px">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
             <input type="checkbox" id="mn-reg" ${registerToMaster ? 'checked' : ''} style="width:18px;height:18px">
             単価マスターに登録する（繰り返し買う材料のときだけ）</label>
-          <div style="font-size:11.5px;color:var(--muted2);margin-top:4px">加工品・一点物では押さないでください</div>
+          <div style="font-size:11.5px;color:var(--muted2);margin-top:4px">加工品・一点物では押さないでください${pending
+      ? '<br>単価が入っていないので、今チェックしても登録されません' : ''}</div>
         </div>
       </div></div>
       <div class="bottom-bar">
         ${recentBandHtml(recent)}
-        <button class="btn btn-primary btn-block btn-big" id="mn-next">${editingLineId ? '保存して戻る' : '保存して次へ'}</button>
+        <button class="btn btn-primary btn-block btn-big" id="mn-next">${pending
+      ? (editingLineId ? '⏱ 単価待ちで保存して戻る' : '⏱ 単価待ちで保存して次へ')
+      : (editingLineId ? '保存して戻る' : '保存して次へ')}</button>
         ${editingLineId ? '' : '<button class="btn btn-block" id="mn-back" style="margin-top:8px">保存して戻る</button>'}
       </div>`;
 
@@ -234,21 +628,30 @@ export function openManualPage(estimateId, est, opts = {}) {
 
   async function save(stay) {
     if (!name.trim()) { toast('品名を入れてください'); return; }
+    const pending = isPending();
     const line = {
       kind: '材料', itemId: null, name: name.trim(),
       qty: num(qty) || 0, unit, cost: num(cost) || 0, supplier: p.supplier || '',
-      handwritten: true, pendingPrice: false,
+      // 金額が空でも0でも単価待ちにする。0円で確定させるのは事務所だけ
+      //（設定 > 単価待ちの品目 で0を入れると確定する）
+      handwritten: true, pendingPrice: pending,
     };
     try {
       if (editingLineId) await updateLine(estimateId, editingLineId, line);
       else await addLine(estimateId, { ...line, order: Date.now() });
-      if (registerToMaster && num(cost) != null) {
+      // 単価が決まっていないものは台帳に入れない（0円の品目を作らない）
+      if (registerToMaster && !pending) {
         await addNamed('items', {
           category: '', supplier: '', name: name.trim(), unit, cost: num(cost),
           material: '', spec: '', type: '', useCount: 1, aliases: [],
           effectiveDate: null, updatedAt: new Date(), updatedAtRaw: '', needsReview: false,
         });
         toast('単価マスターにも登録しました');
+      } else if (registerToMaster) {
+        // 黙って登録しないと「登録したつもり」になるので必ず理由を出す
+        toast('単価が入っていないので単価マスターには登録していません');
+      } else if (pending) {
+        toast('単価待ちで保存しました');
       }
       recent.push({ name, qty, unit });
       if (stay && !editingLineId) {
@@ -272,7 +675,7 @@ const FAB = {
 };
 
 export function openPendingPage(estimateId, est, opts = {}) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   const p = opts.prefill || {};
   const spec = {
     material: '', finish: '', thickness: null, w: null, h: null,
@@ -392,7 +795,7 @@ export function openPendingPage(estimateId, est, opts = {}) {
 // 労務を追加
 // ============================================================
 export function openLaborPage(estimateId, est, opts = {}) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   const p = opts.prefill || {};
   const trades = cache.unitRates.trades || [];
   let trade = p.trade || local.get('lastTrade', '') || (trades[0]?.name ?? '');
@@ -465,7 +868,7 @@ export function openLaborPage(estimateId, est, opts = {}) {
 // 移動を追加（人数×時間×移動1h単価 ＋ 距離×2(往復)×km単価）
 // ============================================================
 export function openTravelPage(estimateId, est, opts = {}) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   const p = opts.prefill || {};
   let name = p.name || '', persons = p.persons ?? 1, hours = p.hours ?? 0.5, km = p.km ?? null;
   const editingLineId = p.lineId || null;
@@ -530,7 +933,7 @@ export function openTravelPage(estimateId, est, opts = {}) {
 // 外注を追加（完全に自由入力。今のExcelと同じ）
 // ============================================================
 export function openSubcontractPage(estimateId, est, opts = {}) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   const p = opts.prefill || {};
   let supplier = p.supplier || '', content = p.name || '', amount = p.amount ?? null;
   const editingLineId = p.lineId || null;
@@ -567,7 +970,8 @@ export function openSubcontractPage(estimateId, est, opts = {}) {
     const line = {
       kind: '外注', name: content.trim(), supplier: supplier.trim(),
       amount: num(amount),
-      handwritten: false, pendingPrice: false,
+      // 手打ちと同じ扱い。0円は「まだ分からない」の結果としてしか生まれない
+      handwritten: false, pendingPrice: !(num(amount) > 0),
     };
     try {
       if (editingLineId) await updateLine(estimateId, editingLineId, line);

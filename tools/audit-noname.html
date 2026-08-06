@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>種類名が入っていない品目（判断材料）</title>
+<style>
+body{font:13px/1.7 system-ui;margin:16px;color:#22303C}
+h1{font-size:18px} h2{font-size:15px;margin:22px 0 6px;border-bottom:2px solid #ccd;padding-bottom:3px}
+table{border-collapse:collapse;font-size:12px;margin:8px 0}
+th,td{border:1px solid #ccc;padding:3px 7px;text-align:left;vertical-align:top;white-space:nowrap}
+th{background:#eef2f6;position:sticky;top:0}
+td.wrap{white-space:normal}
+.num{font-family:Consolas,monospace;text-align:right}
+.small{font-size:11.5px;color:#666}
+.warn{color:#B00;font-weight:700}
+pre{background:#f6f8fa;padding:8px;overflow:auto;font-size:11px;max-height:340px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>種類名が入っていない品目（判断材料）</h1>
+<p class="small">
+品名が材質と寸法だけで、何の品物か分からない行。検索でも規格でも引けない。<br>
+<b>ここでは何も書き換えない。</b>現物・伝票と照らして種類（ｴﾙﾎﾞ・ｿｹｯﾄ等）を決めるための材料を並べる。<br>
+同じ寸法で複数行あるものは「同寸法の他の行」に出す。値段が違えば別の品物の可能性が高い。
+</p>
+<div id="out">読み込み中…</div>
+
+<script type="module">
+import { cache, startSubscriptions } from '../js/store.js?v=33';
+import { parseItemName } from '../js/catalog.js?v=33';
+
+const esc = (x) => String(x ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const yen = (v) => (typeof v === 'number' ? '¥' + v.toLocaleString('ja-JP') : '—');
+const numf = (v, d) => (typeof v === 'number' ? v.toFixed(d) : '—');
+const stripSup = (n) => String(n).replace(/\s*【[^】]*】\s*(-\d+)?/g, '').trim();
+
+startSubscriptions();
+for (let i = 0; i < 120 && !cache.itemsLoaded; i++) await new Promise((r) => setTimeout(r, 500));
+
+const all = [...cache.items].sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+const noOf = new Map(all.map((it, i) => [it.id, i + 1]));
+
+// 種類名が入っていない = 品名が「(材質) 寸法」で始まり、先頭語が無い
+const target = cache.items.filter((it) => !parseItemName(it.name).head && parseItemName(it.name).dims);
+
+// K列（type）ごとに、マスターで実際に使われている先頭語を集める。
+// K列は「チーズ」までしか言わないが、品名の先頭語は
+// ねじ込みﾁｰｽﾞ／同径ﾁｰｽﾞ／異径ﾁｰｽﾞ と分かれる。その候補を出す
+const headsByType = new Map();
+for (const it of cache.items) {
+  const h = parseItemName(it.name).head;
+  if (!h || !it.type) continue;
+  if (!headsByType.has(it.type)) headsByType.set(it.type, new Map());
+  const m = headsByType.get(it.type);
+  m.set(h, (m.get(h) || 0) + 1);
+}
+const headCandidates = (type) => {
+  const m = headsByType.get(type);
+  if (!m) return '—';
+  return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
+    .map(([h, c]) => `${h}(${c})`).join(' / ');
+};
+
+// 同じ寸法（【仕入先】と連番を外した名前）で他にもある行
+const byDims = new Map();
+for (const it of cache.items) {
+  const k = stripSup(it.name);
+  if (!byDims.has(k)) byDims.set(k, []);
+  byDims.get(k).push(it);
+}
+// 同じ仕入先が同じ寸法で複数持っている＝別の品物の可能性が高い
+const rows = target.map((it) => {
+  const same = (byDims.get(stripSup(it.name)) || []).filter((x) => x.id !== it.id);
+  const sameSup = same.filter((x) => x.supplier === it.supplier);
+  const costs = [it.cost, ...same.map((x) => x.cost)].filter((v) => typeof v === 'number');
+  const spread = costs.length > 1 ? Math.max(...costs) / Math.min(...costs) : 1;
+  return { it, same, sameSup, spread };
+});
+rows.sort((a, b) => (b.sameSup.length - a.sameSup.length)
+  || String(a.it.supplier).localeCompare(String(b.it.supplier), 'ja')
+  || a.it.name.localeCompare(b.it.name, 'ja'));
+
+const out = document.getElementById('out');
+out.innerHTML = `
+<p>該当 <b>${rows.length}件</b>／単価マスター ${cache.items.length}件</p>
+<table>
+<tr><th>#</th><th>現在の品名</th><th>仕入先</th><th>原価</th><th>重量</th><th>kg単価</th>
+    <th>更新日</th><th>大分類</th><th>種類(K列)</th><th>マスターで使われている先頭語</th>
+    <th>単位</th><th>形格(spec)</th><th>同寸法の他の行</th><th>決めた品名（記入欄）</th></tr>
+${rows.map(({ it, same, sameSup, spread }) => `<tr>
+  <td class="num">${noOf.get(it.id)}</td>
+  <td class="num">${esc(it.name)}</td>
+  <td>${esc(it.supplier || '—')}</td>
+  <td class="num">${yen(it.cost)}</td>
+  <td class="num">${numf(it.weight, 2)}</td>
+  <td class="num">${yen(it.kgPrice)}</td>
+  <td>${esc(it.updatedAtRaw || '—')}</td>
+  <td>${esc(it.category || '—')}</td>
+  <td>${esc(it.type || '—')}</td>
+  <td class="wrap small">${esc(headCandidates(it.type))}</td>
+  <td>${esc(it.unit || '—')}</td>
+  <td class="num">${esc(it.spec || '—')}</td>
+  <td class="wrap small">${same.length
+    ? same.map((x) => `${esc(x.supplier || '—')} ${yen(x.cost)}`).join('<br>')
+      + (sameSup.length ? `<br><span class="warn">同じ仕入先で${sameSup.length + 1}件`
+        + (spread >= 2 ? `・値段が${spread.toFixed(1)}倍違う→別の品物の可能性` : '') + '</span>' : '')
+    : '—'}</td>
+  <td style="min-width:120px"></td>
+</tr>`).join('')}
+</table>
+
+<h2>貼り付け用（TSV）</h2>
+<pre id="tsv">${esc([
+  '番号\t現在の品名\t仕入先\t原価\t重量\tkg単価\t更新日\t大分類\t種類(K列)\tマスターで使われている先頭語\t単位\t形格(spec)\t同寸法の他の行\t決めた品名（記入欄）',
+  ...rows.map(({ it, same }) => [
+    noOf.get(it.id), it.name, it.supplier || '', it.cost ?? '',
+    typeof it.weight === 'number' ? it.weight : '', it.kgPrice ?? '',
+    it.updatedAtRaw || '', it.category || '', it.type || '', headCandidates(it.type),
+    it.unit || '', it.spec || '',
+    same.map((x) => `${x.supplier || '—'} ¥${x.cost}`).join('／'), '',
+  ].join('\t')),
+].join('\n'))}</pre>`;
+
+window.__noname = rows.map(({ it, same }) => ({
+  no: noOf.get(it.id), name: it.name, supplier: it.supplier || '', cost: it.cost,
+  weight: it.weight ?? '', kgPrice: it.kgPrice ?? '', updated: it.updatedAtRaw || '',
+  category: it.category || '', type: it.type || '', unit: it.unit || '', spec: it.spec || '',
+  same: same.map((x) => `${x.supplier || '—'} ¥${x.cost}`).join('／'),
+}));
+</script>
+</body>
+</html>

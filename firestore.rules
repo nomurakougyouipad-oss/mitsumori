@@ -99,6 +99,15 @@ service cloud.firestore {
       allow delete: if signedIn();
     }
 
+    // ---- 検索の言い換え辞書（言葉単位。初期セットはアプリ内、ここは追加・上書き分） ----
+    match /synonyms/{synId} {
+      allow read: if signedIn();
+      allow create, update: if signedIn()
+        && validNamed(request.resource.data)
+        && strMax(request.resource.data.get('terms', ''), 300);
+      allow delete: if signedIn();
+    }
+
     // ---- 単価マスター（約1,600件） ----
     match /items/{itemId} {
       allow read: if signedIn();
@@ -109,7 +118,11 @@ service cloud.firestore {
         && strMax(request.resource.data.get('unit', ''), 20)
         && request.resource.data.get('cost', 0) is number
         && request.resource.data.get('useCount', 0) is number
-        && request.resource.data.get('aliases', []) is list;
+        && request.resource.data.get('aliases', []) is list
+        && request.resource.data.get('prevNames', []) is list     // 品名を統一したときの旧品名
+        && request.resource.data.get('discontinued', false) is bool     // 使用停止（もう発注しない）
+        && strMax(request.resource.data.get('discontinuedNote', ''), 500)   // 止めた経緯
+        && strMax(request.resource.data.get('note', ''), 500);              // 登録時のメモ（重量の出どころ等）
       allow delete: if signedIn();
     }
 
@@ -142,6 +155,7 @@ service cloud.firestore {
           && request.resource.data.get('cost', 0) is number
           && request.resource.data.get('handwritten', false) is bool
           && request.resource.data.get('pendingPrice', false) is bool
+          && request.resource.data.get('catalog', false) is bool
           && request.resource.data.get('needsBreakdown', false) is bool;
         allow delete: if signedIn();
       }

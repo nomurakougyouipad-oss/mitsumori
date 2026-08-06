@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>種類名が入っていない品目 — 現状把握（開発用）</title>
+<style>
+body{font:13px/1.7 system-ui;margin:16px;color:#22303C}
+h1{font-size:18px} h2{font-size:15px;margin:22px 0 6px;border-bottom:2px solid #ccd;padding-bottom:3px}
+table{border-collapse:collapse;font-size:12px;margin:8px 0}
+th,td{border:1px solid #ccc;padding:3px 7px;text-align:left;vertical-align:top;white-space:nowrap}
+th{background:#eef2f6}
+td.wrap{white-space:normal;max-width:340px}
+.num{font-family:Consolas,monospace;text-align:right}
+.small{font-size:11.5px;color:#666}
+.no{color:#B00;font-weight:700}
+.yes{color:#0A6B2E;font-weight:700}
+pre{background:#f6f8fa;padding:8px;overflow:auto;font-size:11px;max-height:400px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>種類名が入っていない品目 — 現状把握</h1>
+<p class="small"><b>読み取りだけ。何も書き換えない。</b>
+推測した種類は別の列に出すだけで、品名（name）には一切書き込まない。</p>
+<div id="out">読み込み中…</div>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script type="module">
+import { cache, startSubscriptions } from '../js/store.js?v=33';
+import { parseItemName } from '../js/catalog.js?v=33';
+import { parseSheet } from '../js/screen-tally.js?v=33';
+
+const esc = (x) => String(x ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const fmtTs = (v) => {
+  if (!v) return '';
+  if (typeof v.toDate === 'function') { const d = v.toDate(); return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`; }
+  return String(v);
+};
+
+startSubscriptions();
+for (let i = 0; i < 120 && !cache.itemsLoaded; i++) await new Promise((r) => setTimeout(r, 500));
+for (let i = 0; i < 60 && typeof XLSX?.read !== 'function'; i++) await new Promise((r) => setTimeout(r, 300));
+
+const lines = await fetch('../tmp-est-lines.json').then((r) => (r.ok ? r.json() : [])).catch(() => []);
+const sheet = parseSheet(XLSX, await (await fetch('../tally-test.xlsx')).arrayBuffer());
+
+// 見積での使用（itemId 優先。無ければ品名の一致で拾う）
+const useById = new Map(), useByName = new Map();
+for (const l of (Array.isArray(lines) ? lines : [])) {
+  if (l.itemId) { if (!useById.has(l.itemId)) useById.set(l.itemId, new Set()); useById.get(l.itemId).add(l.est); }
+  if (l.name) { if (!useByName.has(l.name)) useByName.set(l.name, new Set()); useByName.get(l.name).add(l.est); }
+}
+
+// ---- 対象: 品名に先頭語が無い（材質と寸法だけ） ----
+const target = cache.items.filter((it) => {
+  const p = parseItemName(it.name);
+  return !p.head && p.dims;
+});
+
+// ---- 種類の推測。品名のどこから判断したかを必ず残す ----
+// 品名だけでは決まらないものは「推測できない」に置く。K列(type)は補強材料として併記する
+function guess(it) {
+  const n = it.name;
+  const hits = [];
+  if (/(\d+)\s*°/.test(n)) hits.push(['エルボ', '品名に「°」（角度）がある']);
+  if (/\bEL-/.test(n)) hits.push(['エルボ', '品名に「EL-」がある']);
+  if (/(\d+)A\s*x\s*(\d+)A/i.test(n)) hits.push(['異径の継手（レジューサー／異径ソケット等）', '呼び径が2つ並んでいる（◯Ax◯A）']);
+  if (/\d+k\s*x/i.test(n)) hits.push(['フランジ', '品名に「◯k」（呼び圧力）がある']);
+  if (/ｔ?\d+(\.\d+)?\s*x\s*\d+\s*x\s*\d+/.test(n) && /ﾎﾟﾘｶ|樹脂|ｱｸﾘﾙ/.test(n + (it.material || ''))) hits.push(['板もの（樹脂板）', '厚x幅x長さ の3寸法で、材質が樹脂']);
+  if (/ﾏﾙ|mesh|ﾒｯｼｭ|ｍｅｓｈ/i.test(n)) hits.push(['金網', '品名に「ﾏﾙ」「mesh」がある']);
+  const only = /^\([^)]*\)\s*[\d.]+A$/.test(n.trim());
+  if (only) hits.push([null, '呼び径だけしか書かれていない（種類を示す語が無い）']);
+  const kind = hits.find((h) => h[0]);
+  return {
+    kind: kind ? kind[0] : '',
+    why: hits.map((h) => h[1]).join('／') || '手がかりになる語が品名に無い',
+    ok: !!kind,
+  };
+}
+
+const rows = target.map((it) => {
+  const g = guess(it);
+  const ests = new Set([...(useById.get(it.id) || []), ...(useByName.get(it.name) || [])]);
+  return { it, g, ests };
+});
+rows.sort((a, b) => String(a.it.supplier).localeCompare(String(b.it.supplier), 'ja')
+  || a.it.name.localeCompare(b.it.name, 'ja'));
+
+// ---- 3) 仕入先ごとの件数／すでに種類名が入っている継手類の書き方 ----
+const bySup = new Map();
+for (const r of rows) {
+  const s = r.it.supplier || '（空）';
+  bySup.set(s, (bySup.get(s) || 0) + 1);
+}
+// 比較対象: 同じ K列(type) を持ち、先頭語がある品目の書き方
+const sample = new Map();   // type → 品名の例（最大4件）
+for (const it of cache.items) {
+  const p = parseItemName(it.name);
+  if (!p.head || !it.type) continue;
+  if (!sample.has(it.type)) sample.set(it.type, []);
+  const a = sample.get(it.type);
+  if (a.length < 4) a.push(it.name);
+}
+
+// ---- 材質＋寸法が同じで、種類名が入っている品目 ----
+// 「その種類名を借りれば揃う」候補。1件に絞れるものは有力、たくさん出るものは絞れない
+const twins = rows.map((r) => {
+  const p = parseItemName(r.it.name);
+  const k = (p.material || '') + '|' + p.dims;
+  const same = cache.items.filter((x) => {
+    if (x.id === r.it.id) return false;
+    const q = parseItemName(x.name);
+    return q.head && (q.material || '') + '|' + q.dims === k;
+  });
+  return { r, same };
+}).filter((t) => t.same.length);
+
+// ---- 4) 集計表から該当しそうな行 ----
+// 継手・板もの・金網まわりの語、または呼び径だけの行
+const sheetHits = sheet.filter((r) => {
+  const t = [r.name, r.material, r.spec].join(' ');
+  return /ｴﾙﾎﾞ|ﾁｰｽﾞ|ｿｹｯﾄ|ﾆｯﾌﾟﾙ|ﾚｼﾞｭｰｻｰ|ﾌﾗﾝｼﾞ|ﾕﾆｵﾝ|ﾎﾞｽ|ｷｬｯﾌﾟ|継手|ﾎﾟﾘｶ|金網|ﾒｯｼｭ/.test(t);
+});
+
+const out = document.getElementById('out');
+const T = (r) => [
+  r.it.id, r.it.category || '', r.it.supplier || '', r.it.name,
+  (r.it.prevNames || []).join('／'), r.it.unit || '', r.it.cost ?? '',
+  r.it.material || '', r.it.spec || '',
+  typeof r.it.weight === 'number' ? r.it.weight : '', r.it.kgPrice ?? '',
+  r.it.type || '', fmtTs(r.it.updatedAt) || r.it.updatedAtRaw || '', r.it.effectiveDate || '',
+  r.it.useCount ?? 0, (r.it.aliases || []).join('／'), r.ests.size,
+  r.g.kind, r.g.why,
+  (twins.find((t) => t.r.it.id === r.it.id)?.same || []).length === 1
+    ? twins.find((t) => t.r.it.id === r.it.id).same[0].name : '',
+];
+const HEAD = ['docId', 'category', 'supplier', 'name', 'prevNames', 'unit', 'cost',
+  'material', 'spec', 'weight', 'kgPrice', 'type(K列)', 'updatedAt', 'effectiveDate',
+  'useCount', 'aliases', '使用中の見積件数', '推測した種類', '根拠', '寸法が一致する既存品（1件に絞れた場合）'];
+
+out.innerHTML = `
+<p>該当 <b>${rows.length}件</b>／単価マスター ${cache.items.length}件</p>
+
+<h2>1. 一覧</h2>
+<table>
+<tr>${HEAD.map((h) => `<th>${esc(h)}</th>`).join('')}</tr>
+${rows.map((r) => `<tr>${T(r).map((v, i) => {
+  const cls = [6, 9, 10, 14, 16].includes(i) ? 'num' : (i === 18 ? 'wrap small' : '');
+  const txt = i === 17 ? (v ? `<span class="yes">${esc(v)}</span>` : '<span class="no">推測できない</span>') : esc(v);
+  return `<td class="${cls}">${txt}</td>`;
+}).join('')}</tr>`).join('')}
+</table>
+
+<h2>2. 推測できたもの／できないもの</h2>
+<table style="width:auto">
+<tr><th>推測した種類</th><th>件数</th></tr>
+${[...rows.reduce((m, r) => m.set(r.g.kind || '（推測できない）', (m.get(r.g.kind || '（推測できない）') || 0) + 1), new Map())]
+  .sort((a, b) => b[1] - a[1])
+  .map(([k, n]) => `<tr><td>${esc(k)}</td><td class="num">${n}</td></tr>`).join('')}
+</table>
+
+<h2>3. 仕入先ごとの件数</h2>
+<table style="width:auto">
+<tr><th>仕入先</th><th>件数</th></tr>
+${[...bySup].sort((a, b) => b[1] - a[1]).map(([s, n]) => `<tr><td>${esc(s)}</td><td class="num">${n}</td></tr>`).join('')}
+</table>
+
+<h2>3b. すでに種類名が入っている品目の書き方（K列ごとの例）</h2>
+<table>
+<tr><th>K列(type)</th><th>該当の件数</th><th>すでに種類名が入っている品目の例</th></tr>
+${[...new Set(rows.map((r) => r.it.type))].map((t) => `<tr>
+  <td>${esc(t || '—')}</td>
+  <td class="num">${rows.filter((r) => r.it.type === t).length}</td>
+  <td class="wrap small">${esc((sample.get(t) || []).join('　／　') || '（同じK列で種類名が入っている品目が無い）')}</td>
+</tr>`).join('')}
+</table>
+
+<h2>3c. 材質と寸法が同じで、種類名が入っている品目</h2>
+<p class="small">その種類名を借りれば揃う候補。<b>1件に絞れるものは有力</b>。
+たくさん並ぶものは寸法だけでは絞れないので、K列と現物で決める。</p>
+<table>
+<tr><th>種類名が無い品目</th><th>仕入先</th><th>原価</th><th>候補</th></tr>
+${twins.map(({ r, same }) => `<tr>
+  <td class="num">${esc(r.it.name)}</td>
+  <td>${esc(r.it.supplier || '')}</td>
+  <td class="num">¥${r.it.cost}</td>
+  <td class="wrap ${same.length === 1 ? 'yes' : 'small'}">${same.length === 1
+    ? esc(`${same[0].name}【${same[0].supplier}】¥${same[0].cost}`)
+    : esc(`${same.length}件あり絞れない: ` + same.slice(0, 4).map((x) => x.name).join('／') + (same.length > 4 ? ' ほか' : ''))}</td>
+</tr>`).join('')}
+</table>
+
+<h2>4. 納品書 材料集計表から該当しそうな行</h2>
+<p class="small">7月分1ファイル（${sheet.length}行）から、継手・板もの・金網まわりの語を含む行。D/E/F/M列をそのまま。</p>
+<table>
+<tr><th>行</th><th>D列(名称)</th><th>E列(材質)</th><th>F列(形格)</th><th>M列(備考)</th></tr>
+${sheetHits.map((r) => `<tr><td class="num">${r.r}</td><td>${esc(r.name)}</td><td>${esc(r.material)}</td><td>${esc(r.spec)}</td><td>${esc(r.note)}</td></tr>`).join('')
+  || '<tr><td colspan="5">（該当なし）</td></tr>'}
+</table>
+
+<h2>貼り付け用（TSV）</h2>
+<pre id="tsv">${esc([HEAD.join('\t'), ...rows.map((r) => T(r).join('\t'))].join('\n'))}</pre>`;
+
+window.__A = { rows, sheetHits, sheetTotal: sheet.length, bySup: [...bySup] };
+</script>
+</body>
+</html>

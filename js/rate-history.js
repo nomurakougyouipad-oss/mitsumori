@@ -15,7 +15,7 @@
 
 import {
   db, collection, addDoc, getDocs, onSnapshot, query, orderBy, limit, Timestamp,
-} from './firebase.js?v=2';
+} from './firebase.js?v=33';
 
 const COL = () => collection(db, 'settings', 'rates', 'history');
 

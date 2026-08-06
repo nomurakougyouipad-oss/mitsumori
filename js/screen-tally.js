@@ -6,12 +6,12 @@
 // ・穴は指摘するだけで、止めない
 // ============================================================
 
-import { esc, YEN, fmtDate } from './util.js?v=2';
-import { openOverlay, toast } from './ui.js?v=2';
-import { cache, norm } from './store.js?v=2';
+import { esc, YEN, fmtDate } from './util.js?v=33';
+import { openOverlay, toast } from './ui.js?v=33';
+import { cache, norm } from './store.js?v=33';
 import {
   db, doc, collection, addDoc, updateDoc, Timestamp, serverTimestamp, arrayUnion,
-} from './firebase.js?v=2';
+} from './firebase.js?v=33';
 
 // SheetJSを必要なときだけCDNから読む（事務所PCはオンライン前提）
 let sheetJs = null;
@@ -27,7 +27,7 @@ function loadSheetJs() {
   return sheetJs;
 }
 
-const aliasKey = (d, e, f) => [d, e, f].map((x) => String(x || '').trim()).join('｜');
+export const aliasKey = (d, e, f) => [d, e, f].map((x) => String(x || '').trim()).join('｜');
 
 function knownPrefixes() {
   const set = new Set();
@@ -39,38 +39,129 @@ function knownPrefixes() {
 // 行 → マスター突き合わせ
 // 名称・材質・形格を「原子」（語と数値）に分解して照合する。
 // 寸法は 5500 ↔ 5.5m のような単位ゆれも吸収。
-// 自動: 別名辞書に一致、または 数値がすべて一致＋語が1つ以上一致
-const atomize = (s) => norm(s).replace(/[()（）\-＝=]/g, ' ').split(/[\sx×,]+/).filter((a) => a.length > 0);
-function atomHit(key, a) {
-  if (key.includes(a)) return true;
-  if (/^\d+$/.test(a)) {
-    const n = parseInt(a, 10);
-    if (n >= 1000 && n % 100 === 0 && (key.includes((n / 1000) + 'm') || key.includes((n / 1000) + '.0m'))) return true;
+// 数値は境界つきで照合する（「25A」が「125A」に部分一致しないように）。
+// 自動: 別名辞書に一致、または 数値がすべて一致＋語が1つ以上一致（最良スコアの品目を採用）
+// アトムの正規化: よくある表記ゆれを1つの形に寄せる
+//  ・「90度」→「90°」、「90°32A」→「90°」「32A」（°の後で切る）
+//  ・「カバー1」のような 日本語+数字 の癒着も切る
+//  ・板厚 t1 ↔ 1t、ワッシャー 2FW ↔ PW2 ↔ FW2（平W2枚の意）
+const canonAtom = (a) => {
+  a = a.replace(/^t(\d+(?:\.\d+)?)$/, '$1t');
+  a = a.replace(/^(\d+)\.0+$/, '$1').replace(/^(\d+\.\d*[1-9])0+$/, '$1'); // 5.00→5, 1000.0→1000
+  if (a === '2fw' || a === 'pw2' || a === '2pw') return 'fw2';
+  if (a === 'pw') return 'fw';
+  return a;
+};
+export const atomize = (s) => norm(s)
+  .replace(/[()（）\-＝=・、。／/【】｜]/g, ' ')
+  .replace(/(\d)度/g, '$1°')
+  .replace(/°/g, '° ')
+  .replace(/([ぁ-んァ-ヶ一-龠])(?=[0-9])/g, '$1 ')
+  .split(/[\sx×,]+/)
+  .filter((a) => a.length > 0 && !/^[a-z]$/.test(a)) // 1文字の英字（B・N等）は照合に使わない
+  .map(canonAtom);
+
+// 品目側の照合キー: アトム列を空白区切りで並べたもの（境界判定のため）
+// prevNames は品名を統一したときの旧品名。集計表は業者の書き方で来るため
+// （豫洲のTP-Aは外径27.2x2.0で来る）、旧品名を残さないと統一した品目に当たらなくなる。
+// aliases も混ぜる。用途が2つある:
+//  ① 一度つないだ集計表の表記（名称｜材質｜形格）… 次から確実に当たるようにする
+//  ② 取引が終わった仕入先の品名（例 小野建の行に「SGP(黒) 25Ax5.5m」）…
+//     過去の納品書には菅機械の書き方が残るため、無いと新規材料として扱われる
+// aliases は「その品目を指す言い方」しか入らないので、混ぜても誤接続は増えない。
+export function matchKeyOf(it) {
+  if (!it._mk) {
+    it._mk = ' ' + atomize([it.name, ...(it.prevNames || []), ...(it.aliases || []),
+      it.category, it.material, it.spec, it.supplier].join(' ')).join(' ') + ' ';
+  }
+  return it._mk;
+}
+
+// 境界チェックつき部分一致（後読み正規表現は古いiOS Safariで動かないため手書き）
+// badBefore/badAfter: 隣接するとNGな文字のパターン
+function hitWithBounds(mk, a, badBefore, badAfter) {
+  let i = mk.indexOf(a);
+  while (i !== -1) {
+    const b = i > 0 ? mk[i - 1] : ' ';
+    const c = i + a.length < mk.length ? mk[i + a.length] : ' ';
+    if (!badBefore.test(b) && !badAfter.test(c)) return true;
+    i = mk.indexOf(a, i + 1);
   }
   return false;
+}
+
+export function atomHit(mk, a) {
+  if (/^\d+$/.test(a)) {
+    // 純粋な数値: 前後に数字や小数点が続く一致は誤爆（25↔125, 3↔3.5）なので弾く。
+    // 前に許す英字はネジ径のM・丸径のφだけ（s10のようなスケジュール記号への誤爆を防ぐ）。
+    // 後ろに許す英字は呼び径のAだけ（10↔10k、15↔15k等への誤爆を防ぐ）。
+    if (hitWithBounds(mk, a, /[0-9.a-ln-z]/, /[0-9.b-z]/)) return true;
+    const n = parseInt(a, 10);
+    if (n >= 1000 && n % 100 === 0) {
+      // 5500 ↔ 5.5m / 6000 ↔ 6m の単位ゆれ
+      if (hitWithBounds(mk, (n / 1000) + 'm', /[0-9a-z.]/, /[0-9a-z]/)) return true;
+      if (hitWithBounds(mk, (n / 1000) + '.0m', /[0-9a-z.]/, /[0-9a-z]/)) return true;
+    }
+    return false;
+  }
+  if (/\d/.test(a)) {
+    // 数字まじり（32A・SUS304・5.5m等）: 英数字の地続きは別物（SUS316↔SUS316L）
+    return hitWithBounds(mk, a, /[0-9a-z.]/, /[0-9a-z]/);
+  }
+  if (/^[a-z#.']+$/.test(a)) {
+    // 英字だけの語（SGP・FBH等）: 英数字の地続きは別物
+    return hitWithBounds(mk, a, /[0-9a-z]/, /[0-9a-z]/);
+  }
+  return mk.includes(a); // 日本語の語は単純部分一致
 }
 // 加工品らしい行（一点物。マスターには登録しない前提で仕分けを促す）
 const looksFab = (row) => /型切|角切|穴明|レーザー|ﾚｰｻﾞｰ|加工/.test(row.name + row.spec);
 
-function matchRow(row) {
+export function matchRow(row) {
   const ak = aliasKey(row.name, row.material, row.spec);
   const exact = cache.items.find((it) => (it.aliases || []).includes(ak));
   if (exact) return { kind: 'auto', item: exact, viaAlias: true };
-  const atoms = atomize([row.name, row.material, row.spec].join(' '));
+  const nameAtoms = atomize([row.name, row.spec].join(' '));
+  const matAtoms = atomize(row.material || '');
+  const atoms = [...nameAtoms, ...matAtoms];
   if (!atoms.length) return { kind: 'none', candidates: [] };
-  const nums = atoms.filter((a) => /\d/.test(a));
+  // 必須の数値 = 名称・形格の数値 ＋ 材質の英数字（SUS304等）。
+  // ただし付属記号（FW2・SW2・N2・UBN2等 = 英字1〜3字+数字）は寸法ではないので必須にしない。
+  // 材質欄の「純粋な数字だけ」（「25」「36」等の記入ゆれ）も必須にしない（一致すれば加点のみ）。
+  const isAccessory = (a) => /^[a-z]{1,3}\d$/.test(a);
+  const nums = [
+    ...nameAtoms.filter((a) => /\d/.test(a) && !isAccessory(a)),
+    ...matAtoms.filter((a) => /\d/.test(a) && /[a-z]/.test(a) && !isAccessory(a)),
+  ];
+  const softNums = [
+    ...atoms.filter((a) => /\d/.test(a) && isAccessory(a)),
+    ...matAtoms.filter((a) => /^[\d.]+$/.test(a)),
+  ];
   const words = atoms.filter((a) => !/\d/.test(a));
+  // 品名（D列）由来の語。これが1つも一致しない品目への「自動」は危険なので許さない
+  //（皿小ネジ→六角ボルト、ショートエルボ→ロングエルボ等の誤接続を防ぐ）
+  const nameWords = atomize(row.name).filter((a) => !/\d/.test(a));
   const scored = [];
-  let autoItem = null;
+  let best = null;
   for (const it of cache.items) {
-    let nHit = 0, wHit = 0;
-    for (const a of nums) if (atomHit(it.searchKey, a)) nHit++;
-    for (const a of words) if (it.searchKey.includes(a)) wHit++;
+    const mk = matchKeyOf(it);
+    let nHit = 0, wWord = 0, wSoft = 0;
+    for (const a of nums) if (atomHit(mk, a)) nHit++;
+    for (const a of softNums) if (atomHit(mk, a)) wSoft++;
+    for (const a of words) if (atomHit(mk, a)) wWord++;
+    const wHit = wWord + wSoft;
     const score = (nHit + wHit) / atoms.length;
     if (score >= 0.5) scored.push({ it, score });
-    if (!looksFab(row) && nums.length >= 2 && nHit === nums.length && wHit >= 1 && !autoItem) autoItem = it;
+    // 自動の条件を満たす中で最も一致の多い品目を採用
+    //（「溶協品」の行が同サイズの「黒」につながる等の取り違えを防ぐ。
+    //  語（材質・種別）の一致は付属記号の一致より重く見る）
+    const nameOk = !nameWords.length || nameWords.some((a) => atomHit(mk, a));
+    if (!looksFab(row) && nums.length >= 2 && nHit === nums.length && wHit >= 1 && nameOk) {
+      const h = nHit * 3 + wWord * 2 + wSoft;
+      if (!best || h > best.h || (h === best.h && (it.useCount || 0) > (best.it.useCount || 0))) best = { it, h };
+    }
   }
-  if (autoItem) return { kind: 'auto', item: autoItem, viaAlias: false };
+  if (best) return { kind: 'auto', item: best.it, viaAlias: false };
   scored.sort((a, b) => b.score - a.score || (b.it.useCount || 0) - (a.it.useCount || 0));
   return { kind: scored.length && !looksFab(row) ? 'cand' : 'none', candidates: scored.slice(0, 3).map((s) => s.it), fabLikely: looksFab(row) };
 }
@@ -80,32 +171,32 @@ function priceOf(row, item) {
   return row.isKg ? { cur: item.kgPrice, kind: 'kg単価' } : { cur: item.cost, kind: '個/本単価' };
 }
 
+export function parseSheet(XLSX, buf) {
+  const wb = XLSX.read(buf, { type: 'array', cellDates: false });
+  const wsName = wb.SheetNames.find((n) => n.includes('集計')) || wb.SheetNames[0];
+  const ws = wb.Sheets[wsName];
+  const out = [];
+  for (let r = 2; r <= 2000; r++) {
+    const v = (c) => { const cell = ws[c + r]; return cell ? cell.v : ''; };
+    const name = String(v('D') || '').trim();
+    if (!name || name === '名称') continue; // ヘッダー行はスキップ
+    out.push({
+      r, orderNo: String(v('A') || '').trim(), name,
+      material: String(v('E') || '').trim(), spec: String(v('F') || '').trim(),
+      qty: v('G'), unit: String(v('H') || '').trim(),
+      weight: typeof v('J') === 'number' ? v('J') : null,
+      price: typeof v('K') === 'number' ? v('K') : null,
+      amount: typeof v('L') === 'number' ? v('L') : null,
+      note: String(v('M') || '').trim(),
+      isKg: typeof v('J') === 'number' && v('J') > 0,
+    });
+  }
+  return out;
+}
+
 export function openTallyPage() {
   const ov = openOverlay();
   let rows = null, result = null, applied = false;
-
-  function parseSheet(XLSX, buf) {
-    const wb = XLSX.read(buf, { type: 'array', cellDates: false });
-    const wsName = wb.SheetNames.find((n) => n.includes('集計')) || wb.SheetNames[0];
-    const ws = wb.Sheets[wsName];
-    const out = [];
-    for (let r = 2; r <= 2000; r++) {
-      const v = (c) => { const cell = ws[c + r]; return cell ? cell.v : ''; };
-      const name = String(v('D') || '').trim();
-      if (!name || name === '名称') continue; // ヘッダー行はスキップ
-      out.push({
-        r, orderNo: String(v('A') || '').trim(), name,
-        material: String(v('E') || '').trim(), spec: String(v('F') || '').trim(),
-        qty: v('G'), unit: String(v('H') || '').trim(),
-        weight: typeof v('J') === 'number' ? v('J') : null,
-        price: typeof v('K') === 'number' ? v('K') : null,
-        amount: typeof v('L') === 'number' ? v('L') : null,
-        note: String(v('M') || '').trim(),
-        isKg: typeof v('J') === 'number' && v('J') > 0,
-      });
-    }
-    return out;
-  }
 
   function analyze() {
     const prefixes = knownPrefixes();
@@ -217,20 +308,26 @@ export function openTallyPage() {
             ${result.issues.length ? `<div style="margin-top:8px;font-size:12.5px;color:#8A560F;line-height:1.7">⚠ ${result.issues.map(esc).join('<br>⚠ ')}<br><span style="color:var(--muted2)">（指摘するだけで、止めません）</span></div>` : ''}
             ${!applied ? `<button class="btn btn-primary btn-block" style="margin-top:10px" id="t-apply">自動分をマスターへ反映（${result.auto.length}件）</button>` : '<div style="margin-top:8px;font-size:13px;color:var(--green);font-weight:700">✓ 自動分は反映済み</div>'}
           </div>
+          ${/* PCは 左＝集計表の生表記／右＝候補ボタン の2カラム（tl-row）。
+                キーボードだけで流せるよう、ボタンの並び順は変えない */ ''}
           ${[...result.cand, ...result.none].map((row, i) => `
-            <div class="card" style="margin-top:8px">
-              <div class="ttl" style="font-size:14px">${esc(row.name)}</div>
-              <div class="meta">${esc([row.material, row.spec].filter(Boolean).join(' ／ '))}　${row.price != null ? `<b class="num">${YEN(row.price)}</b>／${row.isKg ? 'kg' : esc(row.unit || '個')}` : '単価なし'}　<span class="num">${esc(row.orderNo)}</span></div>
-              ${row.resolved ? `<div style="font-size:13px;color:var(--green);font-weight:700;margin-top:6px">✓ ${esc(row.resolved)}</div>` : `
-                <div style="font-size:12px;font-weight:700;color:var(--muted);margin-top:8px">これですか?</div>
-                <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
-                  ${(row.match.candidates || []).map((c, ci) => `<button class="btn btn-sm" style="justify-content:flex-start" data-pick="${i}|${ci}">${esc(c.name)}（${c.cost != null ? YEN(c.cost) : '—'}）</button>`).join('')}
-                  <div style="display:flex;gap:6px;flex-wrap:wrap">
-                    <button class="btn btn-sm" data-new="${i}">マスターに無い→新規</button>
-                    <button class="btn btn-sm" data-skip1="${i}">加工品・購入品（登録しない）</button>
-                    <button class="btn btn-sm" data-skip2="${i}">工具・消耗品（対象外）</button>
-                  </div>
-                </div>`}
+            <div class="card tl-row" style="margin-top:8px">
+              <div class="tl-left">
+                <div class="ttl" style="font-size:14px">${esc(row.name)}</div>
+                <div class="meta">${esc([row.material, row.spec].filter(Boolean).join(' ／ '))}　${row.price != null ? `<b class="num">${YEN(row.price)}</b>／${row.isKg ? 'kg' : esc(row.unit || '個')}` : '単価なし'}　<span class="num">${esc(row.orderNo)}</span></div>
+              </div>
+              <div class="tl-right">
+                ${row.resolved ? `<div style="font-size:13px;color:var(--green);font-weight:700">✓ ${esc(row.resolved)}</div>` : `
+                  <div style="font-size:12px;font-weight:700;color:var(--muted)">これですか?</div>
+                  <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px">
+                    ${(row.match.candidates || []).map((c, ci) => `<button class="btn btn-sm" style="justify-content:flex-start" data-pick="${i}|${ci}">${esc(c.name)}（${c.cost != null ? YEN(c.cost) : '—'}）</button>`).join('')}
+                    <div style="display:flex;gap:6px;flex-wrap:wrap">
+                      <button class="btn btn-sm" data-new="${i}">マスターに無い→新規</button>
+                      <button class="btn btn-sm" data-skip1="${i}">加工品・購入品（登録しない）</button>
+                      <button class="btn btn-sm" data-skip2="${i}">工具・消耗品（対象外）</button>
+                    </div>
+                  </div>`}
+              </div>
             </div>`).join('')}
         `}
       </div></div>`;

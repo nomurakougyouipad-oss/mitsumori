@@ -76,3 +76,24 @@ Authentication → Settings → 承認済みドメイン に
 | js/firebase.js | Firebase初期化（オフライン永続化＋匿名認証。zaiko-shohinから流用） |
 | firestore.rules | Firestoreセキュリティルール（コンソールに貼る） |
 | storage.rules | Storageセキュリティルール（コンソールに貼る） |
+
+---
+
+## 開発用ツール（tools/）
+
+ブラウザで開くと、その場の単価マスターを読んで結果を出す。書き換えはしない。
+公開URLからも開ける（例 https://nomurakougyouipad-oss.github.io/mitsumori/tools/audit-naming.html ）。
+
+| ファイル | 内容 |
+| --- | --- |
+| audit-naming.html | 単価マスターの表記ゆれの洗い出し。種類×材質で型の多数派を出し、外れているものを分類して「直す／要確認／別物」を判定 |
+| audit-noname.html | 品名に種類（ｴﾙﾎﾞ・ｿｹｯﾄ等）が入っていない行の判断材料。仕入先・原価・重量・kg単価・更新日・大分類・種類(K列)・同寸法の他の行を並べる |
+| test-catalog.html | 規格カタログの組み立て結果（種類×材質ごとの型・形の数・長さ） |
+| test-catalog-parity.html | 検索から選んだ場合と規格から選んだ場合で、同じ品名・同じitemIdになるかの突き合わせ |
+| test-tally-match.html | 集計表の自動判定の検証。`?noprev=1` で旧品名(prevNames)を無効にして比べられる |
+| test-material-ui.html | 材料を追加する画面の単体確認（iPhoneの入力不具合の再現用） |
+| test-calc.html | 金額計算の検証 |
+| gen-jis-sizes.ps1 / jis-sizes.source.json | JIS標準サイズ表と、そこから js/jis-sizes.js を生成するスクリプト |
+
+**単価マスターの表記ルールは `見積アプリ_実装README_v2.md` の第4章「単価マスターの表記ルール」を参照。**
+配管はスケジュールではなく肉厚mmで表す、旧品名は `items.prevNames` に残す、など。

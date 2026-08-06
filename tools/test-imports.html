@@ -21,15 +21,15 @@ const o = document.getElementById('o');
 const log = (s) => { o.textContent += s + '\n'; };
 o.textContent = '';
 const expect = {
-  '../js/rough-calc.js?v=2': ['DISCLAIMER','WORK_TYPES','ITEM_KINDS','ITEM_STATES','PRICE_SOURCES','DEFAULT_ROUGH_OPTIONS','tradeRate','resolveRates','resolveUnitRates','stepAmount','stepsTotal','stepsManHours','yotsubaBase','yotsubaAmount','marketAmount','manualAmount','itemCandidates','itemAmount','itemRange','sumByKind','totalsFromKinds','roughTotals','counts','priceBand','itemBreakdown'],
-  '../js/rough-store.js?v=2': ['ratesFor','effectiveRates','optionsFor','createRough','subscribeRough','subscribeRoughItems','subscribeRoughQuestions','subscribeRoughList','updateRough','deleteRough','newItem','addItem','addItems','updateItem','deleteItem','reorderItems','decideItem','overrideItemAmount','markPending','clearDecision','newStep','setSteps','addStep','toggleStep','updateStep','addQuestion','answerQuestion','deleteQuestion','uploadPhoto','removePhoto','addSketch','addChatMessage','subscribeChat','saveRoughSummary','freezeRough','saveCustomerRate','saveCustomerTradeRate','clearCustomerRate','setSeparateWelfare','separatesWelfare','convertToEstimate','roughItemToLine','materialOriginOf','originVariance','MATERIAL_ORIGINS'],
-  '../js/rough-memory.js?v=2': ['ADOPT_AFTER','recordItemAdded','adoptedItems','adoptedToItem','recordPriceEdit','rememberedPrice','subscribeMemoryItems','subscribeMemoryPrices','forgetItem','forgetPrice','disableItem','disablePrice'],
-  '../js/rate-history.js?v=2': ['SCOPES','tradeKey','isTradeKey','tradeNameOf','recordRateChange','describe','subscribeHistory','fetchHistory','forCustomer'],
-  '../js/actuals.js?v=2': ['ACTUAL_SOURCES','ENOUGH_SAMPLES','newActual','addActual','updateActual','deleteActual','subscribeActuals','diffOf','diffRate','completeEstimate','summarizeByWorkType','perManDay'],
-  '../js/screen-settings.js?v=2': ['renderSettingsTab','openPendingPricePage','openReviewsPage'],
-  '../js/screen-handover.js?v=2': ['renderQuotesTab','convertSummaryHtml','openConvertPage','roughDiffHtml','openCompletePage','openActualsListPage','openActualEditPage'],
-  '../js/screen-est.js?v=2': ['renderEstScreen','openCoverPage'],
-  '../js/screen-home.js?v=2': ['renderHome'],
+  '../js/rough-calc.js?v=33': ['DISCLAIMER','WORK_TYPES','ITEM_KINDS','ITEM_STATES','PRICE_SOURCES','DEFAULT_ROUGH_OPTIONS','tradeRate','resolveRates','resolveUnitRates','stepAmount','stepsTotal','stepsManHours','yotsubaBase','yotsubaAmount','marketAmount','manualAmount','itemCandidates','itemAmount','itemRange','sumByKind','totalsFromKinds','roughTotals','counts','priceBand','itemBreakdown'],
+  '../js/rough-store.js?v=33': ['ratesFor','effectiveRates','optionsFor','createRough','subscribeRough','subscribeRoughItems','subscribeRoughQuestions','subscribeRoughList','updateRough','deleteRough','newItem','addItem','addItems','updateItem','deleteItem','reorderItems','decideItem','overrideItemAmount','markPending','clearDecision','newStep','setSteps','addStep','toggleStep','updateStep','addQuestion','answerQuestion','deleteQuestion','uploadPhoto','removePhoto','addSketch','addChatMessage','subscribeChat','saveRoughSummary','freezeRough','saveCustomerRate','saveCustomerTradeRate','clearCustomerRate','setSeparateWelfare','separatesWelfare','convertToEstimate','roughItemToLine','materialOriginOf','originVariance','MATERIAL_ORIGINS'],
+  '../js/rough-memory.js?v=33': ['ADOPT_AFTER','recordItemAdded','adoptedItems','adoptedToItem','recordPriceEdit','rememberedPrice','subscribeMemoryItems','subscribeMemoryPrices','forgetItem','forgetPrice','disableItem','disablePrice'],
+  '../js/rate-history.js?v=33': ['SCOPES','tradeKey','isTradeKey','tradeNameOf','recordRateChange','describe','subscribeHistory','fetchHistory','forCustomer'],
+  '../js/actuals.js?v=33': ['ACTUAL_SOURCES','ENOUGH_SAMPLES','newActual','addActual','updateActual','deleteActual','subscribeActuals','diffOf','diffRate','completeEstimate','summarizeByWorkType','perManDay'],
+  '../js/screen-settings.js?v=33': ['renderSettingsTab','openPendingPricePage','openReviewsPage'],
+  '../js/screen-handover.js?v=33': ['renderQuotesTab','convertSummaryHtml','openConvertPage','roughDiffHtml','openCompletePage','openActualsListPage','openActualEditPage'],
+  '../js/screen-est.js?v=33': ['renderEstScreen','openCoverPage'],
+  '../js/screen-home.js?v=33': ['renderHome'],
 };
 let bad = 0;
 for (const [path, names] of Object.entries(expect)) {

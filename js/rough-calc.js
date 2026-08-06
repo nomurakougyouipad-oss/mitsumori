@@ -18,7 +18,7 @@
 //   別ベースに切り替える口は用意しない（間違った金額を出せる経路を残さないため）。
 // ============================================================
 
-import { excelRound, travelLine } from './calc.js?v=2';
+import { excelRound, travelLine } from './calc.js?v=33';
 
 // 概算に必ず入る定型文（消せない）。AI見積_仕様と準備メモ 第1部より
 export const DISCLAIMER =

@@ -2,11 +2,11 @@
 // 発注待ち一覧（事務所の主戦場）と 案件をさがす
 // ============================================================
 
-import { esc, YEN, fmtDateJa, toDate, local } from './util.js?v=2';
-import { openOverlay, toast, confirmDialog } from './ui.js?v=2';
-import { cache, norm, updateEstimate, createEstimate, addLine } from './store.js?v=2';
-import { db, collection, getDocs } from './firebase.js?v=2';
-import { exportEstimateCsv } from './export.js?v=2';
+import { esc, YEN, fmtDateJa, toDate, local } from './util.js?v=33';
+import { openOverlay, toast, confirmDialog, bindSearch } from './ui.js?v=33';
+import { cache, norm, updateEstimate, createEstimate, addLine, deleteEstimateDeep } from './store.js?v=33';
+import { db, collection, getDocs } from './firebase.js?v=33';
+import { exportEstimateCsv } from './export.js?v=33';
 
 // 仕入先名 → 発注メール統合名（小野建／小野建 SUS／小野建（継手）→ 小野建）
 function mergeNameOf(supplierName) {
@@ -43,15 +43,25 @@ export function openOrderWaitPage() {
 
   async function paint() {
     const waits = cache.estimates.filter((e) => e.status === '発注待ち');
+    // PCでは1行＝1案件の一覧表（何件溜まっているか一目で分かることを優先）。
+    // 見出し行はPCだけ表示し、スマホでは従来どおりカードとして縦に積む。
     ov.el.innerHTML = `
       <div class="page-head"><div class="bar">
         <button class="icon-btn" id="ow-back">←</button>
-        <span class="ttl">発注待ち一覧</span>
+        <span class="ttl">発注待ち一覧　${waits.length}件</span>
       </div></div>
-      <div class="page-body"><div style="padding:12px">
-        ${waits.length ? '<div id="ow-list">読み込み中…</div>'
+      <div class="page-body">
+        ${waits.length ? `
+          <div class="ow-table">
+            <div class="ow-head">
+              <span>工事名・宛先</span><span>担当</span><span>注番</span>
+              <span>仕入先ごとの発注</span><span>納品場所</span><span>希望納期</span>
+              <span>経過</span><span>操作</span>
+            </div>
+            <div id="ow-list" style="padding:12px">読み込み中…</div>
+          </div>`
           : '<div class="empty"><div class="big">発注待ちはありません</div>現場が「発注依頼を出す」と、ここに溜まります（プッシュ通知は使いません）</div>'}
-      </div></div>`;
+      </div>`;
     ov.el.querySelector('#ow-back').addEventListener('click', ov.close);
     if (!waits.length) return;
 
@@ -66,27 +76,34 @@ export function openOrderWaitPage() {
       }
       const st = e.orderStatus || {};
       const el = elapsed(e);
+      const done = Object.keys(groups).filter((g) => st[g]).length;
+      const total = Object.keys(groups).length;
       return `
-        <div class="card" style="margin-bottom:10px" data-est="${e.id}">
-          <div class="ttl" style="font-size:15px">${esc(e.customer ? e.customer + '様 ' : '')}${esc(e.projectName || '（工事名なし）')}</div>
-          <div class="meta"><span class="num">${e.orderNo ? '注番 ' + esc(e.orderNo) : ''}</span>　担当：${esc(e.staff || '—')}</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">
+        <div class="ow-row" data-est="${e.id}">
+          <div class="c-name">
+            <span class="nm">${esc(e.projectName || '（工事名なし）')}</span>
+            <span class="sub">${esc(e.customer ? e.customer + '様' : '')}</span>
+          </div>
+          <div class="c-staff"><span class="lb">担当</span>${esc(e.staff || '—')}</div>
+          <div class="c-order"><span class="lb">注番</span><span class="num">${esc(e.orderNo || '—')}</span></div>
+          <div class="c-sup">
+            ${total ? `<span class="sup-count">${done}/${total}</span>` : ''}
             ${Object.entries(groups).map(([g, n]) => `
-              <label style="display:inline-flex;align-items:center;gap:6px;border:1px solid ${st[g] ? 'var(--line2)' : 'var(--navy)'};border-radius:6px;padding:8px 10px;font-size:13.5px;cursor:pointer;${st[g] ? 'color:var(--muted2);background:#F3F5F8' : ''}">
-                <input type="checkbox" data-sup="${esc(g)}" ${st[g] ? 'checked' : ''} style="width:18px;height:18px">
-                ${esc(g)} ${n}品目${st[g] ? '（発注済み）' : ''}
-              </label>`).join('') || '<span style="font-size:12.5px;color:var(--muted2)">仕入先のある明細がありません</span>'}
+              <label class="sup-chip ${st[g] ? 'on' : ''}">
+                <input type="checkbox" data-sup="${esc(g)}" ${st[g] ? 'checked' : ''}>
+                ${esc(g)} ${n}品目
+              </label>`).join('') || '<span class="none">仕入先のある明細がありません</span>'}
           </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
-            <span style="font-size:12px;color:var(--muted)">納品：${esc(e.deliveryPlace || '—')}　希望納期：${esc(e.dueDate || '—')}</span>
-            <span style="font-size:12px;font-weight:700;color:${el.color}">${el.text}</span>
-          </div>
-          <button class="btn btn-sm" style="margin-top:10px" data-csv="${e.id}">Excelへ渡す（CSV）</button>
+          <div class="c-place"><span class="lb">納品</span>${esc(e.deliveryPlace || '—')}</div>
+          <div class="c-due"><span class="lb">希望納期</span>${esc(e.dueDate || '—')}</div>
+          <div class="c-elapsed" style="color:${el.color}">${el.text}</div>
+          <div class="c-act"><button class="btn btn-sm" data-csv="${e.id}">Excelへ渡す</button></div>
         </div>`;
     }));
     const listEl = ov.el.querySelector('#ow-list');
     if (!listEl) return;
     listEl.innerHTML = cards.join('');
+    listEl.removeAttribute('style');   // 読み込み中の余白を外して表として詰める
 
     listEl.querySelectorAll('input[data-sup]').forEach((cb) => {
       cb.addEventListener('change', async () => {
@@ -120,10 +137,42 @@ export function openOrderWaitPage() {
 }
 
 // ============================================================
+// 見積の削除（ホームと「案件をさがす」で共用）
+// 明細ごと消えて元に戻せないので、工事名と金額を見せて必ず確認をとる。
+// 状態（見積中／発注待ち／進行中）は問わない — テストで作ったものも消せるように。
+// ============================================================
+export async function confirmDeleteEstimate(est) {
+  if (!est) return false;
+  const name = est.projectName || '（工事名なし）';
+  const msg = `「${name}」\n${YEN(est.totalFinal || 0)}（税込）${est.orderNo ? '　注番 ' + est.orderNo : ''}\n\n`
+    + 'この見積を削除しますか?\n明細も含めて完全に消えます。元に戻せません。';
+  if (!(await confirmDialog(msg, '削除する'))) return false;
+  try {
+    await deleteEstimateDeep(est.id);
+    toast(`「${name}」を削除しました`);
+    return true;
+  } catch (e) { console.error(e); toast('削除できませんでした'); return false; }
+}
+
+// ============================================================
 // 案件をさがす（50件枠なし・揺れに強い検索・コピーして新規）
 // ============================================================
 export function renderSearchTab(container) {
   let q = '';
+
+  // iPhone対策: 検索inputは一度だけ生成し、絞り込みでは結果リストだけ描き直す
+  //（詳細は ui.js の bindSearch のコメント参照）
+  container.innerHTML = `
+    <div class="screen">
+      <div class="search-block">
+        <div class="search-box" style="height:48px">
+          <input id="s-q" placeholder="工事名・宛先・注番・担当者" autocomplete="off" style="font-size:16px">
+        </div>
+      </div>
+      <div class="scroll" id="s-list"></div>
+    </div>`;
+  const listEl = container.querySelector('#s-list');
+  bindSearch(container.querySelector('#s-q'), (v) => { q = v; paint(); });
 
   function paint() {
     const tokens = norm(q).split(' ').filter(Boolean);
@@ -132,14 +181,7 @@ export function renderSearchTab(container) {
       return tokens.every((t) => key.includes(t));
     });
 
-    container.innerHTML = `
-      <div class="screen">
-        <div class="search-block">
-          <div class="search-box" style="height:48px">
-            <input id="s-q" placeholder="工事名・宛先・注番・担当者" value="${esc(q)}" autocomplete="off" style="font-size:16px">
-          </div>
-        </div>
-        <div class="scroll">
+    listEl.innerHTML = `
           <div class="sec-head"><span class="ttl">見つかった案件</span><span class="cnt">${hits.length}</span><span class="rule"></span></div>
           ${hits.slice(0, 50).map((e) => `
             <div class="card" style="margin-bottom:8px">
@@ -148,26 +190,23 @@ export function renderSearchTab(container) {
                 <span style="font-size:11.5px;color:var(--muted2);flex:none">${esc(e.status || '')}</span>
               </div>
               <div class="meta">${esc(e.customer || '')}　<span class="num">${e.orderNo ? '注番 ' + esc(e.orderNo) : ''}</span>　担当：${esc(e.staff || '—')}</div>
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px">
                 <span class="num" style="font-weight:700;color:var(--navy)">${YEN(e.totalFinal || 0)}</span>
-                <button class="btn btn-sm" data-copy="${e.id}">コピーして新規</button>
+                <div style="display:flex;align-items:center;gap:8px;flex:none">
+                  <button class="btn btn-sm" data-copy="${e.id}">コピーして新規</button>
+                  <button class="card-del" data-del="${e.id}" aria-label="この見積を削除">🗑</button>
+                </div>
               </div>
             </div>`).join('') || '<div class="empty">見つかりませんでした</div>'}
-          ${hits.length > 50 ? '<div style="text-align:center;font-size:12px;color:var(--muted2);padding:8px">50件まで表示。検索で絞ってください</div>' : ''}
-        </div>
-      </div>`;
+          ${hits.length > 50 ? '<div style="text-align:center;font-size:12px;color:var(--muted2);padding:8px">50件まで表示。検索で絞ってください</div>' : ''}`;
 
-    const input = container.querySelector('#s-q');
-    input.addEventListener('input', () => {
-      q = input.value;
-      paint();
-      const i2 = container.querySelector('#s-q');
-      i2.focus(); i2.setSelectionRange(i2.value.length, i2.value.length);
-    });
-    container.querySelectorAll('[data-open]').forEach((el) => el.addEventListener('click', () => {
+    listEl.querySelectorAll('[data-open]').forEach((el) => el.addEventListener('click', () => {
       location.hash = '#est/' + el.dataset.open;
     }));
-    container.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
+    listEl.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+      if (await confirmDeleteEstimate(cache.estimates.find((x) => x.id === b.dataset.del))) paint();
+    }));
+    listEl.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
       const src = cache.estimates.find((x) => x.id === b.dataset.copy);
       if (!src) return;
       if (!(await confirmDialog(`「${src.projectName || '（工事名なし）'}」をコピーして新しい見積を作りますか?\n（注番は空になります。率は今の設定値）`, 'コピーする'))) return;

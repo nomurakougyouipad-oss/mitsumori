@@ -13,8 +13,8 @@
 import {
   db, collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
   onSnapshot, query, orderBy, serverTimestamp, increment, arrayUnion,
-} from './firebase.js?v=2';
-import { norm } from './store.js?v=2';
+} from './firebase.js?v=33';
+import { norm } from './store.js?v=33';
 
 // 3件たまったら自動。ここを変えれば効き方が変わる
 export const ADOPT_AFTER = 3;

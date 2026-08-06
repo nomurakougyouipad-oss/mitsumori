@@ -19,8 +19,8 @@
 import {
   db, collection, doc, addDoc, updateDoc, deleteDoc, getDoc,
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
-} from './firebase.js?v=2';
-import { WORK_TYPES } from './rough-calc.js?v=2';
+} from './firebase.js?v=33';
+import { WORK_TYPES } from './rough-calc.js?v=33';
 
 const COL = 'actuals';
 

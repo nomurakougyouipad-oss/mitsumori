@@ -9,16 +9,16 @@
 // 実績も別に残る。だから一覧には3つとも並ぶ。
 // ============================================================
 
-import { esc, YEN, fmtDate, fmtDateJa, toDate, local } from './util.js?v=2';
-import { icons } from './icons.js?v=2';
-import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=2';
-import { cache, onCacheChange } from './store.js?v=2';
-import { Timestamp } from './firebase.js?v=2';
-import { WORK_TYPES } from './rough-calc.js?v=2';
+import { esc, YEN, fmtDate, fmtDateJa, toDate, local } from './util.js?v=33';
+import { icons } from './icons.js?v=33';
+import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=33';
+import { cache, onCacheChange } from './store.js?v=33';
+import { Timestamp } from './firebase.js?v=33';
+import { WORK_TYPES } from './rough-calc.js?v=33';
 import {
   subscribeRoughItems, freezeRough, convertToEstimate, materialOriginOf,
-} from './rough-store.js?v=2';
-import { addActual, completeEstimate, diffOf, newActual, summarizeByWorkType } from './actuals.js?v=2';
+} from './rough-store.js?v=33';
+import { addActual, completeEstimate, diffOf, newActual, summarizeByWorkType } from './actuals.js?v=33';
 
 // ---------- 一覧に並べるもの ----------
 // 概算・本見積・完工を1本にまとめて、新しい順に並べる。
@@ -143,7 +143,7 @@ export function renderQuotesTab(container) {
   const rows = buildRows();
   container.innerHTML = `
     <div class="screen">
-      <div class="scroll">
+      <div class="scroll est-list-scroll">
         ${rows.length ? rows.map(cardHtml).join('') : `
           <div class="empty"><div class="big">まだありません</div>
             概算を作るか、下から過去の工事を入れてください</div>`}

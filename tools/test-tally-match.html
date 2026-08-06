@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>集計表マッチャー検証（開発用）</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #EEF0F3; margin: 0; }
+  header { background: #1B3A5C; color: #fff; padding: 12px 20px; font-size: 16px; font-weight: 700; }
+  main { padding: 16px; max-width: 900px; margin: 0 auto; }
+  .card { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 10px; font-size: 13px; }
+  pre { font-size: 12px; line-height: 1.6; white-space: pre-wrap; font-family: ui-monospace, Consolas, monospace; margin: 0; }
+  h3 { margin: 4px 0 8px; font-size: 14px; }
+</style>
+</head>
+<body>
+<header>集計表マッチャー検証（?url= で対象xlsxを指定。既定 ../tally-test.xlsx）</header>
+<main>
+  <div class="card"><h3>サマリー</h3><pre id="sum">実行中…</pre></div>
+  <div class="card"><h3>自動でつながった行</h3><pre id="auto"></pre></div>
+  <div class="card"><h3>候補どまりの行（診断つき）</h3><pre id="cand"></pre></div>
+  <div class="card"><h3>見つからない行（診断つき）</h3><pre id="none"></pre></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script type="module">
+import { cache, startSubscriptions } from '../js/store.js?v=33';
+import { matchRow, atomize, atomHit, matchKeyOf, parseSheet } from '../js/screen-tally.js?v=33';
+
+const looksFab = (row) => /型切|角切|穴明|レーザー|ﾚｰｻﾞｰ|加工/.test(row.name + row.spec);
+
+// 診断: 非自動行がなぜ自動にならなかったか（全マスター中の最良の数値一致で判定）
+function diagnose(row) {
+  const atoms = atomize([row.name, row.material, row.spec].join(' '));
+  const nums = atoms.filter((a) => /\d/.test(a));
+  const words = atoms.filter((a) => !/\d/.test(a));
+  if (looksFab(row)) return { why: 'fab（加工品扱い）' };
+  if (nums.length < 2) return { why: `nums<2（数値アトム${nums.length}個: ${nums.join(',')}／語: ${words.join(',')}）` };
+  let best = null;
+  for (const it of cache.items) {
+    const mk = matchKeyOf(it);
+    let nHit = 0, wHit = 0;
+    const missed = [];
+    for (const a of nums) { if (atomHit(mk, a)) nHit++; else missed.push(a); }
+    for (const a of words) if (atomHit(mk, a)) wHit++;
+    if (!best || nHit > best.nHit || (nHit === best.nHit && wHit > best.wHit)) best = { it, nHit, wHit, missed };
+  }
+  if (!best) return { why: 'マスター0件' };
+  if (best.nHit === nums.length && best.wHit === 0) return { why: `語ゼロ（数値全一致だが語不一致）→ ${best.it.name}` };
+  return { why: `数値ミス ${best.missed.join(',')}（${best.nHit}/${nums.length}一致・語${best.wHit}）→ 最良 ${best.it.name}` };
+}
+
+const $ = (id) => document.getElementById(id);
+const put = (id, t) => { $(id).textContent = t; };
+try {
+  startSubscriptions();
+  for (let i = 0; i < 120 && !cache.itemsLoaded; i++) await new Promise((r) => setTimeout(r, 500));
+  if (!cache.itemsLoaded) throw new Error('itemsが読み込めませんでした');
+  // ?noprev=1 で旧品名(prevNames)を無効にして比べる。
+  // 品名を統一したとき、業者の書き方で来る集計表が当たり続けるかを確かめるため
+  if (new URLSearchParams(location.search).get('noprev')) {
+    for (const it of cache.items) { delete it.prevNames; delete it._mk; }
+  }
+  const url = new URLSearchParams(location.search).get('url') || '../tally-test.xlsx';
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('xlsxを取得できません: ' + res.status);
+  const rows = parseSheet(window.XLSX, await res.arrayBuffer());
+
+  const auto = [], cand = [], none = [];
+  for (const row of rows) {
+    const m = matchRow(row);
+    row.match = m;
+    (m.kind === 'auto' ? auto : m.kind === 'cand' ? cand : none).push(row);
+  }
+  put('sum',
+    `items: ${cache.items.length}件\n読み取り: ${rows.length}行\n` +
+    `自動: ${auto.length} ／ 候補: ${cand.length} ／ 見つからない: ${none.length}`);
+  put('auto', auto.map((r) => `行${r.r} [${r.orderNo}] ${r.name}｜${r.material}｜${r.spec}  →  ${r.match.item.name}${r.match.viaAlias ? '（別名）' : ''}`).join('\n'));
+  put('cand', cand.map((r) => { const d = diagnose(r); return `行${r.r} [${r.orderNo}] ${r.name}｜${r.material}｜${r.spec}\n    理由: ${d.why}\n    候補: ${r.match.candidates.map((c) => c.name).join(' ／ ')}`; }).join('\n'));
+  put('none', none.map((r) => { const d = diagnose(r); return `行${r.r} [${r.orderNo}] ${r.name}｜${r.material}｜${r.spec}\n    理由: ${d.why}`; }).join('\n'));
+} catch (e) {
+  put('sum', 'エラー: ' + (e.message || e));
+  console.error(e);
+}
+</script>
+</body>
+</html>

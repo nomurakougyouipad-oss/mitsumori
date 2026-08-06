@@ -2,24 +2,24 @@
 // 見積画面 — 明細一覧（費目タブ）・表紙の情報・見積の確認
 // ============================================================
 
-import { esc, YEN, fmtDateJa, local } from './util.js?v=2';
-import { icons } from './icons.js?v=2';
-import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=2';
+import { esc, YEN, fmtDateJa, local } from './util.js?v=33';
+import { icons } from './icons.js?v=33';
+import { openOverlay, openNumpad, toast, confirmDialog } from './ui.js?v=33';
 import {
   cache, subscribeEstimate, subscribeLines, updateEstimate,
   addLine, deleteLine, saveSummary, addNamed,
-} from './store.js?v=2';
-import { totals, lineAmount, excelRound } from './calc.js?v=2';
+} from './store.js?v=33';
+import { totals, lineAmount, excelRound } from './calc.js?v=33';
 import {
   db, doc, updateDoc, deleteDoc, getDocs, collection, Timestamp, arrayUnion, arrayRemove,
   storageRef, uploadBytes, getDownloadURL, deleteObject, storage,
-} from './firebase.js?v=2';
+} from './firebase.js?v=33';
 import {
   openMaterialPage, openManualPage, openPendingPage,
-  openLaborPage, openTravelPage, openSubcontractPage,
-} from './screen-material.js?v=2';
-import { roughDiffHtml } from './screen-handover.js?v=2';
-import { exportEstimateCsv } from './export.js?v=2';
+  openLaborPage, openTravelPage, openSubcontractPage, openCatalogPage,
+} from './screen-material.js?v=33';
+import { roughDiffHtml } from './screen-handover.js?v=33';
+import { exportEstimateCsv } from './export.js?v=33';
 
 const KINDS = ['材料', '労務', '移動', '外注'];
 const KIND_LABEL = { 材料: '材料費', 労務: '労務費', 移動: '移動費', 外注: '外注費' };
@@ -111,10 +111,11 @@ export function renderEstScreen(container, estId) {
         </div>
         <div class="bottom-bar">
           <button class="btn btn-primary btn-block" style="height:52px;font-size:17px" id="e-add">＋ ${KIND_LABEL[kind]}を追加</button>
-          <div class="total-row" id="e-total" style="cursor:pointer">
+          <div class="total-row">
             <span class="lbl">税込 ${est.pendingCount ? '<span class="pend-inline">⏱ 単価待ち ' + est.pendingCount + '件</span>' : ''}</span>
-            <span class="v">${YEN(t.final)} ›</span>
+            <span class="v">${YEN(t.final)}</span>
           </div>
+          <button class="btn btn-block" id="e-confirm">確認へ進む</button>
         </div>
       </div>`;
 
@@ -122,7 +123,7 @@ export function renderEstScreen(container, estId) {
     container.querySelector('#e-cover').addEventListener('click', () => openCoverPage(estId, () => est));
     container.querySelectorAll('.ftab').forEach((el) => el.addEventListener('click', () => { kind = el.dataset.k; paint(); }));
     container.querySelector('#e-add').addEventListener('click', () => openAdd());
-    container.querySelector('#e-total').addEventListener('click', () => openConfirmPage(estId));
+    container.querySelector('#e-confirm').addEventListener('click', () => openConfirmPage(estId));
     bindLineEvents();
   }
 
@@ -134,20 +135,17 @@ export function renderEstScreen(container, estId) {
     const mark = l.pendingPrice ? '<span class="mark">⏱</span>' : (l.handwritten ? '<span class="mark">✎</span>' : '');
     const qtyPill = l.kind === '材料'
       ? `<span class="qty-pill" data-qty="${l.id}"><b>${l.qty ?? 0}</b><span>${esc(l.unit || '')}</span></span>` : '';
+    // 複製・削除は常時表示のボタン（左スワイプは指に付いてこないのでやめた）
     return `
-      <div class="swipe-wrap" data-line="${l.id}">
-        <div class="swipe-actions">
-          <button class="a-copy" data-copy="${l.id}">⧉<span>複製</span></button>
-          <button class="a-del" data-del="${l.id}">🗑<span>削除</span></button>
+      <div class="line-item" data-line="${l.id}">
+        <div class="line-row" data-open="${l.id}">
+          ${mark}
+          <span class="nm">${lineTitle(l)}</span>
+          ${qtyPill}
+          ${amtHtml}
         </div>
-        <div class="swipe-front">
-          <div class="line-row" data-open="${l.id}">
-            ${mark}
-            <span class="nm">${lineTitle(l)}</span>
-            ${qtyPill}
-            ${amtHtml}
-          </div>
-        </div>
+        <button class="row-btn copy" data-copy="${l.id}" aria-label="この行を複製">⧉</button>
+        <button class="row-btn del" data-del="${l.id}" aria-label="この行を削除">🗑</button>
       </div>`;
   }
 
@@ -164,8 +162,11 @@ export function renderEstScreen(container, estId) {
   function openEdit(l) {
     const prefill = { ...l, lineId: l.id };
     if (l.kind === '材料') {
-      if (l.pendingPrice) openPendingPage(estId, est, { prefill });
+      // handwritten を pendingPrice より先に見ること。手打ちの0円行も単価待ちに
+      // なるので、順番を逆にするとレーザー加工品の仕様入力ページが開いてしまう
+      if (l.catalog) openCatalogPage(estId, est, { prefill });
       else if (l.handwritten) openManualPage(estId, est, { prefill });
+      else if (l.pendingPrice) openPendingPage(estId, est, { prefill });
       else openMaterialPage(estId, est, { prefill });
     } else if (l.kind === '労務') openLaborPage(estId, est, { prefill });
     else if (l.kind === '移動') openTravelPage(estId, est, { prefill });
@@ -222,55 +223,19 @@ export function renderEstScreen(container, estId) {
         } catch (err) { console.error(err); toast('削除できませんでした'); }
       });
     });
-    // 左スワイプで複製/削除を出す
-    container.querySelectorAll('.swipe-wrap').forEach(attachSwipe);
   }
 
   function openAddForKind(k, prefill) {
     const opts = { prefill };
     if (k === '材料') {
-      if (prefill.pendingPrice) openPendingPage(estId, est, opts);
+      // 複製も編集と同じ順番にすること（openEdit のコメント参照）
+      if (prefill.catalog) openCatalogPage(estId, est, opts);
       else if (prefill.handwritten) openManualPage(estId, est, opts);
+      else if (prefill.pendingPrice) openPendingPage(estId, est, opts);
       else openMaterialPage(estId, est, opts);
     } else if (k === '労務') openLaborPage(estId, est, opts);
     else if (k === '移動') openTravelPage(estId, est, opts);
     else openSubcontractPage(estId, est, opts);
-  }
-
-  function attachSwipe(wrap) {
-    const front = wrap.querySelector('.swipe-front');
-    const W = 152;
-    let startX = null, startY = null, open = false, dragging = false;
-    wrap.addEventListener('pointerdown', (e) => { startX = e.clientX; startY = e.clientY; dragging = false; });
-    wrap.addEventListener('pointermove', (e) => {
-      if (startX == null) return;
-      const dx = e.clientX - startX, dy = e.clientY - startY;
-      if (!dragging && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5) dragging = true;
-      if (dragging) {
-        front.style.transition = 'none';
-        const base = open ? -W : 0;
-        front.style.transform = `translateX(${Math.max(-W, Math.min(0, base + dx))}px)`;
-      }
-    });
-    const end = (e) => {
-      if (startX == null) return;
-      const dx = e.clientX - startX;
-      front.style.transition = '';
-      if (dragging) {
-        const base = open ? -W : 0;
-        open = (base + dx) < -W / 2;
-        front.style.transform = `translateX(${open ? -W : 0}px)`;
-        // スワイプ直後の行タップ（編集）を抑止
-        if (Math.abs(dx) > 12) {
-          const block = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
-          front.addEventListener('click', block, { capture: true, once: true });
-          setTimeout(() => front.removeEventListener('click', block, { capture: true }), 300);
-        }
-      }
-      startX = null;
-    };
-    wrap.addEventListener('pointerup', end);
-    wrap.addEventListener('pointercancel', end);
   }
 
   return () => { unsubEst(); unsubLines(); };
@@ -280,7 +245,7 @@ export function renderEstScreen(container, estId) {
 // 表紙の情報（工事名・宛先・施工場所・注番・担当者・スケッチ写真）
 // ============================================================
 export function openCoverPage(estId, getEst) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   let saveTimers = {};
 
   function debounceSave(key, patch) {
@@ -498,7 +463,7 @@ async function shrinkImage(file, maxSize) {
 // 見積の確認
 // ============================================================
 export function openConfirmPage(estId) {
-  const ov = openOverlay();
+  const ov = openOverlay({ narrow: true });
   let est = null, lines = [], rateOpen = false;
 
   const unsubEst = subscribeEstimate(estId, (e) => { est = e; paint(); });
@@ -578,6 +543,7 @@ export function openConfirmPage(estId) {
       </div>
       <div class="bottom-bar">
         <button class="btn btn-primary btn-block" style="height:56px;font-size:18px" id="cf-order">🚚 発注依頼を出す</button>
+        <button class="btn btn-block" style="margin-top:8px" id="cf-hyoshi">📄 見積書を作る${provisional ? '（概算）' : ''}</button>
         ${provisional
           ? `<div class="btn btn-block" style="margin-top:8px;background:#EEF0F3;border-color:#D9DEE4;color:#A9B3BD;cursor:default">🔒 Excelへ渡す</div>
              <div style="text-align:center;font-size:11.5px;color:#8A560F;margin-top:6px">単価が全部そろうと押せます／
@@ -620,6 +586,46 @@ export function openConfirmPage(estId) {
     ov.el.querySelector('#cf-approx')?.addEventListener('click', async () => {
       if (await confirmDialog(`単価待ちが${pending}件あります。仮単価（無ければ0円）のまま概算として出しますか?`, '概算として出す')) doExport(true);
     });
+    ov.el.querySelector('#cf-hyoshi')?.addEventListener('click', async () => {
+      if (provisional) {
+        if (!(await confirmDialog(`単価待ちが${pending}件あります。仮単価（無ければ0円）のまま「概算」と明記した見積書を作りますか?`, '概算として出す'))) return;
+        openHyoshi(true);
+      } else openHyoshi(false);
+    });
+  }
+
+  // 見積書（表紙HTML hyoshi.html）を開く。データはURLの #app= に載せて渡す
+  //（別タブ/別コンテキストでも確実に届くように。ストレージ共有には頼らない）
+  function openHyoshi(approx) {
+    const r = ratesOf(est), u = unitRatesOf(est);
+    const t = calcAll(est, lines);
+    const amt = (l) => excelRound(lineAmount(l, r, u) || 0);
+    const by = (k) => lines.filter((l) => l.kind === k);
+    const payload = {
+      estId,                                   // 表紙から戻るときの行き先
+      work: est.projectName || '', loc: est.site || '', client: est.customer || '',
+      orderNo: est.orderNo || '', tanto: est.staff || '',
+      welfareOn: est.welfareOn !== false, approx: !!approx,
+      totals: {
+        mat: t.material, lab: t.labor, mov: t.travel, subcon: t.subcontract,
+        exp: t.overhead, wel: t.welfare, songa: t.depreciation,
+        subtax: t.taxable, tax: t.tax, adjust: t.adjust, grand: t.final, taxPct: r.tax,
+      },
+      mat: by('材料').map((l) => ({
+        nm: (l.name || '') + (l.pendingPrice ? (l.tempCost > 0 ? '（仮単価）' : '（単価未定）') : ''),
+        qty: l.qty || 0, unit: l.unit || '', price: l.cost || 0, amt: amt(l),
+      })),
+      lab: by('労務').map((l) => ({ job: l.name || l.trade || '', ppl: l.persons || 0, hrs: l.hours || 0, rate: l.rate || 0, amt: amt(l) })),
+      mov: by('移動').map((l) => ({ desc: l.name || '', ppl: l.persons || 0, hrs: l.hours || 0, km: l.km || 0, amt: amt(l) })),
+      subcon: by('外注').map((l) => ({ vendor: l.supplier || '', content: l.name || '', amt: l.amount || 0 })),
+    };
+    // ?v= を付けて、端末に残った古い表紙HTMLが使われないようにする
+    const url = 'hyoshi.html?v=33#app=' + encodeURIComponent(JSON.stringify(payload));
+    // 必ず「同じ画面」で開く。別タブ/別ウィンドウ（window.open）にすると、
+    // iPhoneのPWAでは表紙がSafari側に開いて履歴が繋がらず、
+    // 「アプリへ戻る」も効かない行き止まりになる。
+    // 戻り先（#est/{id}/confirm）は表紙側がURLで持つので、ここでは印を残さない。
+    location.assign(url);
   }
 
   function doExport(approx) {

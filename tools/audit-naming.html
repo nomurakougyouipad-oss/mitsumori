@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>単価マスター 表記の洗い出し（開発用）</title>
+<style>
+body{font:13px/1.7 system-ui;margin:16px;color:#22303C}
+h1{font-size:18px} h2{font-size:15px;margin:24px 0 6px;border-bottom:2px solid #ccd;padding-bottom:3px}
+table{border-collapse:collapse;font-size:12px;margin:8px 0;width:100%}
+th,td{border:1px solid #ccc;padding:3px 7px;text-align:left;vertical-align:top}
+th{background:#eef2f6}
+.num{font-family:Consolas,monospace}
+.fix{color:#0A6B2E;font-weight:700} .chk{color:#A15C00;font-weight:700} .keep{color:#777}
+tr.v-fix{background:#F2FAF4} tr.v-chk{background:#FFF8EC}
+pre{background:#f6f8fa;padding:8px;overflow:auto;font-size:11px;max-height:340px;white-space:pre-wrap}
+.small{font-size:11.5px;color:#666}
+</style>
+</head>
+<body>
+<h1>単価マスター 表記の洗い出し</h1>
+<p class="small">
+同じ種類×材質のグループ内で、品名の型（パターン）が多数派と違うものを出す。多数派の型を正とする。<br>
+<b>ここでは何も書き換えない。</b>判定は「直す（機械的に直せる）／要確認（人の判断が要る）／別物（直さない）」。
+</p>
+<div id="out">読み込み中…</div>
+
+<script type="module">
+import { cache, startSubscriptions } from '../js/store.js?v=33';
+import { parseItemName, dimPattern } from '../js/catalog.js?v=33';
+
+const esc = (x) => String(x ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const han = (x) => String(x)
+  .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xFEE0))
+  .replace(/＝/g, '=').replace(/’/g, "'").replace(/．/g, '.');
+const hasZen = (x) => /[Ａ-Ｚａ-ｚ０-９＝’．]/.test(x);
+const stripSup = (n) => n.replace(/\s*【[^】]*】\s*(-\d+)?/g, '').trim();
+const key = (n) => han(n).replace(/\s+/g, '').toLowerCase();
+
+startSubscriptions();
+for (let i = 0; i < 120 && !cache.itemsLoaded; i++) await new Promise((r) => setTimeout(r, 500));
+const jis = await (await fetch('./jis-sizes.source.json')).json();
+
+// 配管の外径 → 呼び径（外径は呼び径で共通なのでSGP/TP-A両方の表から作る）
+const odToNom = new Map();
+for (const r of [...jis['SGP'], ...jis['TP-A']]) odToNom.set(String(r['外径']), String(r['呼び径']).replace('A', ''));
+
+// 通し番号（品名順。参照用に安定した番号を振る）
+const all = [...cache.items].sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+const noOf = new Map(all.map((it, i) => [it.id, i + 1]));
+const label = (it) => `#${noOf.get(it.id)} ${it.name}（${it.supplier || '—'} ¥${it.cost}）`;
+
+// 種類×材質でまとめ、型の多数派を出す
+const rec = [];
+for (const it of cache.items) {
+  const p = parseItemName(it.name);
+  if (!p.dims) continue;
+  rec.push({ it, p, group: p.head + '｜' + (p.material || '（材質なし）'), pat: dimPattern(p.dims) });
+}
+const groups = new Map();
+for (const r of rec) { if (!groups.has(r.group)) groups.set(r.group, []); groups.get(r.group).push(r); }
+for (const [, arr] of groups) {
+  const cnt = {};
+  for (const r of arr) cnt[r.pat] = (cnt[r.pat] || 0) + 1;
+  const top = Object.entries(cnt).sort((a, b) => b[1] - a[1] || b[0].length - a[0].length)[0];
+  // 修飾語（かっこ）の多数派も見る。BF は多数派が BF(閉止ﾌﾗﾝｼﾞ)(SUS304) なので
+  // 頭の「BF-」だけ直しても書き方が揃わない
+  const mc = {};
+  for (const r of arr) { const k = r.p.mods.join('・'); mc[k] = (mc[k] || 0) + 1; }
+  const tm = Object.entries(mc).sort((a, b) => b[1] - a[1])[0];
+  for (const r of arr) {
+    r.top = top[0]; r.topN = top[1]; r.groupN = arr.length;
+    r.topMods = tm[1] * 2 >= arr.length ? tm[0] : '';
+    r.topModsN = tm[1];
+  }
+}
+
+// 配管の正規化。戻り値 {nom 呼び径, sch, t 肉厚, len 長さ, od 外径}
+function pipeParse(dims) {
+  const d = han(dims);
+  const nums = (d.match(/\d+(?:\.\d+)?/g) || []).map(Number);
+  const nom = /(\d+(?:\.\d+)?)A/.exec(d);
+  const sch = /s(\d+)/i.exec(d);
+  const mm = /(\d+(?:\.\d+)?)mm/.exec(d);
+  const lenEq = /L\s*=\s*(\d+(?:\.\d+)?)/.exec(d);
+  const head2 = /^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/.exec(d);
+  const od = head2 && odToNom.has(head2[1]) ? head2[1] : null;
+  const t = mm ? mm[1] : (od ? head2[2] : null);
+  const len = lenEq ? lenEq[1] : (nums.filter((n) => n >= 500).sort((a, b) => b - a)[0] ?? null);
+  const nomV = nom ? nom[1] : (od ? odToNom.get(od) : null);
+  if (!nomV || len == null) return null;
+  // 肉厚もｽｹｼﾞｭｰﾙも無いものは配管として扱わない。
+  //（「600型ﾎﾞｰﾙﾊﾞﾙﾌﾞ 15A」のような品名を配管と誤判定しないため）
+  if (!sch && t == null) return null;
+  return { nom: nomV, sch: sch ? sch[1] : null, t, len: String(len), od };
+}
+// 併記されている行から「呼び径×肉厚 → ｽｹｼﾞｭｰﾙ」を学ぶ（推測しない）
+const schByT = new Map();
+for (const r of rec) {
+  const q = pipeParse(r.p.dims);
+  if (q && q.sch && q.t) schByT.set(q.nom + '|' + Number(q.t), q.sch);
+}
+const pipeKey = (q) => `${q.nom}A|${q.sch ? 's' + q.sch : 't' + Number(q.t)}|${q.len}`;
+const pipeIndex = new Map();
+for (const r of rec) {
+  const q = pipeParse(r.p.dims);
+  if (!q) continue;
+  r.pipe = q; r.pkey = r.group + '‖' + pipeKey(q);
+  if (!pipeIndex.has(r.pkey)) pipeIndex.set(r.pkey, []);
+  pipeIndex.get(r.pkey).push(r);
+}
+// 【仕入先】を外したときに同じ名前になる組
+const stripIndex = new Map();
+for (const it of cache.items) {
+  const k = key(stripSup(it.name));
+  if (!stripIndex.has(k)) stripIndex.set(k, []);
+  stripIndex.get(k).push(it);
+}
+const nameIndex = new Map();
+for (const it of cache.items) {
+  const k = key(it.name);
+  if (!nameIndex.has(k)) nameIndex.set(k, []);
+  nameIndex.get(k).push(it);
+}
+
+// ---- 分類 ----
+const CAT = {
+  A: 'A 種類名が入っていない',
+  B: 'B 品名に仕入先が入っている',
+  C: 'C 配管：外径・呼び径・肉厚の書き方',
+  D: 'D 全角と半角の混在',
+  E: 'E 接頭辞の有無',
+  F: 'F 長さの書き方',
+  G: 'G 付属品・仕様のちがい',
+  H: 'H その他',
+};
+const rows = [];
+for (const r of rec) {
+  const name = r.it.name, dims = r.p.dims;
+  const noHead = !r.p.head;
+  const supIn = /【/.test(name);
+  const outlier = r.pat !== r.top && r.groupN >= 3;
+  if (!outlier && !noHead && !supIn && !hasZen(name)) continue;
+
+  let cat = 'H', verdict = '要確認', recName = '', why = '', same = [];
+  // 修飾語は、その品目のものが多数派と違い、かつ多数派がはっきりしていれば多数派に寄せる
+  const useMods = r.p.mods.length ? r.p.mods.join('・') : (r.topMods || '');
+  const mods = useMods ? useMods.split('・').map((x) => `(${x})`).join('') : '';
+  const modsAdded = !r.p.mods.length && !!r.topMods;
+  const rebuild = (d) => `${r.p.head}${mods}${r.p.material ? `(${r.p.material})` : ''} ${d}`.trim();
+
+  if (noHead) {
+    cat = 'A';
+    why = '品名に種類（ｴﾙﾎﾞ・ｿｹｯﾄ等）が入っていない。材質と寸法だけなので検索でも規格でも引けない';
+    same = (stripIndex.get(key(stripSup(name))) || []).filter((x) => x.id !== r.it.id);
+  } else if (supIn) {
+    cat = 'B'; verdict = '要確認';
+    const others = (stripIndex.get(key(stripSup(name))) || []).filter((x) => x.id !== r.it.id);
+    recName = stripSup(name);
+    why = others.length
+      ? `品名の【】は仕入先。仕入先欄にも入っている。ただし外すと ${others.length}件と同じ名前になる`
+      : '品名の【】は仕入先。仕入先欄にも入っているので外せる';
+    if (!others.length) verdict = '直す';
+    same = others;
+  } else if (r.pipe && r.pat !== r.top) {
+    cat = 'C';
+    const q = r.pipe;
+    const sch = q.sch || schByT.get(q.nom + '|' + Number(q.t)) || null;
+    recName = rebuild(sch ? `${q.nom}Axs${sch}x${q.len}` : `${q.nom}Ax${Number(q.t)}mmx${q.len}`);
+    why = `多数派 ${r.top}（${r.topN}/${r.groupN}件）。呼び径${q.nom}A・`
+        + (sch ? `ｽｹｼﾞｭｰﾙ${sch}` : `肉厚${Number(q.t)}mm`) + `・長さ${q.len}`
+        + (q.od ? '。外径は呼び径から決まるので落とす' : '');
+    verdict = '直す';
+    if (recName === name) {   // 直しようが無い（mm表記のまま。ｽｹｼﾞｭｰﾙが分からない）
+      verdict = '要確認'; recName = '';
+      why = `多数派 ${r.top}（${r.topN}/${r.groupN}件）は呼び径＋ｽｹｼﾞｭｰﾙ表記だが、`
+          + `肉厚${Number(q.t)}mmに対応するｽｹｼﾞｭｰﾙが他の行から分からないので機械では直せない`;
+    }
+    same = (pipeIndex.get(r.pkey) || []).filter((x) => x.it.id !== r.it.id).map((x) => x.it);
+  } else if (hasZen(name)) {
+    cat = 'D'; verdict = '直す';
+    recName = han(name);
+    why = '全角の英数字を半角にする' + (r.pat !== r.top ? `（多数派 ${r.top}）` : '（型は多数派と同じ）');
+  } else if (r.pat !== r.top && r.top.endsWith(r.pat) && r.top.length > r.pat.length) {
+    cat = 'E'; verdict = '直す';
+    const pre = r.top.slice(0, r.top.length - r.pat.length);
+    recName = rebuild(pre + dims);
+    why = `多数派は頭に「${pre}」が付く ${r.top}（${r.topN}/${r.groupN}件）`;
+  } else if (/L\s*[=＝]|\d+L\b|\dm\b/.test(han(dims)) !== /L\s*[=＝]|\d+L\b|\dm\b/.test(han(r.top.replace(/\{\}/g, '9')))) {
+    cat = 'F';
+    const d = han(dims);
+    const mEq = /L\s*=\s*(\d+(?:\.\d+)?)/.exec(d);
+    const mL = /(\d+(?:\.\d+)?)L\b/.exec(d);
+    const v = mEq ? mEq[1] : (mL ? mL[1] : null);
+    const topM = /\{\}m/.test(r.top);
+    if (v != null) recName = rebuild(d.replace(/L\s*=\s*(\d+(?:\.\d+)?)/, topM ? String(Number(v) / 1000) + 'm' : '$1')
+                                      .replace(/(\d+(?:\.\d+)?)L\b/, topM ? String(Number(v) / 1000) + 'm' : '$1'));
+    // 数字が変わらない（L= を外すだけ）なら機械的に直せる。mm→m の換算が要るものは要確認
+    verdict = v != null && !topM ? '直す' : '要確認';
+    why = `長さの書き方が多数派 ${r.top}（${r.topN}/${r.groupN}件）と違う`
+        + (topM ? '。多数派はメートル表記なので mm→m の換算が要る（切り物かどうかの確認も）' : '。L= を外すだけ');
+  } else if (r.pat !== r.top && (/[(（]/.test(dims) || r.p.mods.length)) {
+    cat = 'G'; verdict = '別物（直さない）';
+    why = `かっこの中身が多数派と違う。${r.top}（${r.topN}/${r.groupN}件）が多数派だが、`
+        + 'ﾎﾞﾙﾄのB/N/SW/FWや仕上げの違いは書き方ではなく品物の違い';
+  } else if (r.pat !== r.top && dimPattern(han(dims).replace(/\//g, 'x')) === r.top) {
+    // 「H-100x100x6/8x6000」のような分数風の区切り。x に直すと多数派の型になる
+    cat = 'H'; verdict = '直す';
+    recName = rebuild(han(dims).replace(/\//g, 'x'));
+    why = `区切りが「/」になっている。x に直すと多数派 ${r.top}（${r.topN}/${r.groupN}件）と同じ`;
+  } else if (r.pat !== r.top) {
+    cat = 'H';
+    const ex = groups.get(r.group).find((x) => x.pat === r.top);
+    why = `多数派 ${r.top}（${r.topN}/${r.groupN}件）と型が違う。機械では同じ物か別物か決められない`
+        + (ex ? `／多数派の例：${ex.it.name}` : '');
+  } else continue;
+
+  if (recName === name) recName = '';
+  if (!recName && verdict === '直す') continue;            // 直すところが無い
+  if (modsAdded && recName) why += `／多数派は${mods}が付く（${r.topModsN}/${r.groupN}件）ので合わせる`;
+  if (!same.length && recName) same = (nameIndex.get(key(recName)) || []).filter((x) => x.id !== r.it.id);
+
+  rows.push({
+    no: noOf.get(r.it.id), cat, catLabel: CAT[cat], verdict, name,
+    supplier: r.it.supplier || '', cost: r.it.cost, group: r.group,
+    pat: r.pat, top: r.top, topN: r.topN, groupN: r.groupN,
+    recName, why, same: same.map(label),
+  });
+}
+rows.sort((a, b) => a.cat.localeCompare(b.cat) || a.group.localeCompare(b.group, 'ja') || a.name.localeCompare(b.name, 'ja'));
+
+const cnt = (f) => rows.filter(f).length;
+const out = document.getElementById('out');
+const table = (list) => `<table>
+<tr><th>#</th><th>判定</th><th>現在の品名</th><th>仕入先</th><th>原価</th>
+    <th>推奨する統一後の品名</th><th>根拠</th><th>同じ物と思われる既存品目</th></tr>
+${list.map((r) => `<tr class="${r.verdict === '直す' ? 'v-fix' : r.verdict === '要確認' ? 'v-chk' : ''}">
+  <td class="num">${r.no}</td>
+  <td class="${r.verdict === '直す' ? 'fix' : r.verdict === '要確認' ? 'chk' : 'keep'}">${esc(r.verdict)}</td>
+  <td class="num">${esc(r.name)}</td><td>${esc(r.supplier)}</td><td class="num">¥${r.cost}</td>
+  <td class="num">${esc(r.recName || '—')}</td>
+  <td class="small">${esc(r.why)}</td>
+  <td class="small">${r.same.length ? esc(r.same.join('／')) : '—'}</td>
+</tr>`).join('')}</table>`;
+
+out.innerHTML = `
+<h2>まとめ</h2>
+<table style="width:auto">
+<tr><th>分類</th><th>件数</th><th>直す</th><th>要確認</th><th>別物</th></tr>
+${Object.entries(CAT).map(([k, v]) => {
+  const n = cnt((r) => r.cat === k);
+  if (!n) return '';
+  return `<tr><td>${esc(v)}</td><td class="num">${n}</td>
+    <td class="num fix">${cnt((r) => r.cat === k && r.verdict === '直す')}</td>
+    <td class="num chk">${cnt((r) => r.cat === k && r.verdict === '要確認')}</td>
+    <td class="num keep">${cnt((r) => r.cat === k && r.verdict === '別物（直さない）')}</td></tr>`;
+}).join('')}
+<tr><th>合計</th><th class="num">${rows.length}</th>
+  <th class="num fix">${cnt((r) => r.verdict === '直す')}</th>
+  <th class="num chk">${cnt((r) => r.verdict === '要確認')}</th>
+  <th class="num keep">${cnt((r) => r.verdict === '別物（直さない）')}</th></tr>
+</table>
+<p class="small">単価マスター ${cache.items.length}件／種類×材質 ${groups.size}組</p>
+${Object.entries(CAT).map(([k, v]) => {
+  const list = rows.filter((r) => r.cat === k);
+  return list.length ? `<h2>${esc(v)}（${list.length}件）</h2>${table(list)}` : '';
+}).join('')}
+<h2>貼り付け用（TSV）</h2>
+<pre id="tsv">${esc(['番号\t分類\t判定\t現在の品名\t仕入先\t原価\t推奨する統一後の品名\t根拠\t同じ物と思われる既存品目',
+  ...rows.map((r) => [r.no, r.catLabel, r.verdict, r.name, r.supplier, r.cost, r.recName, r.why, r.same.join('／')].join('\t'))].join('\n'))}</pre>`;
+
+window.__audit = { rows, CAT };
+</script>
+</body>
+</html>

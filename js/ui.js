@@ -2,7 +2,7 @@
 // 共通UI部品 — 全画面オーバーレイ・テンキー・トースト
 // ============================================================
 
-import { esc } from './util.js?v=2';
+import { esc } from './util.js?v=33';
 
 // ---------- トースト ----------
 let toastTimer = null;
@@ -16,13 +16,58 @@ export function toast(msg, undoLabel = null, onUndo = null) {
   toastTimer = setTimeout(() => { root.innerHTML = ''; }, 4000);
 }
 
+// ---------- 作り直してもスクロール位置を保つ ----------
+// 選択のたびに ov.el.innerHTML を丸ごと入れ替える画面が多い。
+// 入れ替えると、実際にスクロールしている要素（.page-body）ごと作り直されるので
+// 位置が先頭に戻る。下の方の項目を選ぶたびに画面が上に飛んでしまう。
+// 入れ替えの前後で scrollTop を持ち回って、見ていた場所に留める。
+// ※ 中身が短くなったときはブラウザが自動で詰めるので、それ以上の調整はしない
+export function setHtmlKeepScroll(root, html) {
+  const prev = root.querySelector('.page-body')?.scrollTop || 0;
+  root.innerHTML = html;
+  if (prev) {
+    const body = root.querySelector('.page-body');
+    if (body) body.scrollTop = prev;
+  }
+}
+
+// ---------- 画面幅の判定（CSSのブレークポイントと同じ値を使うこと） ----------
+// 〜767px スマホ／768〜1023px タブレット／1024px〜 PC（事務所の作業が主）
+// レイアウトが根本から変わる画面（判断待ちの2カラム等）はJS側でも切り替える。
+export const PC_QUERY = window.matchMedia('(min-width: 1024px)');
+export const isPc = () => PC_QUERY.matches;
+// 幅が境界をまたいだら描き直す。戻り値を呼ぶと購読を解除する
+export function onPcChange(fn) {
+  PC_QUERY.addEventListener('change', fn);
+  return () => PC_QUERY.removeEventListener('change', fn);
+}
+
+// ---------- 検索入力の共通処理（iPhone対策） ----------
+// リアルタイム絞り込みの検索欄はすべてこれを使うこと。約束は2つ:
+// ① inputノードは一度だけ生成し、絞り込みの再描画で作り直さない
+//    （inputをinnerHTMLで再生成→focusし直すと、iOSはキーボードを
+//      既定（かな）で出し直す・変換中の文字が二重に入る）
+// ② 日本語IMEの変換中（compositionstart〜compositionend）は
+//    絞り込みを走らせない。確定した時点で1回だけ走らせる
+export function bindSearch(input, onQuery) {
+  let composing = false;
+  input.addEventListener('compositionstart', () => { composing = true; });
+  input.addEventListener('compositionend', () => { composing = false; onQuery(input.value); });
+  input.addEventListener('input', (e) => {
+    if (composing || e.isComposing) return;
+    onQuery(input.value);
+  });
+}
+
 // ---------- 全画面オーバーレイ（材料を追加・表紙など） ----------
 // 戻り値のelにinnerHTMLを入れて使う。close()で閉じる。
+// narrow: true …… 現場が使う入力系のページ。広い画面では中央720pxに寄せる
+//                  （事務所のページは幅を使い切るので指定しない）
 const overlayStack = [];
-export function openOverlay() {
+export function openOverlay({ narrow = false } = {}) {
   const root = document.getElementById('modal-root');
   const el = document.createElement('div');
-  el.className = 'fullpage';
+  el.className = narrow ? 'fullpage narrow' : 'fullpage';
   root.appendChild(el);
   overlayStack.push(el);
   return {
@@ -90,6 +135,37 @@ export function openNumpad({ title = '数量', value = '', unit = '', allowDecim
   });
 }
 
+// ---------- 文字入力ダイアログ ----------
+// 数字は openNumpad、文字は こちら。メモや日付など短い文字列を入れる。
+// iOS対策として input は一度だけ作り、描き直さない（ui.js の bindSearch と同じ理由）。
+export function openTextInput({ title = '入力', value = '', placeholder = '', hint = '', multiline = false, onDone }) {
+  const root = document.getElementById('modal-root');
+  const back = document.createElement('div');
+  back.className = 'modal-back';
+  back.innerHTML = `
+    <div class="modal"><div class="modal-head">${esc(title)}<button class="x" id="ti-x">×</button></div>
+    <div class="modal-body">
+      ${multiline
+        ? `<textarea id="ti-v" rows="4" placeholder="${esc(placeholder)}"
+             style="width:100%;font-size:16px;padding:10px;border:1px solid var(--line);border-radius:6px;line-height:1.6"></textarea>`
+        : `<input id="ti-v" placeholder="${esc(placeholder)}" autocomplete="off"
+             style="width:100%;font-size:16px;padding:12px;border:1px solid var(--line);border-radius:6px">`}
+      ${hint ? `<div style="font-size:12px;color:var(--muted);line-height:1.7">${esc(hint)}</div>` : ''}
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button class="btn" style="flex:1;min-height:44px" id="ti-cancel">やめる</button>
+        <button class="btn btn-primary" style="flex:1;min-height:44px" id="ti-ok">決定</button>
+      </div>
+    </div></div>`;
+  root.appendChild(back);
+  const input = back.querySelector('#ti-v');
+  input.value = value ?? '';
+  const close = () => back.remove();
+  back.querySelector('#ti-x').addEventListener('click', close);
+  back.querySelector('#ti-cancel').addEventListener('click', close);
+  back.querySelector('#ti-ok').addEventListener('click', () => { const v = input.value.trim(); close(); onDone(v); });
+  setTimeout(() => input.focus(), 30);
+}
+
 // ---------- 確認ダイアログ ----------
 export function confirmDialog(message, okLabel = 'OK') {
   return new Promise((resolve) => {
@@ -99,7 +175,7 @@ export function confirmDialog(message, okLabel = 'OK') {
     back.innerHTML = `
       <div class="modal">
         <div class="modal-body" style="padding-top:22px">
-          <div style="font-size:15px;line-height:1.7">${esc(message)}</div>
+          <div style="font-size:15px;line-height:1.7;white-space:pre-line">${esc(message)}</div>
           <div style="display:flex;gap:8px;margin-top:4px">
             <button class="btn" style="flex:1" data-r="0">やめる</button>
             <button class="btn btn-primary" style="flex:1" data-r="1">${esc(okLabel)}</button>
