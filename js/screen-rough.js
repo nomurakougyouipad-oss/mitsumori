@@ -33,6 +33,7 @@ import {
 import { generateItems, isAiAvailable } from './rough-generate.js?v=33';
 import { buildQuoteText, subjectOf, addressOf, pendingNames } from './rough-quote.js?v=33';
 import { TEMPLATE_LABELS, templateRowCount } from './rough-templates.js?v=33';
+import { openItemDetailPage } from './screen-item.js?v=33';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
@@ -45,13 +46,17 @@ export function renderRoughScreen(container, roughId) {
   let questions = [];
   let busy = false;
   let lastSig = '';
+  let detail = null;        // 開いている「項目のくわしい中身」
 
   const stops = [
     subscribeRough(roughId, (r) => {
       if (!r) { toast('概算が見つかりません'); location.hash = '#estimates'; return; }
       rough = r; paint();
     }),
-    subscribeRoughItems(roughId, (list) => { items = list; paint(); pushSummary(); }),
+    subscribeRoughItems(roughId, (list) => {
+      items = list; paint(); pushSummary();
+      if (detail) detail.refresh();     // 開いている「くわしく」も描き直す
+    }),
     subscribeRoughQuestions(roughId, (list) => { questions = list; paint(); }),
   ];
 
@@ -472,9 +477,9 @@ export function renderRoughScreen(container, roughId) {
     all('.r-gen').forEach((el) => el.addEventListener('click', generate));
     q('#r-add').addEventListener('click', addBlank);
 
-    // 手順の内訳（項目のくわしい中身）はまだ画面が無い
+    // 項目のくわしい中身（手順の内訳・行ごと消す）
     all('[data-steps]').forEach((el) => el.addEventListener('click', () => {
-      toast('手順の内訳はこれから作ります');
+      detail = openItemDetailPage(roughId, el.dataset.steps, () => ({ rough, items, ...calcAll() }));
     }));
     // 文面を作る前に、そのときの率と金額を焼き付ける。
     // 客に出した金額と、あとで見る金額がずれないようにするため。

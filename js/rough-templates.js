@@ -56,6 +56,18 @@ const T = {
   ],
 };
 
+// ---------- 手順の候補（項目のくわしい中身で選ぶ） ----------
+// 門型・玉掛け・トロリーなどの段取り。モックの「AIに無かった手順を選ぶ」の並びそのまま。
+// AIが入ったら、AIが出した手順がここに足される。
+export const STEP_CHOICES = [
+  { name: '門型 組立・解体', trade: '現場工事', persons: 2, hours: 4 },
+  { name: 'チェンブロックで吊り', trade: '現場工事', persons: 2, hours: 2 },
+  { name: 'トロリーで吊り出し', trade: '現場工事', persons: 2, hours: 1 },
+  { name: '開口・床養生', trade: '現場工事', persons: 1, hours: 2 },
+  { name: '仮設電源・配線', trade: '現場工事', persons: 1, hours: 2 },
+  { name: '芯出し・据付調整', trade: '整備', persons: 2, hours: 4 },
+];
+
 // 画面のボタンに出す名前。中の値（WORK_TYPES）とは別に持つ
 export const TEMPLATE_LABELS = {
   '修理・整備': '機械の修理・整備',
