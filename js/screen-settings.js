@@ -14,6 +14,7 @@ import {
 } from './firebase.js?v=2';
 import { openTallyPage } from './screen-tally.js?v=2';
 import { recordRateChange, tradeKey } from './rate-history.js?v=2';
+import { openActualsListPage, openActualEditPage } from './screen-handover.js?v=2';
 
 const RATE_DEFS = [
   ['material', '材料費 上乗せ%', '原価に対して'],
@@ -52,6 +53,13 @@ export function renderSettingsTab(container) {
         <div class="meta">発注統合名・単価変動ありフラグ</div></div>
       <div class="card" id="st-standing" style="cursor:pointer"><div class="ttl" style="font-size:14px">常設注番 ${cache.standingOrders.length}件</div>
         <div class="meta">工場・区分ごとの受け皿</div></div>
+      <div class="sec-head"><span class="ttl">実績</span><span class="rule"></span></div>
+      <div class="card" id="st-actuals" style="cursor:pointer"><div class="ttl" style="font-size:14px">完工した工事 ${cache.actuals.length}件</div>
+        <div class="meta">${cache.actuals.length < 3
+          ? 'あと' + (3 - cache.actuals.length) + '件たまると、相場ではなく「よつばの金額」で概算が出せます'
+          : '工事の種類ごとの実額。次の概算のもとになる'}</div></div>
+      <div class="card" id="st-actual-add" style="cursor:pointer"><div class="ttl" style="font-size:14px">過去の工事を入れる</div>
+        <div class="meta">見積が無い分。工事の種類／何人で何日／材料／請求額 の4つだけ</div></div>
       <div class="sec-head"><span class="ttl">集計表とExcel</span><span class="rule"></span></div>
       <div class="card" id="st-tally" style="cursor:pointer"><div class="ttl" style="font-size:14px">集計表を読み込む</div>
         <div class="meta">事務員さんの「納品書 材料集計表」から単価マスターを育てる</div></div>
@@ -78,6 +86,8 @@ export function renderSettingsTab(container) {
   container.querySelector('#st-customers').addEventListener('click', () => openNamedMaster('customers', '取引先', [['email', 'メール'], ['noWelfare', '法定福利費なし', 'bool']]));
   container.querySelector('#st-suppliers').addEventListener('click', () => openNamedMaster('suppliers', '仕入先', [['email', 'メール'], ['mergeName', '発注統合名'], ['priceVolatile', '単価変動あり', 'bool']]));
   container.querySelector('#st-standing').addEventListener('click', () => openNamedMaster('standingOrders', '常設注番', [['orderNo', '注番'], ['staff', '担当者']]));
+  container.querySelector('#st-actuals').addEventListener('click', openActualsListPage);
+  container.querySelector('#st-actual-add').addEventListener('click', () => openActualEditPage(null));
   container.querySelector('#st-tally').addEventListener('click', openTallyPage);
   container.querySelector('#st-export').addEventListener('click', exportItemsCsv);
   container.querySelector('#st-staff').addEventListener('click', () => document.dispatchEvent(new Event('open-staff-modal')));

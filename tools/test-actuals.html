@@ -28,6 +28,7 @@
   import { diffOf, diffRate, summarizeByWorkType, perManDay, newActual, ENOUGH_SAMPLES } from '../js/actuals.js?v=2';
   import { roughItemToLine, materialOriginOf, originVariance, MATERIAL_ORIGINS } from '../js/rough-store.js?v=2';
   import { describe as describeHistory, tradeKey, tradeNameOf, isTradeKey } from '../js/rate-history.js?v=2';
+  import { convertSummaryHtml, roughDiffHtml } from '../js/screen-handover.js?v=2';
 
   const out = document.getElementById('out');
   let pass = 0, fail = 0;
@@ -199,6 +200,66 @@
     // scope が無い時代の行は標準として読む
     eq('古い行も落ちない', describeHistory({ key: 'material', label: '材料費', from: 13, to: 15 }).where, '標準');
     eq('古い行の担当者は —', describeHistory({ key: 'material' }).who, '—');
+  }
+
+  // ---- 画面に出る文言（純粋な組み立て関数だけ確かめる） ----
+  head('本見積にする — 確認画面の中身');
+  {
+    const box = document.createElement('div');
+    const text = (h) => { box.innerHTML = h; return box.innerText.replace(/\s+/g, ' ').trim(); };
+    const items = [
+      { kind: '労務', state: '確定', chosen: 'yotsuba' }, { kind: '労務', state: '確定', chosen: 'yotsuba' },
+      { kind: '労務', state: '確定', chosen: 'yotsuba' }, { kind: '移動', state: '確定', chosen: 'yotsuba' },
+      { kind: '外注', state: '確定', chosen: 'yotsuba' }, { kind: '労務', state: '確定', chosen: 'yotsuba' },
+      { kind: '材料', name: '交換用モーター', state: '確定', chosen: 'market', marketAmount: 250000 },
+      { kind: '材料', name: 'カップリング一式', state: '単価待ち' },
+      { kind: '材料', name: '消耗部品一式', state: '確定', chosen: 'manual', manualAmount: 80000 },
+      { kind: '材料', name: 'アングル', state: '確定', chosen: 'yotsuba', qty: 3, cost: 1200 },
+    ];
+    const t = text(convertSummaryHtml({ photos: [{}, {}, {}, {}] }, items));
+    eq('概算はそのまま残ると書いてある', t.includes('概算はそのまま残ります'), true);
+    eq('写真 4枚', t.includes('写真 4枚'), true);
+    eq('作業の行 6件（人工そのまま）', t.includes('作業の行 6件（人工そのまま）'), true);
+    eq('単価マスターの材料は引き継ぐ側', t.includes('材料 1件（単価マスターから採ったもの）'), true);
+    eq('割り直すのは3件', t.includes('材料 3件'), true);
+    eq('相場は金額が出る', t.includes('相場 ￥250,000'), true);
+    eq('手直しは「直した」と出る', t.includes('直した ￥80,000'), true);
+    eq('単価待ちは金額を出さない', t.includes('カップリング一式 単価待ち'), true);
+
+    const none = text(convertSummaryHtml({}, [{ kind: '労務', state: '確定', chosen: 'yotsuba' }]));
+    eq('割り直しが無ければそう書く', none.includes('割り直しの要る材料はありません'), true);
+    eq('写真が無ければそう書く', none.includes('写真（まだありません）'), true);
+
+    const loading = text(convertSummaryHtml({}, null));
+    eq('読み込み中は件数を出さない', loading.includes('作業の行…'), true);
+    eq('読み込み中に「材料はありません」と言わない', loading.includes('割り直しの要る材料はありません'), false);
+  }
+
+  head('本見積の「概算との差」— 幅の中／超え／安い');
+  {
+    const box = document.createElement('div');
+    const text = (h) => { box.innerHTML = h; return box.innerText.replace(/\s+/g, ' ').trim(); };
+    const est = {
+      roughTotal: 1457280, roughBand: { low: 1350000, high: 1490000 },
+      roughKinds: { material: 402000, labor: 388000, travel: 26500, subcontract: 120000 },
+    };
+    const inside = text(roughDiffHtml(est, { material: 358000, labor: 424000, travel: 26500, subcontract: 120000, final: 1466300 }));
+    eq('材料費の差 −44,000', inside.includes('402,000 358,000 −44,000'), true);
+    eq('労務費の差 +36,000', inside.includes('388,000 424,000 +36,000'), true);
+    eq('税込合計の差 +9,020', inside.includes('1,457,280 1,466,300 +9,020'), true);
+    eq('幅の中に収まっている', inside.includes('の中に収まっています'), true);
+
+    const over = text(roughDiffHtml(est, { material: 478000, labor: 424000, travel: 26500, subcontract: 120000, final: 1566000 }));
+    eq('超えた額を出す', over.includes('￥1,490,000 を ￥76,000 超えています'), true);
+    eq('連絡をうながす', over.includes('出す前に、お客様に連絡してください'), true);
+    eq('超えても止めない（作り直せとは言わない）', over.includes('やり直'), false);
+
+    const under = text(roughDiffHtml(est, { material: 300000, labor: 300000, travel: 0, subcontract: 120000, final: 1200000 }));
+    eq('安く収まった', under.includes('より安く収まりました'), true);
+
+    eq('概算から来ていない見積には帯を出さない', roughDiffHtml({}, { final: 1 }), '');
+    eq('幅が焼き付いていなければ判定しない',
+       text(roughDiffHtml({ roughTotal: 100 }, { final: 100 })).includes('収まって'), false);
   }
 
   document.getElementById('summary').textContent =

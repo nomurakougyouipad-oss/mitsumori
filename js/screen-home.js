@@ -88,23 +88,5 @@ export function renderHome(container, opts = {}) {
   paint();
 }
 
-// 見積タブ: 自分の下書き・全状態の一覧（さがすの簡易版）
-export function renderEstimatesTab(container) {
-  const staffName = local.get('staff', '');
-  const mine = cache.estimates.filter((e) => e.staff === staffName);
-  container.innerHTML = `
-    <div class="screen"><div class="scroll">
-      <div class="sec-head"><span class="ttl">自分の見積</span><span class="cnt">${mine.length}</span><span class="rule"></span></div>
-      ${mine.length ? mine.map((e) => `
-        <div class="card" data-est="${e.id}" style="cursor:pointer">
-          <div style="display:flex;justify-content:space-between;align-items:baseline">
-            <div class="ttl" style="font-size:15px">${esc(e.projectName || '（工事名なし）')}</div>
-            <span style="font-size:11.5px;color:var(--muted2)">${esc(e.status || '')}</span>
-          </div>
-          <div class="meta num">${e.orderNo ? '注番 ' + esc(e.orderNo) : ''}　<span style="color:var(--navy);font-weight:700">${YEN(e.totalFinal || 0)}</span></div>
-        </div>`).join('') : '<div class="empty">まだありません</div>'}
-    </div></div>`;
-  container.querySelectorAll('[data-est]').forEach((el) => el.addEventListener('click', () => {
-    location.hash = '#est/' + el.dataset.est;
-  }));
-}
+// 見積タブは screen-handover.js の renderQuotesTab が持つ
+// （概算・本見積・完工を1本の流れで見せるため。ここにあった簡易版は畳んだ）

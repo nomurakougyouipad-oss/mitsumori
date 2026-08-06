@@ -18,6 +18,7 @@ import {
   openMaterialPage, openManualPage, openPendingPage,
   openLaborPage, openTravelPage, openSubcontractPage,
 } from './screen-material.js?v=2';
+import { roughDiffHtml } from './screen-handover.js?v=2';
 import { exportEstimateCsv } from './export.js?v=2';
 
 const KINDS = ['材料', '労務', '移動', '外注'];
@@ -98,6 +99,7 @@ export function renderEstScreen(container, estId) {
           <span class="sub">${coverBits.length ? esc(coverBits.join('・')) : '工事名・宛先・注番・スケッチ写真'}</span>
           <span style="color:var(--muted)">›</span>
         </button>
+        ${roughDiffHtml(est, t)}
         <div class="feetabs">
           ${KINDS.map((k) => `<div class="ftab ${k === kind ? 'on' : ''}" data-k="${k}">${KIND_LABEL[k]}<b>${byKind(k).length}</b></div>`).join('')}
         </div>

@@ -28,7 +28,7 @@ import { recordRateChange, tradeKey } from './rate-history.js?v=2';
 import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=2';
 import {
   DEFAULT_ROUGH_OPTIONS, WORK_TYPES, ITEM_KINDS,
-  resolveRates, resolveUnitRates, roughTotals, priceBand, counts,
+  resolveRates, resolveUnitRates, roughTotals, priceBand, counts, sumByKind,
 } from './rough-calc.js?v=2';
 
 const COL = 'roughEstimates';
@@ -431,6 +431,8 @@ export async function convertToEstimate(roughId, rough, items, staffName) {
     roughBand: rough.bandFrozen || null,
     roughTotal: rough.totalsFrozen?.withTax ?? rough.totalFinal ?? null,
     roughDate: rough.frozenAt || rough.updatedAt || null,
+    // 費目ごとの概算。本見積の「概算との差」の表に出す
+    roughKinds: roughKindsOf(rough, items, rates, unitRates),
     createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   });
 
@@ -441,6 +443,15 @@ export async function convertToEstimate(roughId, rough, items, staffName) {
   }
   await updateRough(roughId, { convertedEstimateId: est.id });
   return est.id;
+}
+
+// 概算の費目別（税抜・計上金額）。焼き付け済みならそれを使う。
+// 本見積画面の「概算との差」の表がこれを見る。
+function roughKindsOf(rough, items, rates, unitRates) {
+  const f = rough.totalsFrozen;
+  if (f) return { material: f.material, labor: f.labor, travel: f.travel, subcontract: f.subcontract };
+  const k = sumByKind(items, rates, unitRates, 'final');
+  return { material: k.材料, labor: k.労務, travel: k.移動, subcontract: k.外注 };
 }
 
 // 概算の材料は「一式いくら」。本見積では1本ずつに割り直す。

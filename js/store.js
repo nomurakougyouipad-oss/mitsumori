@@ -31,7 +31,9 @@ export const cache = {
   customers: [],
   suppliers: [],
   standingOrders: [],
-  estimates: [],      // 見積一覧（更新が新しい順）
+  estimates: [],      // 本見積の一覧（更新が新しい順）
+  roughs: [],         // 概算見積の一覧（同）
+  actuals: [],        // 実績（完工が新しい順）
 };
 
 const listeners = new Set();
@@ -65,6 +67,18 @@ export function startSubscriptions() {
     cache.estimates = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     emit();
   }, (e) => console.error('estimates購読失敗:', e));
+
+  // 概算見積。本見積とは別に持つ（上書きしないので、両方が一覧に並ぶ）
+  onSnapshot(query(collection(db, 'roughEstimates'), orderBy('updatedAt', 'desc')), (snap) => {
+    cache.roughs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    emit();
+  }, (e) => console.error('roughEstimates購読失敗:', e));
+
+  // 実績（完工）。ここが溜まると「よつばの金額」で概算が出せるようになる
+  onSnapshot(query(collection(db, 'actuals'), orderBy('completedAt', 'desc')), (snap) => {
+    cache.actuals = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    emit();
+  }, (e) => console.error('actuals購読失敗:', e));
 
   onSnapshot(collection(db, 'items'), (snap) => {
     cache.items = snap.docs.map((d) => {

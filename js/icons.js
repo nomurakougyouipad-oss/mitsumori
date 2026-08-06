@@ -23,4 +23,10 @@ export const icons = {
   caretDown: svg('<path d="m6 9.5 6 6 6-6"/>'),
   warning: svg('<path d="M12 2.5 22.5 20.5h-21z"/><path d="M12 9.5v5" stroke="#fff" fill="none"/><circle cx="12" cy="17.3" r="1.1" fill="#fff" stroke="none"/>', true),
   back: svg('<path d="M15 5l-7 7 7 7"/>'),
+  check: svg('<path d="m4.5 12.5 5 5 10-11"/>'),
+  checkCircle: svg('<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm5 7.4-6.2 6.9-3.8-3.6 1.4-1.5 2.3 2.2 4.8-5.4z"/>', true),
+  clock: svg('<circle cx="12" cy="12" r="9"/><path d="M12 7v5.3l3.4 2"/>'),
+  phone: svg('<path d="M7 3.5h3l1.6 4-2 1.4a12 12 0 0 0 5.5 5.5l1.4-2 4 1.6v3a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 5 5.7 2 2 0 0 1 7 3.5z"/>'),
+  flag: svg('<path d="M5.5 21V3.5h11l-1.6 3.6 1.6 3.6h-11"/>'),
+  arrowRight: svg('<path d="M4.5 12h14"/><path d="m13 6.5 5.5 5.5-5.5 5.5"/>'),
 };

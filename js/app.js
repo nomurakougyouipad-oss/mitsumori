@@ -8,7 +8,8 @@ import { icons } from './icons.js?v=2';
 import { toast, closeAllOverlays } from './ui.js?v=2';
 import { db, ready, collection, addDoc } from './firebase.js?v=2';
 import { startSubscriptions, onCacheChange, cache } from './store.js?v=2';
-import { renderHome, renderEstimatesTab } from './screen-home.js?v=2';
+import { renderHome } from './screen-home.js?v=2';
+import { renderQuotesTab } from './screen-handover.js?v=2';
 import { renderEstScreen, openCoverPage } from './screen-est.js?v=2';
 import { renderSearchTab } from './screen-order.js?v=2';
 import { renderSettingsTab } from './screen-settings.js?v=2';
@@ -166,7 +167,7 @@ function render() {
   const rootEl = document.getElementById('tab-root');
 
   if (state.tab === 'home') renderHome(rootEl);
-  else if (state.tab === 'estimates') renderEstimatesTab(rootEl);
+  else if (state.tab === 'estimates') renderQuotesTab(rootEl);
   else if (state.tab === 'search') renderSearchTab(rootEl);
   else renderSettingsTab(rootEl);
 }

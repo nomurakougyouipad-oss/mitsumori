@@ -27,6 +27,9 @@ const expect = {
   '../js/rate-history.js?v=2': ['SCOPES','tradeKey','isTradeKey','tradeNameOf','recordRateChange','describe','subscribeHistory','fetchHistory','forCustomer'],
   '../js/actuals.js?v=2': ['ACTUAL_SOURCES','ENOUGH_SAMPLES','newActual','addActual','updateActual','deleteActual','subscribeActuals','diffOf','diffRate','completeEstimate','summarizeByWorkType','perManDay'],
   '../js/screen-settings.js?v=2': ['renderSettingsTab','openPendingPricePage','openReviewsPage'],
+  '../js/screen-handover.js?v=2': ['renderQuotesTab','convertSummaryHtml','openConvertPage','roughDiffHtml','openCompletePage','openActualsListPage','openActualEditPage'],
+  '../js/screen-est.js?v=2': ['renderEstScreen','openCoverPage'],
+  '../js/screen-home.js?v=2': ['renderHome'],
 };
 let bad = 0;
 for (const [path, names] of Object.entries(expect)) {
