@@ -551,10 +551,71 @@ body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0
 .photo-grid .ph-add { width: 84px; height: 84px; border-radius: 6px; border: 1px dashed #B9C4CF;
   background: #fff; color: var(--muted); font-size: 12px; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
-.photo-view { position: fixed; inset: 0; z-index: 200; background: rgba(8,10,12,.95);
-  display: flex; flex-direction: column; }
-.photo-view img { flex: 1; min-height: 0; object-fit: contain; width: 100%; }
-.photo-view .pv-bar { flex: none; display: flex; justify-content: space-between; padding: 10px 16px calc(16px + env(safe-area-inset-bottom, 0px)); }
+/* ---------- 写真を大きく見る（ピンチで拡大・左右で送る） ----------
+   【なぜ自前で拡大するか】
+   index.html の viewport は user-scalable=no・maximum-scale=1、
+   app.css は * { touch-action: manipulation }。ブラウザの拡大は殺してある。
+   画面ぜんたいが拡大すると、ヘッダーもボタンも動いて操作できなくなるため。
+   だからここだけ、写真そのものを transform で拡大する（js/screen-rough.js）。
+   ページの拡大ではないので、上下のボタンは動かない。
+
+   .pv-stage の touch-action: none は必須。
+   これが無いと iOS が指の動きを先に取ってしまい、拡大も送りも効かない。 */
+.photo-view {
+  position: fixed; inset: 0; z-index: 200; background: rgba(8,10,12,.97);
+  display: flex; flex-direction: column;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.photo-view .pv-stage {
+  flex: 1; min-height: 0; overflow: hidden; position: relative;
+  touch-action: none;               /* 指の動きは全部こちらで受ける */
+  user-select: none; -webkit-user-select: none;
+}
+.photo-view .pv-track { display: flex; height: 100%; will-change: transform; }
+.photo-view .pv-slot {
+  flex: 0 0 100%; height: 100%; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.photo-view .pv-slot img {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+  will-change: transform; -webkit-user-drag: none; pointer-events: none;
+}
+/* PDFの図面は画像として開けない。潰れた画を出さずに、開く道を出す */
+.photo-view .pv-pdf {
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  color: #fff; font-size: 15px; text-align: center; padding: 24px;
+}
+/* 何枚目か・拡大しているか。指で隠れない上に置く */
+.photo-view .pv-top {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 10px 16px; color: rgba(255,255,255,.85); font-size: 13px;
+}
+.photo-view .pv-top .n { font-family: var(--mono); font-weight: 700; color: #fff; }
+.photo-view .pv-top .zoom { font-family: var(--mono); color: #9FD5BE; }
+.photo-view .pv-bar {
+  flex: none; display: flex; justify-content: space-between; gap: 10px;
+  padding: 10px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+/* ---------- 写真のページ（写真と図面の一覧） ----------
+   タイルは3列。軍手でも押し間違えない大きさ（1辺100px以上）にする */
+.ph-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+.ph-tile {
+  position: relative; aspect-ratio: 1; border-radius: 6px; overflow: hidden;
+  background: #5B6B7C; border: 0; padding: 0; cursor: pointer;
+}
+.ph-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ph-tile .lb {
+  position: absolute; left: 0; right: 0; bottom: 0; background: rgba(27,58,92,.85);
+  color: #fff; font-size: 10.5px; font-weight: 700; padding: 2px 0; text-align: center;
+}
+.ph-tile.pdf { background: #DDE3EA; display: grid; place-items: center; color: var(--navy); font-size: 13px; font-weight: 700; }
+.ph-add {
+  aspect-ratio: 1; border-radius: 6px; border: 1.5px dashed #A9B3BE; background: #fff;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  color: var(--navy); font-family: var(--font); font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.ph-add svg { font-size: 26px; }
 
 /* ---------- 写真から見積: 上の帯（畳まない） ----------
    【畳むのをやめた理由】2026/8/7
@@ -588,33 +649,31 @@ body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0
   color: rgba(255,255,255,.72); font-size: 11.5px; line-height: 1.3;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* 写真 ⇄ 概算 の行き来。増やしたのはこの1つだけ（芯5）。
+   両方のページで同じ場所・同じ大きさに置く。動く場所にあると探すことになる。
+   行き先の名前と件数を出す。いま居る場所は t1 が出している */
+.r-head .r-swap {
+  flex: none; height: 40px; padding: 0 10px;
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.34);
+  border-radius: 6px; color: #fff; font-family: var(--font); font-size: 13px; font-weight: 700;
+  cursor: pointer; white-space: nowrap;
+}
+.r-head .r-swap svg { font-size: 17px; }
+.r-head .r-swap b { font-family: var(--mono); font-size: 14px; }
+.r-head .r-swap:active { background: rgba(255,255,255,.3); }
 
-/* 写真・図面・すること の帯（項目が並んだあと）。1行・高さ40px。
-   ・ふやす／紙を撮る は左に固定する。横に流れる中に置くと、
-     写真が4枚を超えた時点で画面の外へ出て押せなくなる
-   ・サムネイルだけが横に流れる
-   ・すること は右で残り幅を取る（項目が並んだあとは見えていれば足りる） */
-.r-strip {
-  display: flex; align-items: center; gap: 6px;
-  background: #EEF0F3; padding: 6px 12px 7px;
-  border-bottom: 1px solid var(--line2);   /* ここから下がスクロールする、の境目 */
-}
-/* サムネイルは伸びない（0枚のとき空き地を抱え込ませない）。縮むだけ。
-   余った幅は すること に渡す。写真が増えたら両方が減って、
-   すること は min-width で止まる */
-.r-strip .r-thumbs {
-  flex: 0 1 auto; min-width: 0;
-  display: flex; align-items: center; gap: 6px;
-  overflow-x: auto; scrollbar-width: none;
-}
-.r-strip .r-thumbs::-webkit-scrollbar { display: none; }
-.r-strip .r-oneliner {
-  flex: 1 1 150px; min-width: 110px; height: 40px; margin-left: 2px;
-  display: flex; align-items: center; gap: 6px; padding: 0 8px 0 10px;
+/* すること（概算のページ）。上に貼り付けず、項目と一緒にスクロールさせる。
+   固定するものを減らすほど項目が見える。すること は書いたら用が済むもので、
+   ずっと見えている必要は無い（写真は別のページへ出した） */
+.r-oneliner {
+  width: 100%; min-height: 44px; margin: 8px 0 2px;
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 12px;
   background: #fff; border: 1px solid var(--line); border-radius: 6px;
-  font-family: var(--font); font-size: 13px; text-align: left; cursor: pointer;
+  font-family: var(--font); font-size: 14px; text-align: left; cursor: pointer;
 }
-.r-strip .r-oneliner .tx {
+.r-oneliner .lb { flex: none; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.r-oneliner .tx {
   flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
@@ -658,13 +717,8 @@ body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0
 
   /* 見積タブ・さがすの一覧も間延びさせない */
   #s-list, .est-list-scroll { max-width: 900px; margin: 0 auto; width: 100%; }
-  /* 写真・すること の帯も、下の項目一覧（900px中央）と左右を揃える。
-     帯は1行のflexなので、中の要素を絞らず左右の余白で寄せる。
-     一覧側は 900px の中にさらに左右12pxの余白を持っているので、そのぶんも足す */
-  .r-strip {
-    padding-left: max(12px, calc((100% - 900px) / 2 + 12px));
-    padding-right: max(12px, calc((100% - 900px) / 2 + 12px));
-  }
+  /* 写真の一覧も間延びさせない（項目一覧と同じ900px中央） */
+  .ph-scroll { max-width: 900px; margin: 0 auto; width: 100%; }
 }
 
 /* ---------- 1280px以上: ホームは3列 ---------- */

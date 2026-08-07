@@ -5,58 +5,58 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>写真から見積 — 高さの確認</title>
 <!-- ============================================================
-     写真から見積の「上の帯・項目カード・下の帯」の高さを実寸で見る用。
+     「概算のページ」と「写真のページ」の高さを実寸で見る用。
      Firebase を通さずに screen-rough.js と同じマークアップだけを並べる。
      ※ここを直したら screen-rough.js 側も同じに直すこと（見た目の写しなので）
      ============================================================ -->
 <link rel="stylesheet" href="../app.css?v=33">
 <style>
   body { margin:0; background:#333; font-family:"Noto Sans JP",system-ui,sans-serif; }
-  .phone { width:390px; height:844px; margin:12px auto; background:#EEF0F3; overflow:hidden;
+  .row { display:flex; flex-wrap:wrap; gap:16px; padding:12px; }
+  .phone { width:390px; height:844px; background:#EEF0F3; overflow:hidden;
            display:flex; flex-direction:column; position:relative; }
   .phone .scroll { flex:1; overflow-y:auto; padding:0 12px 12px; }
   .tabfake { flex:none; height:57px; background:#fff; border-top:1px solid #D9DEE4;
              display:flex; align-items:center; justify-content:center; font-size:11px; color:#8A96A3; }
+  .cap { color:#fff; font-size:12px; padding:0 12px; }
   #out { color:#fff; font-family:"IBM Plex Mono",monospace; font-size:12px; padding:12px 20px; line-height:1.9; white-space:pre; }
 </style>
 </head>
 <body>
-<div class="phone" id="phone">
-  <div class="r-top" id="r-top">
-    <div class="r-head">
-      <button class="r-back">&lsaquo;</button>
-      <button class="r-title">
-        <span class="t1">写真から見積</span>
-        <span class="t2">駆動装置モーター更新及び駆動部オーバーホール工事</span>
-      </button>
+<div class="row">
+  <div>
+    <div class="cap">概算のページ</div>
+    <div class="phone" id="est">
+      <div class="r-top"><div class="r-head" id="head1"></div></div>
+      <div class="scroll" id="sc"></div>
+      <div id="band"></div>
+      <div class="tabfake">タブバー 57px</div>
     </div>
-    <div class="r-strip" id="r-strip"></div>
   </div>
-  <div class="scroll" id="sc"></div>
-  <div id="band"></div>
-  <div class="tabfake">タブバー 57px</div>
+  <div>
+    <div class="cap">写真のページ</div>
+    <div class="phone" id="pho">
+      <div class="r-top"><div class="r-head" id="head2"></div></div>
+      <div class="scroll" id="ph"></div>
+      <div class="tabfake">タブバー 57px</div>
+    </div>
+  </div>
 </div>
 <div id="out"></div>
 
 <script>
-const PHOTOS = 4, PLANS = 1;
-const S = 'width:40px;height:40px;border-radius:5px;flex:none;overflow:hidden;position:relative;background:#5B6B7C';
-const ADD = 'width:40px;height:40px;border-radius:5px;border:1.5px dashed #A9B3BE;background:#fff;'
-  + 'display:grid;place-items:center;color:#1B3A5C;flex:none;font-size:18px';
+const CAM = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor"><circle cx="12" cy="13" r="4"/><path d="M4 7h4l2-2h4l2 2h4v12H4z" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+const LST = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor"><rect x="3" y="5" width="18" height="2"/><rect x="3" y="11" width="18" height="2"/><rect x="3" y="17" width="12" height="2"/></svg>';
 
-document.getElementById('r-strip').innerHTML = `
-  <button style="${ADD}">📷</button>
-  <button style="${ADD}">📄</button>
-  <div class="r-thumbs">
-    ${Array.from({length:PHOTOS},()=>`<div style="${S}"></div>`).join('')}
-    ${Array.from({length:PLANS},()=>`<div style="${S};background:#DDE3EA;border:1px solid #C3CBD4">
-      <span style="position:absolute;left:0;right:0;bottom:0;background:rgba(27,58,92,.85);color:#fff;
-        font-size:9px;text-align:center">図面</span></div>`).join('')}
-  </div>
-  <button class="r-oneliner" style="color:#16202B">
-    <span class="tx">ポンプの駆動部を全部やりかえ</span>
-    <span style="color:#8A96A3;font-size:16px;flex:none">✎</span>
-  </button>`;
+const head = (t1, to, n) => `
+  <button class="r-back">&lsaquo;</button>
+  <button class="r-title">
+    <span class="t1">${t1}</span>
+    <span class="t2">駆動装置モーター更新及び駆動部オーバーホール工事</span>
+  </button>
+  <button class="r-swap">${to === '写真' ? CAM : LST}${to}<b>${n}</b></button>`;
+document.getElementById('head1').innerHTML = head('概算', '写真', 5);
+document.getElementById('head2').innerHTML = head('写真', '概算', 11);
 
 const CARD = 'background:#fff;border:1px solid #D9DEE4;border-radius:6px;padding:8px 12px';
 const TITLE = 'font-size:16px;font-weight:700;color:#16202B;line-height:1.25';
@@ -76,7 +76,6 @@ const labor = (n) => `
       <button style="${SUB}">くわしく›</button>
     </div>
   </div>`;
-
 const mat = (n) => `
   <div class="card-mat" style="${CARD}">
     <div style="display:flex;align-items:center;gap:10px">
@@ -87,13 +86,17 @@ const mat = (n) => `
   </div>`;
 
 document.getElementById('sc').innerHTML = `
+  <button class="r-oneliner" style="color:#16202B">
+    <span class="lb">すること</span>
+    <span class="tx">ポンプの駆動部を全部やりかえ</span>
+    <span style="color:#8A96A3;font-size:16px;flex:none">✎</span></button>
   <div class="sec" style="display:flex;align-items:center;gap:8px;padding:7px 2px 6px">
     <span style="font-size:13px;font-weight:700;color:#1B3A5C">読み取った項目</span>
     <span style="font-family:monospace;font-size:13px;font-weight:700;color:#7A8794">11件</span>
     <span style="flex:1;height:1px;background:#D2D8E0"></span>
     <span style="font-size:11.5px;color:#1F6B5B;font-weight:700">11件 確定</span>
   </div>
-  <div id="list" style="display:flex;flex-direction:column;gap:6px">
+  <div style="display:flex;flex-direction:column;gap:6px">
     ${labor('駆動部オーバーホール')}${mat('モーター 22kW')}${labor('据付・芯出し')}
     ${labor('試運転立会い')}${mat('カップリング一式')}${labor('現場までの移動')}
     ${labor('錆落とし・下地')}${mat('塗料一式')}
@@ -114,25 +117,56 @@ document.getElementById('band').innerHTML = `
     </div>
   </div>`;
 
-const h = (el) => Math.round(el.getBoundingClientRect().height);
+const secHead = (t, n, note) => `
+  <div class="ph-sec" style="display:flex;align-items:center;gap:8px;padding:12px 2px 8px">
+    <span style="font-size:13px;font-weight:700;color:#1B3A5C">${t}</span>
+    <span style="font-family:monospace;font-size:13px;font-weight:700;color:#7A8794">${n}</span>
+    <span style="flex:1;height:1px;background:#D2D8E0"></span>
+    ${note ? `<span style="font-size:11.5px;color:#8A96A3">${note}</span>` : ''}
+  </div>`;
+const tile = (c, lb) => `<button class="ph-tile" style="background:${c}">${lb ? `<span class="lb">${lb}</span>` : ''}</button>`;
+document.getElementById('ph').innerHTML = `
+  ${secHead('現場の写真', '5枚', '押すと大きく見えます')}
+  <div class="ph-grid">
+    ${tile('#2E5C8A')}${tile('#8A5C2E')}${tile('#2E8A5C')}${tile('#5C2E8A')}${tile('#8A2E5C')}
+    <button class="ph-add">${CAM}ふやす</button>
+  </div>
+  ${secHead('図面・スケッチ', '1枚', '')}
+  <div class="ph-grid">
+    ${tile('#7A8794', '図面')}
+    <button class="ph-add">${CAM}紙を撮る</button>
+  </div>
+  <div style="font-size:11.5px;color:#8A96A3;padding:10px 2px 0;line-height:1.7">
+    指2本でひろげると大きくなります。継手の形や銘板の文字はここで確かめてください。<br>
+    写真を消すのは、大きくしたあとの画面からです。</div>
+  <div style="height:12px"></div>`;
+
+const h = (el) => Math.round((typeof el === 'string' ? document.querySelector(el) : el).getBoundingClientRect().height);
 const sc = document.getElementById('sc');
-const laborH = h(document.querySelector('.card-labor'));
-const matH = h(document.querySelector('.card-mat'));
-const secH = h(document.querySelector('.sec'));
-const usable = h(sc) - secH;
+const laborH = h('.card-labor'), matH = h('.card-mat'), secH = h('.sec'), oneH = h('.r-oneliner');
+const usable = h(sc) - secH - oneH - 10;
+const iphone = h(sc) - 81;          // 上47＋下34（セーフエリア）
 document.getElementById('out').textContent =
-`端末 390 x 844（セーフエリア0のブラウザ実測）
-ヘッダー .r-head    ${h(document.querySelector('.r-head'))} px
-写真の帯 .r-strip   ${h(document.querySelector('.r-strip'))} px
-上ぜんたい .r-top   ${h(document.getElementById('r-top'))} px
-下の金額の帯        ${h(document.getElementById('bandbox'))} px
-スクロールできる高さ ${h(sc)} px
-  うち見出し        ${secH} px
-労務カード1枚        ${laborH} px（間 6px → 送り ${laborH + 6}）
-材料カード1枚        ${matH} px（間 6px → 送り ${matH + 6}）
-一度に見える枚数     労務なら ${(usable / (laborH + 6)).toFixed(1)} 枚 / 材料なら ${(usable / (matH + 6)).toFixed(1)} 枚
-すること の幅        ${Math.round(document.querySelector('.r-oneliner').getBoundingClientRect().width)} px
-サムネイル欄の幅     ${Math.round(document.querySelector('.r-thumbs').getBoundingClientRect().width)} px`;
+`端末 390 x 844（ブラウザ実測・セーフエリア0）
+
+【概算のページ】貼り付いているのは ヘッダー と 金額の帯 だけ
+  ヘッダー .r-head      ${h('.r-head')} px
+  下の金額の帯          ${h('#bandbox')} px
+  スクロールできる高さ  ${h(sc)} px
+    すること           ${oneH} px（一緒にスクロールする）
+    見出し             ${secH} px
+  労務カード1枚         ${laborH} px（間 6px → 送り ${laborH + 6}）
+  材料カード1枚         ${matH} px（間 6px → 送り ${matH + 6}）
+  一度に見える枚数      労務なら ${(usable / (laborH + 6)).toFixed(1)} 枚
+  iPhone換算(上47下34)  スクロール ${iphone} → ${((iphone - secH - oneH - 10) / (laborH + 6)).toFixed(1)} 枚
+  ※すること まで送れば さらに ${(oneH / (laborH + 6)).toFixed(1)} 枚ぶん増える
+
+【写真のページ】貼り付いているのは ヘッダー だけ
+  スクロールできる高さ  ${h('#ph')} px
+  タイル1枚             ${h('.ph-tile')} px（3列）
+  見出し                ${h('.ph-sec')} px
+  行き来ボタン .r-swap  ${Math.round(document.querySelector('.r-swap').getBoundingClientRect().width)} x ${h('.r-swap')} px
+  工事名に残る幅        ${Math.round(document.querySelector('#head1 .t2').getBoundingClientRect().width)} px`;
 </script>
 </body>
 </html>

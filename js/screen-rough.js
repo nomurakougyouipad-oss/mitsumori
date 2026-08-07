@@ -1,5 +1,12 @@
 // ============================================================
-// 写真から見積（画面1）— AIがまだ無い版
+// 写真から見積（画面1）
+//
+// 【2枚に分けてある】2026/8/7
+//   写真・すること・項目を1枚に載せると、どれも狭くなって全部が中途半端だった。
+//     写真のページ … 写真と図面の一覧／1枚を全画面／ピンチで拡大／足す・消す／左右で送る
+//     概算のページ … すること と 項目一覧
+//   行き来はヘッダー右の1つのボタンだけ（.r-swap）。増やしたのはこれだけ（芯5）。
+//   ボタンは両方のページで同じ場所に置く。ページごとに動くと探すことになる。
 //
 // 【いまできること】
 //   写真を撮って貼る（あとでAIが読む。今は残すだけ）
@@ -34,6 +41,7 @@ import { generateItems, generateByTemplate, isAiAvailable } from './rough-genera
 import { buildQuoteText, subjectOf, addressOf, pendingNames } from './rough-quote.js?v=33';
 import { TEMPLATE_LABELS, templateRowCount } from './rough-templates.js?v=33';
 import { openItemDetailPage } from './screen-item.js?v=33';
+import { openPhotoViewer as openPhotoViewerUI, isPdf } from './photo-viewer.js?v=33';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
@@ -50,6 +58,23 @@ export function renderRoughScreen(container, roughId) {
   let qOpen = false;        // ききたいことを開いているか。既定は畳む（芯2）
   let scrollY = 0;          // 描き直しても見ていた場所に留まるように持ち回る
   let lastBig = null;       // 直前が「まだ項目が無い」画面だったか
+  let page = null;          // '写真' | '概算'。最初の1回だけ中身から決める（decidePage）
+  let viewer = null;        // 開いている写真ビューア（写真が増減したら中身を入れ替える）
+
+  // まっさらな見積（写真も項目も無い）は写真のページから始める。
+  // 「写真を撮る → 概算」の順に作るので、最初に開くのは写真の方が近い。
+  // 一度でも自分でボタンを押したら、その選択を尊重して勝手に戻さない。
+  //
+  // 【items.length だけで見ない】最初の描き直しは見積の本体が届いた時点で走る。
+  // 明細はまだ後から届くので、そのとき items は必ず空。
+  // それだけで決めると、項目が入っている見積を開くたびに写真のページへ飛ぶ。
+  // 見積の本体に写してある itemsCount（saveRoughSummary）で見る。
+  function decidePage() {
+    if (page) return;
+    const noPhoto = !(rough.photos || []).length;
+    const noItem = !(rough.itemsCount > 0) && items.length === 0;
+    page = (noPhoto && noItem) ? '写真' : '概算';
+  }
 
   const stops = [
     subscribeRough(roughId, (r) => {
@@ -103,117 +128,91 @@ export function renderRoughScreen(container, roughId) {
   const NAVY_GRAD = 'linear-gradient(180deg,#24507A 0%,#1B3A5C 100%)';
 
   // ---------- ヘッダー ----------
-  // 寸法・色は app.css の .r-head が持つ。
-  // 画面の名前と工事名は1行に並べる（2段だと 61px、1行なら 48px）。
-  // どちらも消していない。並べ方を変えただけ。
+  // 寸法・色は app.css の .r-head が持つ。1行48px。
+  //   t1     … いま居るページ（写真／概算）
+  //   t2     … 工事名。押すと表紙の情報
+  //   r-swap … もう一方のページへ。行き先の名前と件数を出す
+  // 「写真から見積」という名前はページが2枚になったので t1 では出さない。
+  // どの見積かは工事名で分かるし、一覧やタブ側では概算見積のままにしてある。
   function headerHtml() {
+    const nPhoto = (rough.photos || []).length;
+    const to = page === '写真'
+      ? { label: '概算', n: items.length, icon: icons.listSearch, aria: `概算のページへ（項目${items.length}件）` }
+      : { label: '写真', n: nPhoto, icon: icons.images, aria: `写真のページへ（${nPhoto}枚）` };
     return `
       <div class="r-head">
         <button id="r-back" class="r-back">‹</button>
         <button id="r-cover" class="r-title">
-          <span class="t1">写真から見積</span>
+          <span class="t1">${page === '写真' ? '写真' : '概算'}</span>
           <span class="t2">${esc(rough.projectName || '工事名を入れる')}</span>
         </button>
+        <button id="r-swap" class="r-swap" aria-label="${esc(to.aria)}">
+          ${to.icon}${to.label}<b>${to.n}</b>
+        </button>
       </div>`;
   }
 
-  // ---------- 写真（項目を出す前・モックの①） ----------
-  function photosHtml() {
+  // ---------- 写真のページ ----------
+  // 写真と図面を一覧で見る。押すと1枚を全画面（openPhotoViewer）。
+  // 消すのはビューアの中。一覧のタイルに×を付けると、見たいだけで押した人が
+  // 消しかける。押すところも倍になる（芯5）。
+  //
+  // PDFで来た図面は <img> では出せない。潰れた画を出さずにPDFの札を出して、
+  // ビューアから別のアプリで開けるようにする。無言で壊れて見えるのが一番悪い。
+  // 判定は photo-viewer.js の isPdf と1つにしてある（見分け方が2つに割れないように）。
+  function tileHtml(p) {
+    if (isPdf(p)) {
+      return `<button class="ph-tile pdf" data-ph="${esc(p.path)}" aria-label="図面のPDFを見る">PDF
+        <span class="lb">図面</span></button>`;
+    }
+    return `
+      <button class="ph-tile" data-ph="${esc(p.path)}" aria-label="この写真を大きく見る">
+        <img src="${esc(p.url)}" alt="" loading="lazy">
+        ${p.role === '図面' ? '<span class="lb">図面</span>' : ''}
+      </button>`;
+  }
+
+  function photoPageHtml() {
     const list = rough.photos || [];
     const site = list.filter((p) => p.role !== '図面');
     const plans = list.filter((p) => p.role === '図面');
-    const s = 78;
-
-    const thumb = (p) => `
-      <div data-ph="${esc(p.path)}" style="width:${s}px;height:${s}px;border-radius:6px;background:#5B6B7C;
-        flex:none;position:relative;overflow:hidden;cursor:pointer">
-        <img src="${esc(p.url)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">
-      </div>`;
-
-    const planThumb = (p) => `
-      <div data-ph="${esc(p.path)}" style="width:${s}px;height:${s}px;border-radius:6px;background:#DDE3EA;
-        border:1px solid #C3CBD4;display:flex;align-items:flex-end;justify-content:center;flex:none;
-        overflow:hidden;position:relative;cursor:pointer">
-        <img src="${esc(p.url)}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
-        <span style="position:relative;background:#1B3A5C;color:#fff;font-size:10px;padding:2px 5px;margin-bottom:4px">図面</span>
+    const head = (t, n, note) => `
+      <div style="display:flex;align-items:center;gap:8px;padding:12px 2px 8px">
+        <span style="font-size:13px;font-weight:700;color:#1B3A5C">${t}</span>
+        <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:#7A8794">${n}</span>
+        <span style="flex:1;height:1px;background:#D2D8E0"></span>
+        ${note ? `<span style="font-size:11.5px;color:#8A96A3">${note}</span>` : ''}
       </div>`;
 
     return `
-      <div style="display:flex;gap:8px;padding:12px 0 4px">
-        ${site.map(thumb).join('')}
-        <button id="ph-site" style="width:${s}px;height:${s}px;border-radius:6px;border:1.5px dashed #A9B3BE;
-          background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
-          color:#1B3A5C;flex:none;cursor:pointer;font-family:var(--font)">
-          <span style="font-size:26px;display:grid;place-items:center">${icons.camera}</span>
-          <span style="font-size:11px;font-weight:700">ふやす</span>
-        </button>
+      ${head('現場の写真', `${site.length}枚`, '押すと大きく見えます')}
+      <div class="ph-grid">
+        ${site.map(tileHtml).join('')}
+        <button id="ph-site" class="ph-add" aria-label="現場の写真をふやす">
+          ${icons.camera}ふやす</button>
       </div>
-      <div style="font-size:11.5px;color:#8A96A3;padding:6px 2px 0">現場の写真 ${site.length}枚</div>
 
-      <div style="font-size:13px;font-weight:700;color:#1B3A5C;padding:12px 0 6px">図面・スケッチ（あれば）</div>
-      <div style="display:flex;align-items:center;gap:8px">
-        ${plans.map(planThumb).join('')}
-        <button id="ph-plan" style="width:${s}px;height:${s}px;border-radius:6px;border:1.5px dashed #A9B3BE;
-          background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
-          color:#1B3A5C;flex:none;cursor:pointer;font-family:var(--font)">
-          <span style="font-size:24px;display:grid;place-items:center">${icons.camera}</span>
-          <span style="font-size:11px;font-weight:700">紙を撮る</span>
-        </button>
-        <div style="flex:1;font-size:11.5px;color:#8A96A3;line-height:1.5">
-          ${plans.length ? `図面 ${plans.length}枚を残しています` : '図面があれば<br>あとで寸法も読み取ります'}</div>
-      </div>`;
+      ${head('図面・スケッチ', `${plans.length}枚`, '')}
+      <div class="ph-grid">
+        ${plans.map(tileHtml).join('')}
+        <button id="ph-plan" class="ph-add" aria-label="図面をふやす">
+          ${icons.filePlus}紙を撮る</button>
+      </div>
+      <div style="font-size:11.5px;color:#8A96A3;padding:10px 2px 0;line-height:1.7">
+        指2本でひろげると大きくなります。継手の形や銘板の文字はここで確かめてください。<br>
+        写真を消すのは、大きくしたあとの画面からです。
+      </div>
+      <div style="height:12px"></div>`;
   }
 
-  // ---------- すること（項目を出す前・モックの①） ----------
+  // ---------- すること（概算のページ） ----------
+  // 項目と一緒にスクロールさせる。書いたら用が済むもので、貼り付けておく値打ちは無い。
+  // 貼り付けるものを減らすほど項目が見える。
   function oneLinerHtml() {
     return `
-      <div style="padding:14px 0 0">
-        <div style="font-size:13px;font-weight:700;color:#1B3A5C;padding-bottom:6px">すること</div>
-        <button id="r-oneliner" style="width:100%;min-height:52px;background:#fff;border:1px solid #D9DEE4;
-          border-radius:6px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;
-          font-size:16px;font-family:var(--font);text-align:left;cursor:pointer;
-          color:${rough.oneLiner ? '#16202B' : '#A9B3BE'}">
-          <span style="flex:1;min-width:0;line-height:1.4">${esc(rough.oneLiner || 'ポンプの駆動部を全部やりかえ')}</span>
-          <span style="color:#8A96A3;font-size:18px;flex:none;display:grid;place-items:center">${icons.pencil}</span>
-        </button>
-      </div>`;
-  }
-
-  // ---------- 写真・図面・すること の帯（項目が並んだあと） ----------
-  // 【なぜ小さくしたか】ここが約190pxあったので、項目が2つ半しか見えなかった。
-  // 写真と一言は「項目を出す前」に入れるもので、出したあとは見えていれば足りる。
-  // 押すところは前と同じ（写真を見る／写真をふやす／図面／すること）。増やしていない。
-  //
-  // 【1行にした理由】2026/8/7
-  //   前は2段（サムネイル40px＋すること40px＝104px）で、下へスクロールすると
-  //   畳んでいた。実機で動きが引っかかり、かえって見にくかった。
-  //   畳むのをやめて1行54pxにした。常に出したまま、動かない。
-  //   「写真N・図面N」の件数は落とした。サムネイルそのものが件数を表しているし、
-  //   足した直後はトーストが枚数を言う。数字を出すために1行使う値打ちは無い。
-  //   ふやす／紙を撮る は横に流れる中に置かない。写真が増えると画面の外へ出て
-  //   押せなくなるため、左に固定して常に同じ場所に置く（app.css の .r-strip）。
-  function stripHtml() {
-    const list = rough.photos || [];
-    const site = list.filter((p) => p.role !== '図面');
-    const plans = list.filter((p) => p.role === '図面');
-    const S = 'width:40px;height:40px;border-radius:5px;flex:none;overflow:hidden;position:relative;cursor:pointer';
-    const ADD = 'width:40px;height:40px;border-radius:5px;border:1.5px dashed #A9B3BE;background:#fff;'
-      + 'display:grid;place-items:center;color:#1B3A5C;flex:none;cursor:pointer;font-size:18px';
-
-    return `
-      <button id="ph-site" style="${ADD}" aria-label="写真をふやす（いま${site.length}枚）">${icons.camera}</button>
-      <button id="ph-plan" style="${ADD}" aria-label="図面をふやす（いま${plans.length}枚）">${icons.filePlus}</button>
-      <div class="r-thumbs">
-        ${site.map((p) => `<div data-ph="${esc(p.path)}" style="${S};background:#5B6B7C">
-          <img src="${esc(p.url)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>`).join('')}
-        ${plans.map((p) => `<div data-ph="${esc(p.path)}" style="${S};background:#DDE3EA;border:1px solid #C3CBD4">
-          <img src="${esc(p.url)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">
-          <span style="position:absolute;left:0;right:0;bottom:0;background:rgba(27,58,92,.85);color:#fff;
-            font-size:9px;text-align:center">図面</span></div>`).join('')}
-      </div>
-      <button id="r-oneliner" class="r-oneliner"
-        style="color:${rough.oneLiner ? '#16202B' : '#A9B3BE'}">
-        <span class="tx">${esc(rough.oneLiner || 'すること')}</span>
+      <button id="r-oneliner" class="r-oneliner" style="color:${rough.oneLiner ? '#16202B' : '#A9B3BE'}">
+        <span class="lb">すること</span>
+        <span class="tx">${esc(rough.oneLiner || '一言で（例）ポンプの駆動部を全部やりかえ')}</span>
         <span style="color:#8A96A3;font-size:16px;flex:none;display:grid;place-items:center">${icons.pencil}</span>
       </button>`;
   }
@@ -480,21 +479,23 @@ export function renderRoughScreen(container, roughId) {
   }
 
   // ---------- 全体 ----------
-  // 項目が無いあいだ（モックの①）は写真・すること・「項目を出す」を本文に置く。
-  // 項目が並んだら、写真とすることは上の帯（.r-strip）へ移して本文を項目だけにする。
-  // 本文が項目だけになるので、スクロールの長さが項目の数そのものになる。
+  // ページは2枚。貼り付いているのはヘッダー（48px）だけ。
+  //   写真 … 一覧だけ。下の金額の帯は出さない（写真を大きく並べる方が要る）
+  //   概算 … すること＋項目一覧。下に金額の帯（常に見える）
+  // すること は概算の本文に入れて一緒にスクロールさせる。
+  // 貼り付けるものが減ったぶん、項目が一度に見える数が増えている。
   function paint() {
     if (!rough) return;
+    decidePage();
     const { rates, unitRates, band, c } = calcAll();
     const unanswered = questions.filter((q) => !q.answer);
     const asking = unanswered.filter((q) => !q.deferred);   // まだ聞きたい
     const later = unanswered.filter((q) => q.deferred);     // ［あとで］で脇へどけた
-    const big = items.length === 0;          // まだ項目が無いとき＝モックの①
-    // ①→②に変わる瞬間は中身が丸ごと入れ替わる。前の位置は引き継がない
+    const big = items.length === 0;          // まだ項目が無いとき
+    // 中身が丸ごと入れ替わる境目では、前の位置を引き継がない
     if (lastBig !== big) { lastBig = big; scrollY = 0; }
 
-    const body = big ? `
-      ${photosHtml()}
+    const estBody = big ? `
       ${oneLinerHtml()}
       ${generateHtml()}
       <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
@@ -503,6 +504,7 @@ export function renderRoughScreen(container, roughId) {
         <div style="font-size:14px;color:#6B7783;text-align:center;line-height:1.8">
           「項目を出す」を押すと、ここに項目が並びます。<br>金額はあとから一つずつ直せます。</div>
       </div>` : `
+      ${oneLinerHtml()}
       <div style="display:flex;align-items:center;gap:8px;padding:7px 2px 6px">
         <span style="font-size:13px;font-weight:700;color:#1B3A5C">読み取った項目</span>
         <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:#7A8794">${c.items}件</span>
@@ -519,19 +521,18 @@ export function renderRoughScreen(container, roughId) {
       </div>
       <div style="height:10px"></div>`;
 
+    const photo = page === '写真';
     setHtmlKeepScroll(container, `
       <div class="screen" style="background:#EEF0F3">
-        <div class="r-top" id="r-top">
-          ${headerHtml()}
-          ${big ? '' : `<div class="r-strip">${stripHtml()}</div>`}
+        <div class="r-top" id="r-top">${headerHtml()}</div>
+        <div class="scroll ${photo ? 'ph-scroll' : 'est-list-scroll'}" id="r-scroll" style="padding:0 12px 12px">
+          ${photo ? photoPageHtml() : estBody}
         </div>
-        <div class="scroll est-list-scroll" id="r-scroll" style="padding:0 12px 12px">
-          ${body}
-        </div>
-        ${bandHtml(band, c)}
+        ${photo ? '' : bandHtml(band, c)}
       </div>`);
 
     bind();
+    if (viewer) viewer.refresh(rough.photos || []);   // 開いているビューアにも増減を伝える
   }
 
   // ---------- 見ていた場所を覚えるだけ ----------
@@ -539,7 +540,8 @@ export function renderRoughScreen(container, roughId) {
   //   前はここでスクロールの向きを見て .r-top に collapsed を付け外ししていた。
   //   実機だと畳むたびに再レイアウトが走って動きが引っかかり、
   //   片手で見ている現場では目で追えなかった。
-  //   場所は動きで作らず、最初から薄く作る（app.css の .r-head / .r-strip）。
+  //   場所は動きで作らず、最初から薄く作る（app.css の .r-head）。
+  //   足りなければページを分ける（写真は別ページへ出した）。
   //   ここに畳む処理を戻さないこと。
   //
   //   残しているのは scrollTop の記録だけ。＋8h を押すと Firestore の
@@ -553,27 +555,36 @@ export function renderRoughScreen(container, roughId) {
   }
 
   // ---------- 操作 ----------
+  // ページが2枚になったので、片方にしか無いボタンがある。
+  // 無ければ黙って何もしない on() を通す（q(...).addEventListener だと落ちる）。
   function bind() {
     const q = (s) => container.querySelector(s);
     const all = (s) => container.querySelectorAll(s);
+    const on = (s, fn) => { const el = q(s); if (el) el.addEventListener('click', fn); };
 
     bindScroll();
     // 入ってきたタブへ戻す（ホームから入ればホーム）。app.js が覚えている
-    q('#r-back').addEventListener('click', () => {
+    on('#r-back', () => {
       location.hash = sessionStorage.getItem('lastTab') || '#estimates';
     });
-    q('#r-cover').addEventListener('click', () => openRoughCover(roughId, () => rough));
+    on('#r-cover', () => openRoughCover(roughId, () => rough));
 
-    q('#ph-site').addEventListener('click', () => pickPhoto('現場'));
-    q('#ph-plan').addEventListener('click', () => pickPhoto('図面'));
+    // 写真 ⇄ 概算。増やしたのはこの1つだけ（芯5）
+    on('#r-swap', () => {
+      page = page === '写真' ? '概算' : '写真';
+      scrollY = 0;            // 別のページなので、前のページの位置は引き継がない
+      paint();
+    });
+
+    on('#ph-site', () => pickPhoto('現場'));
+    on('#ph-plan', () => pickPhoto('図面'));
     // 写真は押したら「大きく見る」。消すのは その中のボタンから。
     // 見たいだけで押した人に、いきなり削除を聞かない。
     all('[data-ph]').forEach((el) => el.addEventListener('click', () => {
-      const p = (rough.photos || []).find((x) => x.path === el.dataset.ph);
-      if (p) viewPhoto(p);
+      openPhotoViewer(el.dataset.ph);
     }));
 
-    q('#r-oneliner').addEventListener('click', () => {
+    on('#r-oneliner', () => {
       openTextInput({
         title: 'すること', value: rough.oneLiner || '', multiline: true,
         placeholder: '例）ポンプの駆動部を全部やりかえ',
@@ -584,7 +595,7 @@ export function renderRoughScreen(container, roughId) {
 
     // 工事の種類は表紙で選ぶ（モックにこの画面のボタンが無いため）
     all('.r-gen').forEach((el) => el.addEventListener('click', generate));
-    q('#r-add').addEventListener('click', addBlank);
+    on('#r-add', addBlank);
 
     // 項目のくわしい中身（手順の内訳・行ごと消す）
     all('[data-steps]').forEach((el) => el.addEventListener('click', () => {
@@ -592,7 +603,7 @@ export function renderRoughScreen(container, roughId) {
     }));
     // 文面を作る前に、そのときの率と金額を焼き付ける。
     // 客に出した金額と、あとで見る金額がずれないようにするため。
-    q('#r-quote').addEventListener('click', async () => {
+    on('#r-quote', async () => {
       await save({ quiet: true });
       openQuotePage(roughId, () => ({ rough, items, ...calcAll() }));
     });
@@ -660,24 +671,20 @@ export function renderRoughScreen(container, roughId) {
     });
   }
 
-  // 写真を大きく見る。AIが一致を出しても元の写真は必ず残す（CLAUDE.md）ので、
-  // ここはいつでも開けるようにしておく。
-  function viewPhoto(p) {
-    const root = document.getElementById('modal-root');
-    const v = document.createElement('div');
-    v.className = 'photo-view';
-    v.innerHTML = `
-      <img src="${esc(p.url)}" alt="">
-      <div class="pv-bar">
-        <button class="btn btn-danger" id="pv-del">この写真を消す</button>
-        <button class="btn" id="pv-x" style="color:#fff;border-color:#fff;background:transparent">閉じる</button>
-      </div>`;
-    root.appendChild(v);
-    v.querySelector('#pv-x').addEventListener('click', () => v.remove());
-    v.querySelector('#pv-del').addEventListener('click', async () => {
-      if (!(await confirmDialog('この写真を消しますか?', '消す'))) return;
-      try { await removePhoto(roughId, p.path); v.remove(); }
-      catch (e) { console.error(e); toast('消せませんでした'); }
+  // 写真を大きく見る（ピンチで拡大・左右で送る）。中身は js/photo-viewer.js。
+  // ここは「どの写真を渡すか」「消すと決まったら Firestore をどう触るか」だけ持つ。
+  // ビューア側は Firebase を知らないので、tools/test-photo-viewer.html から
+  // 実物のまま指の動きを試せる（写しを作らない）。
+  function openPhotoViewer(startPath) {
+    if (viewer) return;
+    viewer = openPhotoViewerUI({
+      photos: rough.photos || [],
+      startPath,
+      onDelete: async (p) => {
+        try { await removePhoto(roughId, p.path); }
+        catch (e) { console.error(e); toast('消せませんでした'); }
+      },
+      onClose: () => { viewer = null; },
     });
   }
 
@@ -795,7 +802,12 @@ export function renderRoughScreen(container, roughId) {
     finally { busy = false; }
   }
 
-  return () => stops.forEach((s) => s && s());
+  // 画面を離れるとき。開いたままの写真ビューアも一緒に閉じる
+  // （閉じないと、別の画面の上に全画面の写真が残る）
+  return () => {
+    if (viewer) viewer.close();
+    stops.forEach((s) => s && s());
+  };
 }
 
 // ============================================================

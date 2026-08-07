@@ -5,7 +5,7 @@
 // （zaiko-shohin から流用）
 // ============================================================
 
-const VERSION = 'v53';
+const VERSION = 'v54';
 const CACHE = 'mitsumori-' + VERSION;
 
 // アプリシェル（オフラインでも起動できる最小セット）
@@ -41,6 +41,7 @@ const SHELL = [
   './js/actuals.js?v=33',
   './js/screen-handover.js?v=33',
   './js/screen-rough.js?v=33',
+  './js/photo-viewer.js?v=33',
   './js/rough-templates.js?v=33',
   './js/rough-generate.js?v=33',
   './js/rough-quote.js?v=33',

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>写真ビューア — 指の動きの確認</title>
+<!-- ============================================================
+     写真ビューア（ピンチ拡大・左右送り・2回たたく）を Firebase なしで試す台。
+     screen-rough.js の openPhotoViewer と同じ理屈を、同じ手順で動かす。
+     ※ロジックを直したら、こちらも同じに直すこと
+     下の「自動でためす」は指の動きを PointerEvent で作って流し込む。
+     実機で触る前に、理屈が合っているかをここで確かめる。
+     ============================================================ -->
+<link rel="stylesheet" href="../app.css?v=33">
+<style>
+  body { margin:0; background:#EEF0F3; font-family:"Noto Sans JP",system-ui,sans-serif; }
+  .wrap { padding:16px; }
+  .wrap h1 { font-size:16px; margin-bottom:12px; }
+  .wrap .btn { margin-right:8px; margin-bottom:8px; }
+  #log { font-family:"IBM Plex Mono",monospace; font-size:12px; line-height:1.9; white-space:pre-wrap;
+         background:#fff; border:1px solid #D9DEE4; border-radius:6px; padding:12px; margin-top:12px; }
+  .ok { color:#177a49; } .ng { color:#b3261e; font-weight:700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>写真ビューア — 指の動きの確認</h1>
+  <button class="btn" id="open">開く（写真3枚）</button>
+  <button class="btn" id="run">自動でためす</button>
+  <div id="log">「自動でためす」を押してください。</div>
+</div>
+<div id="modal-root"></div>
+
+<script type="module">
+// 本体をそのまま読む。写しを作らない（写しだけ直って本体が古いまま残るため）
+import { openPhotoViewer } from '../js/photo-viewer.js?v=33';
+const openTestViewer = (photos, startPath) => openPhotoViewer({
+  photos, startPath, onDelete: async () => {}, onClose: () => {},
+});
+
+// 色の違う3枚を作る（銘板の代わり。拡大したときに粒が見えるよう細かい線を描く）
+function fakePhoto(n, color) {
+  const c = document.createElement('canvas');
+  c.width = 1200; c.height = 900;
+  const g = c.getContext('2d');
+  g.fillStyle = color; g.fillRect(0, 0, 1200, 900);
+  g.strokeStyle = 'rgba(255,255,255,.5)';
+  for (let x = 0; x < 1200; x += 6) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 900); g.stroke(); }
+  g.fillStyle = '#fff'; g.font = 'bold 200px sans-serif'; g.textAlign = 'center';
+  g.fillText(String(n), 600, 520);
+  return { path: `p${n}.jpg`, url: c.toDataURL('image/png'), role: n === 3 ? '図面' : '現場' };
+}
+const PHOTOS = [fakePhoto(1, '#2E5C8A'), fakePhoto(2, '#8A5C2E'), fakePhoto(3, '#2E8A5C')];
+
+const log = document.getElementById('log');
+const say = (t, cls) => { log.innerHTML += `\n<span class="${cls || ''}">${t}</span>`; };
+
+let vw = null;
+document.getElementById('open').addEventListener('click', () => { vw = openTestViewer(PHOTOS, 'p1.jpg'); });
+
+// ---------- 指を作る ----------
+let pid = 1;
+function finger(el, type, id, x, y) {
+  el.dispatchEvent(new PointerEvent(type, {
+    pointerId: id, clientX: x, clientY: y, bubbles: true, pointerType: 'touch', isPrimary: id === 1,
+  }));
+}
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function pinch(el, cx, cy, from, to, steps = 8) {
+  const a = pid++, b = pid++;
+  finger(el, 'pointerdown', a, cx - from / 2, cy);
+  finger(el, 'pointerdown', b, cx + from / 2, cy);
+  for (let k = 1; k <= steps; k++) {
+    const d = from + (to - from) * (k / steps);
+    finger(el, 'pointermove', a, cx - d / 2, cy);
+    finger(el, 'pointermove', b, cx + d / 2, cy);
+    await wait(8);
+  }
+  finger(el, 'pointerup', a, cx - to / 2, cy);
+  finger(el, 'pointerup', b, cx + to / 2, cy);
+  await wait(20);
+}
+async function drag(el, x0, y0, x1, y1, steps = 8) {
+  const a = pid++;
+  finger(el, 'pointerdown', a, x0, y0);
+  for (let k = 1; k <= steps; k++) {
+    await wait(8);
+    finger(el, 'pointermove', a, x0 + (x1 - x0) * (k / steps), y0 + (y1 - y0) * (k / steps));
+  }
+  finger(el, 'pointerup', a, x1, y1);
+  await wait(20);
+}
+async function tap(el, x, y) { const a = pid++; finger(el, 'pointerdown', a, x, y); await wait(10); finger(el, 'pointerup', a, x, y); }
+
+const scaleOf = (img) => {
+  const m = /scale\(([\d.]+)\)/.exec(img?.style.transform || '');
+  return m ? Number(m[1]) : 1;
+};
+
+document.getElementById('run').addEventListener('click', async () => {
+  log.innerHTML = '試しています…';
+  document.querySelectorAll('.photo-view').forEach((e) => e.remove());
+  const v = openTestViewer(PHOTOS, 'p1.jpg');
+  await wait(60);
+  const root = document.querySelector('.photo-view');
+  const stage = root.querySelector('#pv-stage');
+  const r = stage.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const img = () => root.querySelector('.pv-slot:nth-child(2) img');
+  const idx = () => root.querySelector('#pv-i').textContent;
+  let ng = 0;
+  const check = (name, cond, got) => { say(`${cond ? '✓' : '✗'} ${name}  ${got}`, cond ? 'ok' : 'ng'); if (!cond) ng++; };
+
+  check('最初は1枚目・等倍', idx() === '1' && scaleOf(img()) === 1, `${idx()}枚目 ${scaleOf(img())}倍`);
+
+  await pinch(stage, cx, cy, 80, 260);
+  const zoomed = scaleOf(img());
+  check('指2本でひろげると拡大する', zoomed > 2, `${zoomed.toFixed(2)}倍`);
+
+  await drag(stage, cx, cy, cx - 120, cy);
+  check('拡大中は指1本で送らない（中を動かすだけ）', idx() === '1', `${idx()}枚目`);
+
+  await pinch(stage, cx, cy, 260, 60);
+  check('つまむと等倍に戻る', scaleOf(img()) === 1, `${scaleOf(img()).toFixed(2)}倍`);
+
+  await drag(stage, cx + 120, cy, cx - 120, cy);
+  await wait(320);
+  check('等倍で左へなぞると次の写真', idx() === '2', `${idx()}枚目`);
+
+  await drag(stage, cx - 120, cy, cx + 120, cy);
+  await wait(320);
+  check('右へなぞると前の写真', idx() === '1', `${idx()}枚目`);
+
+  await drag(stage, cx - 120, cy, cx + 120, cy);
+  await wait(320);
+  check('1枚目より前へは行かない', idx() === '1', `${idx()}枚目`);
+
+  await drag(stage, cx + 120, cy, cx + 100, cy);   // 20pxだけ
+  await wait(320);
+  check('少しだけ動かしたら送らない', idx() === '1', `${idx()}枚目`);
+
+  await tap(stage, cx, cy); await wait(40); await tap(stage, cx, cy);
+  await wait(40);
+  check('2回たたくと拡大', scaleOf(img()) > 2, `${scaleOf(img()).toFixed(2)}倍`);
+  await tap(stage, cx, cy); await wait(40); await tap(stage, cx, cy);
+  await wait(40);
+  check('もう2回たたくと等倍', scaleOf(img()) === 1, `${scaleOf(img()).toFixed(2)}倍`);
+
+  await pinch(stage, cx, cy, 60, 900, 14);
+  check('上限6倍で止まる', scaleOf(img()) <= 6.001, `${scaleOf(img()).toFixed(2)}倍`);
+  await pinch(stage, cx, cy, 900, 40, 14);
+
+  await drag(stage, cx + 120, cy, cx - 120, cy); await wait(320);
+  await drag(stage, cx + 120, cy, cx - 120, cy); await wait(320);
+  check('3枚目（図面）まで送れる', idx() === '3', `${idx()}枚目`);
+  check('図面の札が出る', root.querySelector('#pv-role').textContent === '図面', `「${root.querySelector('#pv-role').textContent}」`);
+  await drag(stage, cx + 120, cy, cx - 120, cy); await wait(320);
+  check('最後より先へは行かない', idx() === '3', `${idx()}枚目`);
+
+  // 写真が減ったときに追いつくか
+  v.refresh(PHOTOS.slice(0, 2));
+  await wait(40);
+  check('写真が減ったら最後の1枚に寄る', root.querySelector('#pv-n').textContent === '2' && idx() === '2',
+    `${idx()}/${root.querySelector('#pv-n').textContent}`);
+  v.refresh([]);
+  await wait(40);
+  check('0枚になったら閉じる', !document.querySelector('.photo-view'), document.querySelector('.photo-view') ? '開いたまま' : '閉じた');
+
+  say(`\n${ng === 0 ? '全部とおりました。' : `${ng}件 だめでした。`}`, ng === 0 ? 'ok' : 'ng');
+});
+</script>
+</body>
+</html>
