@@ -3,13 +3,17 @@
 //
 // 【概算もここに出す】現場の人が最初に開くのはホーム。
 // 見積タブまで行かないと概算が無い状態だと、概算は使われない。
-// だから一覧の一番上に「概算」を置き、下のボタンも概算を主にしている。
+// だから一覧の一番上に「概算」を置いている。
+//
+// 【下のボタンは1つだけ】仕事は必ず概算から始まる。だから最初に押すものは1つでよい。
+// 本見積の入口はここに置かない（概算の「本見積にする」からつながる）。
+// 概算と本見積のボタンを縦に並べていたころは、現場で押し間違いが出ていた（芯5）。
 // ============================================================
 
 import { esc, YEN, fmtDateJa, local } from './util.js?v=33';
 import { icons } from './icons.js?v=33';
 import { toast } from './ui.js?v=33';
-import { cache, createEstimate } from './store.js?v=33';
+import { cache } from './store.js?v=33';
 import { createRough } from './rough-store.js?v=33';
 import { isEmptyQuote } from './screen-handover.js?v=33';
 import { openOrderWaitPage, confirmDeleteEstimate } from './screen-order.js?v=33';
@@ -104,7 +108,6 @@ export function renderHome(container, opts = {}) {
         </div>
         <div class="bottom-action">
           <button class="btn btn-primary btn-block btn-big" id="new-rough">${icons.camera}あたらしい概算</button>
-          <button class="btn btn-block" id="new-estimate" style="height:48px;margin-top:8px">${icons.plus}あたらしい本見積</button>
         </div>
       </div>`;
 
@@ -134,15 +137,6 @@ export function renderHome(container, opts = {}) {
         sessionStorage.setItem('openRoughCover', id); // 新規はまず表紙を開く
         location.hash = '#rough/' + id;
       } catch (e) { console.error(e); toast('作れませんでした'); b.disabled = false; }
-    });
-    container.querySelector('#new-estimate').addEventListener('click', async (ev) => {
-      const b = ev.currentTarget;
-      b.disabled = true;
-      try {
-        const id = await createEstimate(local.get('staff', ''));
-        sessionStorage.setItem('openCover', id); // 新規はまず表紙を開く
-        location.hash = '#est/' + id;
-      } catch (e) { console.error(e); toast('作成できませんでした'); b.disabled = false; }
     });
   }
 
