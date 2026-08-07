@@ -7,7 +7,8 @@ import { esc, local } from './util.js?v=33';
 import { icons } from './icons.js?v=33';
 import { toast, closeAllOverlays } from './ui.js?v=33';
 import { ready } from './firebase.js?v=33';
-import { startSubscriptions, onCacheChange, cache, createEstimate, addStaff } from './store.js?v=33';
+import { startSubscriptions, onCacheChange, cache, addStaff } from './store.js?v=33';
+import { createRough } from './rough-store.js?v=33';
 import { renderHome } from './screen-home.js?v=33';
 import { renderQuotesTab } from './screen-handover.js?v=33';
 import { renderRoughScreen, openRoughCover } from './screen-rough.js?v=33';
@@ -170,6 +171,10 @@ function openStaffModal(closable = true) {
 // アプリを開いて最初の1枚。スプラッシュ（自動で消える）の後に出て、
 // 押すまで待つ。タブバーもヘッダーも出さない。
 // ※ 見積の「表紙の情報」ページ（openCoverPage）とは別物
+//
+// 【概算へ向ける】仕事は必ず概算から始まる。ここから本見積へ直行する道が
+// 残っていると、ホームのボタンを1つ（あたらしい概算）に絞った意味が無くなる。
+// 本見積は概算の「本見積にする」からつながる。
 function renderStartCover(app) {
   document.body.classList.remove('has-tabbar');
   app.innerHTML = `
@@ -179,7 +184,7 @@ function renderStartCover(app) {
         <div class="rule"></div>
       </div>
       <div class="acts">
-        <button class="btn btn-block cover-primary" id="cv-new">あたらしい見積もり</button>
+        <button class="btn btn-block cover-primary" id="cv-new">あたらしい概算</button>
         <button class="btn btn-block cover-ghost" id="cv-list">見積もり中</button>
       </div>
     </div>`;
@@ -188,9 +193,9 @@ function renderStartCover(app) {
     const b = e.currentTarget;
     b.disabled = true;
     try {
-      const id = await createEstimate(local.get('staff', ''));
-      sessionStorage.setItem('openCover', id);   // 新規はまず見積の表紙情報を開く
-      location.hash = '#est/' + id;
+      const id = await createRough(local.get('staff', ''));
+      sessionStorage.setItem('openRoughCover', id);   // 新規はまず表紙を開く
+      location.hash = '#rough/' + id;
     } catch (err) {
       console.error(err);
       toast('作成できませんでした。電波を確認してください');
