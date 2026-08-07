@@ -18,15 +18,18 @@ import { functions, httpsCallable } from './firebase.js?v=33';
 // ---------- AIが使えるか ----------
 // 画面はこれを見て「AIで出す」か「ひな形から出す」かの見せ方を変える。
 //
-// 【いまは false のまま。残っているのはデプロイだけ】
+// 【true にする前に確かめたこと】2026/8/7
 //   受付のコード（functions/index.js）… 書いた
-//   firebase deploy --only functions  … ★まだ
+//   firebase deploy --only functions  … 済
+//   受付が実際に呼べること … 済（外から叩いて確認。
+//     Cloud Run の門前払いが消え、受付自身がJSONで返すところまで見た）
+//   App Check が弾いていること … 済（鍵を持たない呼び出しは Unauthenticated）
 //
-// デプロイ前に true にすると、現場が「項目を出す」を押した瞬間に
-// 「AIにつながりませんでした」で止まる。受付が動いてから true にすること。
+// デプロイ前に true にすると、現場が「項目を出す」を押した瞬間に止まる。
+// 「動くはず」で true にしないこと。実際に呼んで確かめてから。
 // 直すのはこの1行だけ。画面は1行も触らない。
 export function isAiAvailable() {
-  return false;
+  return true;
 }
 
 export const SOURCES = { TEMPLATE: 'template', AI: 'ai' };

@@ -71,14 +71,35 @@
 どちらも済んだので実装した。
 使いはじめた日から記録が残らないと、半年後に実績が0件になる。だから保存が先だった。
 
-現状: **受付のコードは書いた。スイッチは切ったまま。**
+現状: **入っている**（2026/8/7）
 
-- 受付 [functions/index.js](functions/index.js) … 実装済
-- `firebase deploy --only functions` … まだ
-- `isAiAvailable()`（[js/rough-generate.js](js/rough-generate.js)）… `false`
+- 受付 [functions/index.js](functions/index.js) … 実装済・デプロイ済
+- `isAiAvailable()`（[js/rough-generate.js](js/rough-generate.js)）… `true`
 
-**AIのスイッチはこの1行だけ。** デプロイが済んでから `true` にする。
-デプロイ前に `true` にすると、現場が「項目を出す」を押した瞬間に止まる。
+**AIのスイッチはこの1行だけ。** 止めたいときはここを `false` に戻して push する。
+
+### 入口の守り（触る前に読むこと）
+
+受付は静的サイトから呼ぶので、入口は**誰からでも届く場所**に置くしかない。
+そのままでは、公開されている apiKey を見た誰でも通れてAIの料金を焼かれる。
+だから**締めてから開けた**。この順番を逆にしないこと。
+
+| 守り | 中身 |
+|---|---|
+| App Check | reCAPTCHA Enterprise。[js/firebase.js](js/firebase.js) で初期化、受付側は `enforceAppCheck: true` |
+| Anthropic の上限 | 月 $10・通知 $5（抜けられても、ここで止まる） |
+
+- **App Check は受付にだけ効かせている。** Firestore と Storage には強制しない。
+  そこまで締めると、電波の悪い現場で下書きの保存まで巻き添えで止まる（芯2）
+- ドメインは `nomurakougyouipad-oss.github.io` で登録済み。**別のドメインで開くと通らない**
+- 組織ポリシー「共有先のドメインを制限」を `mitsumori-35e9d` だけ外してある。
+  外さないと Cloud Run が門前払いして、受付までそもそも届かない
+
+### 「動くはず」で true にしない
+
+デプロイが成功しただけでは動かない。実際に外から呼んで、
+**受付自身がJSONを返すところまで**見てから `true` にすること。
+（デプロイ成功と、アプリから呼べることは別。一度これで踏みかけた）
 
 ---
 
