@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AIの受付につながるか</title>
+<!-- ============================================================
+     「世の中の相場が1件も出ない」を切り分ける用。
+
+     見たいのは順番に3つ。
+       ① 受付（Firebase Functions）にそもそも届くか
+          → 届かないと画面はひな形に戻る。ひな形に相場は入らない
+       ② 届くなら、AIが marketAmount を返しているか
+          → null ばかりなら聞き方（functions/index.js の SYSTEM）の問題
+       ③ 写真が読めているか（photosRead）
+
+     ※このページは実際にAIを呼ぶ。料金がかかる（1回数十円）。
+       むやみに押さないこと。上限は月$10で止まる。
+     ============================================================ -->
+<link rel="stylesheet" href="../app.css?v=33">
+<style>
+  body { margin:0; background:#EEF0F3; font-family:"Noto Sans JP",system-ui,sans-serif; padding:16px; }
+  h1 { font-size:17px; margin-bottom:4px; }
+  .sub { font-size:12.5px; color:#6B7783; line-height:1.8; margin-bottom:14px; }
+  .btn { margin:4px 6px 4px 0; }
+  pre { background:#fff; border:1px solid #D9DEE4; border-radius:6px; padding:12px;
+        font-size:12px; line-height:1.8; white-space:pre-wrap; word-break:break-all; max-width:900px; }
+  .ok { color:#177a49; font-weight:700; }
+  .ng { color:#b3261e; font-weight:700; }
+  .warn { color:#8A560F; font-weight:700; }
+</style>
+</head>
+<body>
+<h1>AIの受付につながるか</h1>
+<div class="sub">
+  項目が全部「よつばの単価」で「世の中の相場」が出ないときに、<br>
+  <b>受付に届いていない</b>のか <b>AIが相場を返していない</b>のかを分けます。<br>
+  <b class="warn">実際にAIを呼ぶので料金がかかります（1回数十円）。押しすぎないでください。</b>
+</div>
+<button class="btn" id="run">受付を呼んでみる（写真なし）</button>
+<button class="btn" id="runp">いちばん新しい概算の写真で呼ぶ</button>
+<pre id="o">ボタンを押してください。</pre>
+
+<script type="module">
+import { db, ready, functions, httpsCallable, collection, getDocs, query, orderBy, limit } from '../js/firebase.js?v=33';
+
+const o = document.getElementById('o');
+const say = (s, cls) => { o.innerHTML += `\n<span class="${cls || ''}">${s}</span>`; };
+
+async function call(photoPaths) {
+  o.textContent = '呼んでいます…（30秒〜2分かかります）';
+  const t0 = Date.now();
+  try {
+    // 【先に匿名ログインを待つ】待たずに呼ぶと request.auth が無く、
+    // 受付が unauthenticated を返す。それを見て「届かない」と誤診しかねない。
+    await ready;
+    const fn = httpsCallable(functions, 'estimateFromPhotos', { timeout: 540000 });
+    const res = await fn({ workType: '修理・整備', oneLiner: 'ポンプの駆動部を全部やりかえ', photoPaths });
+    const sec = ((Date.now() - t0) / 1000).toFixed(1);
+    const d = res.data || {};
+    const items = d.items || [];
+    say(`\n① 受付に届いた: <span class="ok">はい</span>（${sec}秒）`);
+    say(`③ 写真: 渡した ${photoPaths.length}枚 ／ 読めた ${d.photosRead ?? '—'}枚 ／ 飛ばした ${d.photosSkipped ?? 0}枚`,
+      photoPaths.length && d.photosRead === 0 ? 'ng' : '');
+
+    const withMarket = items.filter((i) => typeof i.marketAmount === 'number');
+    say(`\n② 相場つきの項目: <span class="${withMarket.length ? 'ok' : 'ng'}">${withMarket.length} / ${items.length} 件</span>`);
+    if (!withMarket.length && items.length) {
+      say('  → 受付には届いている。AIが marketAmount を null で返している。', 'warn');
+      say('     直すのは functions/index.js の SYSTEM（聞き方）。画面側ではない。', 'warn');
+    }
+    say('\n返ってきた項目:');
+    for (const i of items) {
+      const m = typeof i.marketAmount === 'number' ? `相場 ${i.marketAmount.toLocaleString('ja-JP')}` : '相場 null';
+      const y = (typeof i.qty === 'number' && typeof i.cost === 'number')
+        ? `よつば ${(i.qty * i.cost).toLocaleString('ja-JP')}`
+        : (typeof i.persons === 'number' && typeof i.hours === 'number')
+          ? `よつば ${i.persons}人×${i.hours}h`
+          : 'よつば なし';
+      say(`  ${String(i.kind).padEnd(2, '　')} ${i.name} ／ ${y} ／ ${m} ／ state=${i.state}`);
+    }
+    say(`\nききたいこと: ${(d.questions || []).length}件`);
+    for (const q of (d.questions || [])) say(`  ・${q.text}`);
+  } catch (e) {
+    const sec = ((Date.now() - t0) / 1000).toFixed(1);
+    say(`\n① 受付に届いた: <span class="ng">いいえ</span>（${sec}秒）`);
+    say(`  code: ${e.code || '—'}`, 'ng');
+    say(`  message: ${e.message || e}`, 'ng');
+    say('\n読み方:', 'warn');
+    say('  unauthenticated  … App Check か匿名ログインで弾かれた。');
+    say('                     このドメイン(github.io)以外で開くと必ずこうなる。');
+    say('  internal / unavailable … 受付までは届いたが、AI側で失敗した。');
+    say('  deadline-exceeded … 時間切れ。写真が多すぎるか電波が悪い。');
+    say('\n※画面はこのとき黙ってひな形に戻る。ひな形に「世の中の相場」は入らない。', 'warn');
+  }
+}
+
+document.getElementById('run').addEventListener('click', () => call([]));
+document.getElementById('runp').addEventListener('click', async () => {
+  o.textContent = 'いちばん新しい概算をさがしています…';
+  try {
+    const s = await getDocs(query(collection(db, 'roughEstimates'), orderBy('createdAt', 'desc'), limit(1)));
+    const d = s.docs[0]?.data();
+    const paths = (d?.photos || []).map((p) => p.path).filter(Boolean);
+    if (!paths.length) { o.textContent = '写真のある概算が見つかりませんでした。'; return; }
+    o.textContent = `「${d.projectName || '（工事名なし）'}」の写真 ${paths.length}枚 で呼びます…`;
+    await call(paths);
+  } catch (e) {
+    o.textContent = '概算を読めませんでした: ' + (e.message || e);
+  }
+});
+</script>
+</body>
+</html>

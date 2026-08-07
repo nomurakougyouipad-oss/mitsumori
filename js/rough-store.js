@@ -280,9 +280,14 @@ export async function deleteQuestion(roughId, qid) {
 // 【縮めてから送る】
 //   iPadの写真は1枚3MB。4枚で11.8MBになり、受付の上限12MBの直下だった。
 //   あと1枚で、写真が無言で落ちる状態だった（2026/8/7 実機で確認）。
-//   長辺2000pxあればAIは十分読める。画面で見るぶんにも足りる。
 //   ついでにHEICもJPEGになる。受付はHEICを扱えないので、これで落ちなくなる。
-const PHOTO_MAX_EDGE = 2000;
+//
+// 【1600pxにした理由】2026/8/7
+//   2000pxだと1枚1.5〜2MB。現場の電波で5枚送ると相当待たされる。
+//   1600px・品質85なら1枚1MB以下になり、待ち時間がだいたい半分になる。
+//   AIが読むにはこれで足りる（銘板の文字は画面のピンチ拡大の方で見る）。
+//   ここを上げると通信量と待ち時間がそのまま増える。上げるときは現場で計ること。
+const PHOTO_MAX_EDGE = 1600;
 const PHOTO_QUALITY = 0.85;
 
 async function shrinkImage(file) {
@@ -306,8 +311,12 @@ async function shrinkImage(file) {
   return new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
 }
 
-export async function uploadPhoto(roughId, file, role = '現場') {
+// onStage … 'shrink' | 'upload' のどちらをやっているか呼び側へ返す。
+// 縮める処理は端末の中で数秒かかることがあるので、そこも「何もしていない」に見せない。
+export async function uploadPhoto(roughId, file, role = '現場', onStage) {
+  onStage?.('shrink');
   const sending = await shrinkImage(file);
+  onStage?.('upload', sending.size || 0);
   const safe = String(sending.name || 'photo').replace(/[^\w.-]/g, '_').slice(-40);
   const path = `roughPhotos/${roughId}/${Date.now()}_${safe}`;
   const sref = storageRef(storage, path);
@@ -317,6 +326,24 @@ export async function uploadPhoto(roughId, file, role = '現場') {
   const photos = [...(snap.data()?.photos || []), { path, url, role, at: Date.now() }];
   await updateRough(roughId, { photos });
   return { path, url, role };
+}
+
+// ---------- 項目の出どころを残す ----------
+// AIで出したのか、ひな形に戻ったのか。トーストは消えるので見積本体に残す。
+// これが無いと「AIが相場を出さない」のか「そもそもAIが動いていない」のか
+// あとから誰にも分からない（芯4・止まったものが見える）。
+export async function saveGenerateResult(roughId, info) {
+  await updateRough(roughId, {
+    lastGenerate: {
+      source: info.source || '',        // 'ai' | 'template'
+      photosSent: info.photosSent ?? 0,
+      photosRead: info.photosRead ?? null,
+      items: info.items ?? 0,
+      at: Date.now(),
+      by: info.by || '',
+      why: info.why || '',              // ひな形に戻ったときの理由
+    },
+  });
 }
 
 export async function removePhoto(roughId, path) {

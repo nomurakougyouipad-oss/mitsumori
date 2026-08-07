@@ -35,7 +35,7 @@ import {
 import {
   subscribeRough, subscribeRoughItems, subscribeRoughQuestions,
   effectiveRates, optionsFor, updateRough, addItems, deleteItem,
-  addItem, decideItem, markPending,
+  addItem, decideItem, markPending, saveGenerateResult,
   uploadPhoto, removePhoto, saveRoughSummary, freezeRough, addQuestion, answerQuestion, deferQuestion,
 } from './rough-store.js?v=33';
 import { generateItems, generateByTemplate, isAiAvailable } from './rough-generate.js?v=33';
@@ -59,6 +59,9 @@ export function renderRoughScreen(container, roughId) {
   let lastBig = null;       // 直前が「まだ項目が無い」画面だったか
   let page = null;          // '写真' | '概算'。最初の1回だけ中身から決める（decidePage）
   let viewer = null;        // 開いている写真ビューア（写真が増減したら中身を入れ替える）
+  // 写真を送っている最中の中身。null なら送っていない
+  //   { done, total, failed, stage:'shrink'|'upload' }
+  let sending = null;
 
   // まっさらな見積（写真も項目も無い）は写真のページから始める。
   // 「写真を撮る → 概算」の順に作るので、最初に開くのは写真の方が近い。
@@ -171,6 +174,34 @@ export function renderRoughScreen(container, roughId) {
       </button>`;
   }
 
+  // ---------- 写真を送っている最中 ----------
+  // 【何も起きていないように見えた】2026/8/7
+  //   写真を選んだあと画面が何も変わらず、失敗したのか待てばいいのか分からなかった。
+  //   1枚ならすぐ終わるが、5枚だと現場の電波では相当かかる。
+  //   何枚目まで済んだかを出す。送り終わった写真はそのまま下の一覧に出る
+  //   （Firestore の通知で1枚ずつ増える）ので、進んでいることが2重に分かる。
+  //   縮めている最中も出す。端末の中の処理でも数秒かかることがあるため。
+  function sendingHtml() {
+    if (!sending) return '';
+    const { done, total, failed, stage } = sending;
+    const pct = Math.round((done / Math.max(1, total)) * 100);
+    return `
+      <div style="background:#fff;border:1px solid #D9DEE4;border-left:4px solid #1B3A5C;border-radius:6px;
+        padding:12px 14px;margin-top:12px">
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <span style="font-size:14px;font-weight:700;color:#1B3A5C">写真を送っています</span>
+          <span style="flex:1"></span>
+          <span style="font-family:var(--mono);font-size:16px;font-weight:700;color:#16202B">${done + 1 > total ? total : done + 1}枚目</span>
+          <span style="font-size:12px;color:#8A96A3">／ ${total}枚</span>
+        </div>
+        <div class="send-bar"><div style="width:${pct}%"></div></div>
+        <div style="font-size:12px;color:#6B7783;padding-top:6px;line-height:1.6">
+          ${stage === 'shrink' ? '小さくしています…' : '送っています…'}
+          送り終わった写真から下に出ます。${failed ? `<br><b style="color:#BA7517">${failed}枚は送れませんでした</b>` : ''}
+        </div>
+      </div>`;
+  }
+
   function photoPageHtml() {
     const list = rough.photos || [];
     const site = list.filter((p) => p.role !== '図面');
@@ -184,17 +215,18 @@ export function renderRoughScreen(container, roughId) {
       </div>`;
 
     return `
+      ${sendingHtml()}
       ${head('現場の写真', `${site.length}枚`, '押すと大きく見えます')}
       <div class="ph-grid">
         ${site.map(tileHtml).join('')}
-        <button id="ph-site" class="ph-add" aria-label="現場の写真をふやす">
+        <button id="ph-site" class="ph-add" ${sending ? 'disabled' : ''} aria-label="現場の写真をふやす">
           ${icons.camera}ふやす</button>
       </div>
 
       ${head('図面・スケッチ', `${plans.length}枚`, '')}
       <div class="ph-grid">
         ${plans.map(tileHtml).join('')}
-        <button id="ph-plan" class="ph-add" aria-label="図面をふやす">
+        <button id="ph-plan" class="ph-add" ${sending ? 'disabled' : ''} aria-label="図面をふやす">
           ${icons.filePlus}紙を撮る</button>
       </div>
       <div style="font-size:11.5px;color:#8A96A3;padding:10px 2px 0;line-height:1.7">
@@ -502,6 +534,7 @@ export function renderRoughScreen(container, roughId) {
           「項目を出す」を押すと、ここに項目が並びます。<br>金額はあとから一つずつ直せます。</div>
       </div>` : `
       ${oneLinerHtml()}
+      ${originHtml()}
       <div style="display:flex;align-items:center;gap:8px;padding:7px 2px 6px">
         <span style="font-size:13px;font-weight:700;color:#1B3A5C">読み取った項目</span>
         <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:#7A8794">${c.items}件</span>
@@ -663,18 +696,109 @@ export function renderRoughScreen(container, roughId) {
     input.addEventListener('change', async () => {
       const files = Array.from(input.files || []);
       if (!files.length) return;
-      toast(files.length > 1 ? `写真を${files.length}枚送っています…` : '写真を送っています…');
+      // 何枚目まで済んだかを画面に出す。トーストは消えるので進み具合には使わない
+      sending = { done: 0, total: files.length, failed: 0, stage: 'shrink' };
+      if (page !== '写真') page = '写真';    // 送っているところが見えるページへ
+      paint();
       let ok = 0;
-      let ng = 0;
       // 1枚ずつ送る。1枚失敗しても残りは入れる（芯2）
       for (const f of files) {
-        try { await uploadPhoto(roughId, f, role); ok += 1; }
-        catch (e) { console.error(e); ng += 1; }
+        try {
+          await uploadPhoto(roughId, f, role, (stage) => {
+            if (sending) { sending.stage = stage; paint(); }
+          });
+          ok += 1;
+        } catch (e) { console.error(e); if (sending) sending.failed += 1; }
+        if (sending) { sending.done += 1; paint(); }
       }
+      const ng = sending ? sending.failed : 0;
+      sending = null;
+      paint();
       if (ng) toast(`${ok}枚入れました。${ng}枚は送れませんでした。電波を確認してください`);
       else toast(ok > 1 ? `写真を${ok}枚足しました` : '写真を足しました');
     });
     input.click();
+  }
+
+  // ---------- 項目を出している最中 ----------
+  // 【何も起きていないように見えた】2026/8/7
+  //   押してから項目が出るまで画面が変わらなかった。AIは写真を読んで考えるので、
+  //   30秒〜2分かかる。何も動かないと、待てばいいのか失敗したのか分からない。
+  //
+  // 【経過秒はほんとうの数字。段取りは作り話にしない】
+  //   受付の呼び出しは1回きりで、いま何合目かは外からは分からない。
+  //   だから「いま写真を読んでいます」のような、確かめようのない実況は出さない。
+  //   出すのは ①ほんとうに測っている経過秒 ②AIに頼んだ中身（毎回同じ4つ）。
+  //   動いていることは、経過秒とバーが受け持つ。
+  let veil = null;
+  let veilTimer = null;
+
+  function openWorkVeil(nPhotos) {
+    closeWorkVeil();
+    const started = Date.now();
+    const el = document.createElement('div');
+    el.className = 'work-veil';
+    el.innerHTML = `
+      <div class="wv-card">
+        <div class="wv-title">AIが読んでいます</div>
+        <div class="wv-time"><span id="wv-sec">0:00</span></div>
+        <div class="wv-bar"><div></div></div>
+        <div class="wv-note">
+          ${nPhotos ? `写真 <b>${nPhotos}枚</b>と、すること を渡しました。` : '写真は渡していません。工事の種類とすること だけで出します。'}
+        </div>
+        <div class="wv-list">
+          <div>頼んでいること</div>
+          <ul>
+            <li>やることを順番に並べる</li>
+            <li>何人で何時間かかるかを出す</li>
+            <li>世の中の相場を出す</li>
+            <li>写真から分からないことを質問にする</li>
+          </ul>
+        </div>
+        <div class="wv-hint">だいたい30秒〜2分かかります。このまま待ってください。<br>
+          つながらないときは、ひな形から出しなおします。</div>
+      </div>`;
+    document.getElementById('modal-root').appendChild(el);
+    veil = el;
+    const tick = () => {
+      const s = Math.floor((Date.now() - started) / 1000);
+      const t = el.querySelector('#wv-sec');
+      if (t) t.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    };
+    tick();
+    veilTimer = setInterval(tick, 1000);
+  }
+  function closeWorkVeil() {
+    if (veilTimer) { clearInterval(veilTimer); veilTimer = null; }
+    if (veil) { veil.remove(); veil = null; }
+  }
+
+  // ---------- 項目の出どころ（AI か ひな形か） ----------
+  // 【トーストに頼らない】AIにつながらないとひな形に戻る。前はトーストでしか
+  // 知らせておらず、見逃すと「AIが相場を出さない」のか「そもそもAIが動いていない」のか
+  // 分からなくなっていた。実際にそれで1回混乱した（2026/8/7）。
+  // 見積本体に残して、一覧の上にいつでも出す（芯4）。
+  function originHtml() {
+    const g = rough.lastGenerate;
+    if (!g || !g.source) return '';
+    const ai = g.source === 'ai';
+    const read = g.photosRead;
+    const photoNote = !g.photosSent ? '写真なし'
+      : read === 0 ? `写真${g.photosSent}枚は読めませんでした`
+        : read != null && read < g.photosSent ? `写真${g.photosSent}枚のうち${read}枚を読みました`
+          : `写真${g.photosSent}枚を読みました`;
+    return `
+      <div style="display:flex;align-items:flex-start;gap:8px;margin-top:8px;padding:9px 12px;border-radius:6px;
+        background:${ai ? '#EAF0F6' : '#FBF2E4'};border:1px solid ${ai ? '#C3D3E4' : '#E0CDA6'}">
+        <span style="font-size:15px;flex:none;display:grid;place-items:center;color:${ai ? '#1B3A5C' : '#BA7517'}">
+          ${ai ? icons.checkCircle : icons.warning}</span>
+        <div style="flex:1;min-width:0;font-size:12px;line-height:1.7;color:${ai ? '#1B3A5C' : '#7A5A18'}">
+          ${ai
+            ? `<b>AIが出した項目です。</b>${photoNote}。よつばの単価と世の中の相場を並べています。`
+            : `<b>ひな形から出した項目です。</b>AIにつながらなかったので、決まった並びを出しています。
+               世の中の相場は入りません。${g.why ? `<br>理由: ${esc(g.why)}` : ''}`}
+        </div>
+      </div>`;
   }
 
   // 【順番が大事】先に出す。出せてから消す。
@@ -688,9 +812,12 @@ export function renderRoughScreen(container, roughId) {
       `いまの ${items.length}件 を消して、${ai ? '出しなおします' : 'ひな形から出しなおします'}。よろしいですか?`,
       '出しなおす'))) return;
     busy = true; paint();
+    // 押した直後から「動いているもの」を出す。ここから先は待ち時間が長い
+    if (ai) openWorkVeil((rough.photos || []).length);
     try {
       let res;
       let fellBack = false;
+      let why = '';
       try {
         res = await generateItems({
           workType: rough.workType, oneLiner: rough.oneLiner, photos: rough.photos || [],
@@ -699,6 +826,7 @@ export function renderRoughScreen(container, roughId) {
         // ひな形のときに失敗したなら、それは本当の異常。握りつぶさない
         if (!ai) throw e;
         console.error('AIで出せませんでした。ひな形に戻します:', e);
+        why = String(e && e.message || e).slice(0, 120);
         res = generateByTemplate({ workType: rough.workType });
         fellBack = true;
       }
@@ -706,12 +834,23 @@ export function renderRoughScreen(container, roughId) {
       if (items.length) await Promise.all(items.map((it) => deleteItem(roughId, it.id)));
       await addItems(roughId, res.items);
       for (const qq of (res.questions || [])) await addQuestion(roughId, qq);
+      // 【出どころを見積本体に残す】トーストは消える。一覧の上にいつでも出す（芯4）
+      const sent = fellBack ? (rough.photos || []).length : (res.photosSent || 0);
+      try {
+        await saveGenerateResult(roughId, {
+          source: fellBack ? 'template' : res.source,
+          photosSent: sent,
+          photosRead: fellBack ? null : res.photosRead,
+          items: res.items.length,
+          by: local.get('staff', ''),
+          why,
+        });
+      } catch (e) { console.warn('出どころを残せませんでした:', e); }
       // 【写真が読めていないことを黙らせない】
       // 写真を渡したのに1枚も読めていないなら、それは出た項目の質に直結する。
       // 黙っていると「AIが写真を見てくれない」が原因不明のまま残る（芯4）。
-      const sent = res.photosSent || 0;
-      const gotNone = sent && res.photosRead === 0;
-      const gotSome = sent && res.photosRead > 0 && res.photosRead < sent;
+      const gotNone = !fellBack && sent && res.photosRead === 0;
+      const gotSome = !fellBack && sent && res.photosRead > 0 && res.photosRead < sent;
       toast(fellBack
         ? `AIにつながらないので、ひな形から${res.items.length}項目を出しました`
         : gotNone
@@ -722,7 +861,7 @@ export function renderRoughScreen(container, roughId) {
     } catch (e) {
       console.error(e);
       toast(e.message || '項目を出せませんでした');
-    } finally { busy = false; paint(); }
+    } finally { closeWorkVeil(); busy = false; paint(); }
   }
 
   async function addBlank() {
@@ -766,6 +905,7 @@ export function renderRoughScreen(container, roughId) {
   // （閉じないと、別の画面の上に全画面の写真が残る）
   return () => {
     if (viewer) viewer.close();
+    closeWorkVeil();          // 待ちの画面も一緒に閉じる（別の画面の上に残らないように）
     stops.forEach((s) => s && s());
   };
 }

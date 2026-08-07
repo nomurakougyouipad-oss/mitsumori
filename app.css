@@ -597,6 +597,51 @@ body.has-tabbar #app { padding-bottom: calc(57px + env(safe-area-inset-bottom, 0
   padding: 10px 16px calc(16px + env(safe-area-inset-bottom, 0px));
 }
 
+/* ---------- 待っているあいだ ----------
+   【ここだけは動かす】スクロールで畳むのはやめたが、待ち時間の表示は別。
+   何も動かないと、待てばいいのか失敗したのか分からない。
+   動くのは指で触っていないバーだけで、押すところは動かない。 */
+.send-bar {
+  height: 6px; border-radius: 3px; background: #E3E7EC; margin-top: 8px; overflow: hidden;
+}
+.send-bar > div { height: 100%; background: var(--navy); border-radius: 3px; transition: width .25s ease; }
+
+.work-veil {
+  position: fixed; inset: 0; z-index: 210;
+  background: rgba(15, 22, 30, .62);
+  display: flex; align-items: center; justify-content: center;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+.work-veil .wv-card {
+  width: 100%; max-width: 360px; background: #fff; border-radius: 10px;
+  padding: 22px 20px; text-align: center;
+}
+.work-veil .wv-title { font-size: 18px; font-weight: 700; color: var(--navy); }
+.work-veil .wv-time {
+  font-family: var(--mono); font-size: 34px; font-weight: 700; color: var(--text);
+  letter-spacing: -.02em; padding-top: 2px;
+}
+/* 何合目かは外から分からないので、進み具合ではなく「動いている」ことだけを出す */
+.work-veil .wv-bar { height: 6px; border-radius: 3px; background: #E3E7EC; overflow: hidden; margin: 10px 0 14px; }
+.work-veil .wv-bar > div {
+  width: 40%; height: 100%; border-radius: 3px; background: var(--navy);
+  animation: wv-slide 1.5s ease-in-out infinite;
+}
+@keyframes wv-slide {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(260%); }
+}
+.work-veil .wv-note { font-size: 13px; color: #4A5A6B; line-height: 1.7; }
+.work-veil .wv-list { text-align: left; margin: 14px 0 0; padding: 12px 14px; background: #F3F5F8; border-radius: 6px; }
+.work-veil .wv-list > div { font-size: 11.5px; font-weight: 700; color: var(--muted); }
+.work-veil .wv-list ul { margin: 6px 0 0; padding-left: 18px; }
+.work-veil .wv-list li { font-size: 13px; color: var(--text); line-height: 1.8; }
+.work-veil .wv-hint { font-size: 11.5px; color: var(--muted2); line-height: 1.7; padding-top: 12px; }
+/* 動きを減らす設定の端末では、バーを止めて色だけで出す */
+@media (prefers-reduced-motion: reduce) {
+  .work-veil .wv-bar > div { animation: none; width: 100%; opacity: .5; }
+}
+
 /* ---------- 写真のページ（写真と図面の一覧） ----------
    タイルは3列。軍手でも押し間違えない大きさ（1辺100px以上）にする */
 .ph-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
