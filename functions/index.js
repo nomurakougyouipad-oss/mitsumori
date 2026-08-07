@@ -133,6 +133,11 @@ exports.estimateFromPhotos = onCall(
     timeoutSeconds: 540,
     memory: '1GiB',
     cors: true,
+    // 【App Check を通っていない呼び出しは、ここで弾く】
+    // この入口はインターネットの誰からでも届く。匿名ログインだけでは、
+    // 公開されている apiKey を見た誰でも通れてしまい、AIの料金を焼かれる。
+    // 弾かれた側（アプリ）は画面がひな形に戻すので、現場の手は止まらない。
+    enforceAppCheck: true,
   },
   async (request) => {
     // ---------- 誰が呼んだか ----------

@@ -23,10 +23,36 @@ import {
 import {
   getFunctions, httpsCallable,
 } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-functions.js';
+import {
+  initializeAppCheck, ReCaptchaEnterpriseProvider,
+} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app-check.js';
 
 import firebaseConfig from '../firebase-config.js?v=33';
 
 export const app = initializeApp(firebaseConfig);
+
+// ---------- App Check ----------
+// 受付（AI）の入口は、インターネットの誰からでも届く場所に置かざるを得ない。
+// 匿名ログインだけでは、apiKey を見た誰でも通れてしまい、AIの料金を焼かれる。
+// App Check は「本当にこのアプリから来たか」を確かめる関門。
+//
+// 【このサイトキーは秘密ではない】ブラウザで誰でも読める公開値。
+//   秘密の鍵は Google 側にあり、こちらには無い（APIキーと同じ扱いにしないこと）。
+// 【効かせている先は受付だけ】
+//   Firestore と Storage には強制していない。強制すると、電波の悪い現場で
+//   下書きの保存まで巻き添えで止まる。芯2（止めない）に反する。
+// 【ドメイン】nomurakougyouipad-oss.github.io で登録済み。
+//   別のドメインで開くと通らない。localhost で試すときはデバッグトークンが要る。
+try {
+  initializeAppCheck(app, {
+    provider: new ReCaptchaEnterpriseProvider('6LdPZ3ktAAAAAGZsfuVzHpyp6hpsU2L-WOAo0mF3'),
+    isTokenAutoRefreshEnabled: true,
+  });
+} catch (e) {
+  // ここで落としてはいけない。App Check が張れなくてもアプリ本体は動かす。
+  // 通らないのは受付（AI）だけで、そのときは画面がひな形に戻す。
+  console.warn('App Check を初期化できませんでした（AIだけ使えません）:', e);
+}
 
 // オフライン永続化（IndexedDB）。プライベートブラウズ等で失敗しても
 // アプリ自体は動かしたいので、失敗時は通常キャッシュで初期化し直す。
