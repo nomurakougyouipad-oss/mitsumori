@@ -47,7 +47,6 @@ export function renderRoughScreen(container, roughId) {
   let busy = false;
   let lastSig = '';
   let detail = null;        // 開いている「項目のくわしい中身」
-  let topCollapsed = false; // 上（ヘッダー本体・写真・すること）を畳んでいるか
   let qOpen = false;        // ききたいことを開いているか。既定は畳む（芯2）
   let scrollY = 0;          // 描き直しても見ていた場所に留まるように持ち回る
   let lastBig = null;       // 直前が「まだ項目が無い」画面だったか
@@ -93,19 +92,27 @@ export function renderRoughScreen(container, roughId) {
   //   下部の濃紺の帯（提出価格の目安・幅のバー・ボタン2つ）
   //   56px タブバーは app.js が付ける
   // モックの寸法・色・字の大きさをそのまま写している。勝手に変えない。
+  //
+  // 【この画面は動かさない】2026/8/7
+  //   スクロールで畳む・出す・すべらせる を一切やらない。
+  //   写真の帯も下の金額の帯も、いつでもそこにある。
+  //   狭いときは動かして場所を作るのではなく、高さそのものを削る。
+  //   現場は片手で見る。画面が動くと目で追えない。
   // ============================================================
 
   const NAVY_GRAD = 'linear-gradient(180deg,#24507A 0%,#1B3A5C 100%)';
 
   // ---------- ヘッダー ----------
-  // 寸法・色は app.css の .r-head が持つ（畳んだときの縮み方も同じ所に置く）
+  // 寸法・色は app.css の .r-head が持つ。
+  // 画面の名前と工事名は1行に並べる（2段だと 61px、1行なら 48px）。
+  // どちらも消していない。並べ方を変えただけ。
   function headerHtml() {
     return `
       <div class="r-head">
         <button id="r-back" class="r-back">‹</button>
         <button id="r-cover" class="r-title">
-          <div class="t1">写真から見積</div>
-          <div class="t2">${esc(rough.projectName || '工事名を入れる')}</div>
+          <span class="t1">写真から見積</span>
+          <span class="t2">${esc(rough.projectName || '工事名を入れる')}</span>
         </button>
       </div>`;
   }
@@ -176,7 +183,15 @@ export function renderRoughScreen(container, roughId) {
   // 【なぜ小さくしたか】ここが約190pxあったので、項目が2つ半しか見えなかった。
   // 写真と一言は「項目を出す前」に入れるもので、出したあとは見えていれば足りる。
   // 押すところは前と同じ（写真を見る／写真をふやす／図面／すること）。増やしていない。
-  // 下へスクロールすると .r-strip ごと畳まれる（app.css）。
+  //
+  // 【1行にした理由】2026/8/7
+  //   前は2段（サムネイル40px＋すること40px＝104px）で、下へスクロールすると
+  //   畳んでいた。実機で動きが引っかかり、かえって見にくかった。
+  //   畳むのをやめて1行54pxにした。常に出したまま、動かない。
+  //   「写真N・図面N」の件数は落とした。サムネイルそのものが件数を表しているし、
+  //   足した直後はトーストが枚数を言う。数字を出すために1行使う値打ちは無い。
+  //   ふやす／紙を撮る は横に流れる中に置かない。写真が増えると画面の外へ出て
+  //   押せなくなるため、左に固定して常に同じ場所に置く（app.css の .r-strip）。
   function stripHtml() {
     const list = rough.photos || [];
     const site = list.filter((p) => p.role !== '図面');
@@ -186,6 +201,8 @@ export function renderRoughScreen(container, roughId) {
       + 'display:grid;place-items:center;color:#1B3A5C;flex:none;cursor:pointer;font-size:18px';
 
     return `
+      <button id="ph-site" style="${ADD}" aria-label="写真をふやす（いま${site.length}枚）">${icons.camera}</button>
+      <button id="ph-plan" style="${ADD}" aria-label="図面をふやす（いま${plans.length}枚）">${icons.filePlus}</button>
       <div class="r-thumbs">
         ${site.map((p) => `<div data-ph="${esc(p.path)}" style="${S};background:#5B6B7C">
           <img src="${esc(p.url)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>`).join('')}
@@ -193,17 +210,10 @@ export function renderRoughScreen(container, roughId) {
           <img src="${esc(p.url)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">
           <span style="position:absolute;left:0;right:0;bottom:0;background:rgba(27,58,92,.85);color:#fff;
             font-size:9px;text-align:center">図面</span></div>`).join('')}
-        <button id="ph-site" style="${ADD}" aria-label="写真をふやす">${icons.camera}</button>
-        <button id="ph-plan" style="${ADD}" aria-label="図面をふやす">${icons.filePlus}</button>
-        <span style="flex:1;text-align:right;font-size:11px;color:#8A96A3;white-space:nowrap">
-          写真${site.length}${plans.length ? `・図面${plans.length}` : ''}</span>
       </div>
-      <button id="r-oneliner" style="width:100%;height:40px;margin-top:6px;background:#fff;border:1px solid #D9DEE4;
-        border-radius:6px;display:flex;align-items:center;gap:8px;padding:0 10px 0 12px;
-        font-size:14px;font-family:var(--font);text-align:left;cursor:pointer;
-        color:${rough.oneLiner ? '#16202B' : '#A9B3BE'}">
-        <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-          ${esc(rough.oneLiner || 'すること を一言で')}</span>
+      <button id="r-oneliner" class="r-oneliner"
+        style="color:${rough.oneLiner ? '#16202B' : '#A9B3BE'}">
+        <span class="tx">${esc(rough.oneLiner || 'すること')}</span>
         <span style="color:#8A96A3;font-size:16px;flex:none;display:grid;place-items:center">${icons.pencil}</span>
       </button>`;
   }
@@ -283,9 +293,12 @@ export function renderRoughScreen(container, roughId) {
   // 高さを削ったのは余白と行数だけで、名前16px・金額22pxの読みやすさは残している。
   //   ・名前と金額を同じ行に置く（前は金額が下段だった）
   //   ・材料/外注は「金額を直す」ボタンを金額そのものにした（押すところは減っている）
-  // 1枚 約90px。ヘッダーが畳まれた状態で4〜5枚が一度に見える。
-  const CARD = 'background:#fff;border:1px solid #D9DEE4;border-radius:6px;padding:10px 12px';
-  const TITLE = 'font-size:16px;font-weight:700;color:#16202B;line-height:1.35';
+  // 【さらに詰めた】2026/8/7 上を畳むのをやめたぶん、ここでも余白を返してもらう。
+  //   上下の余白 10→8px、名前の行送り 1.35→1.25、カード間 8→6px。
+  //   字の大きさとボタンの高さ（40px以上）はそのまま。指と目には触っていない。
+  // 1枚 約81px。畳まなくても5枚が一度に見える。
+  const CARD = 'background:#fff;border:1px solid #D9DEE4;border-radius:6px;padding:8px 12px';
+  const TITLE = 'font-size:16px;font-weight:700;color:#16202B;line-height:1.25';
   const AMT = 'font-family:var(--mono);font-size:22px;font-weight:700;color:#1B3A5C;letter-spacing:-.01em;'
     + 'line-height:1.1;white-space:nowrap';
   const STEP_BTN = 'width:46px;height:40px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;color:#1B3A5C;'
@@ -310,20 +323,20 @@ export function renderRoughScreen(container, roughId) {
       const y = yotsubaAmount(it, rates, unitRates);
       const m = marketAmount(it);
       return `
-        <div style="background:#fff;border:1px dashed #C3CBD4;border-radius:6px;padding:12px 14px">
+        <div style="background:#fff;border:1px dashed #C3CBD4;border-radius:6px;padding:10px 14px">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
             <div style="${TITLE}">${esc(it.name || '（名前なし）')}</div>
             <span style="font-size:11px;font-weight:700;color:#7A8794;border:1px solid #D2D8E0;border-radius:3px;
               padding:2px 6px;flex:none">未確定</span>
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;font-size:13px;color:#6B7783">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:6px;font-size:13px;color:#6B7783">
             <span>よつばの単価</span>
             <span style="font-family:var(--mono)${y != null ? ';font-size:18px;font-weight:700;color:#16202B' : ''}">${y == null ? 'なし' : YEN(y)}</span></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:4px;font-size:13px;color:#6B7783">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:3px;font-size:13px;color:#6B7783">
             <span style="display:flex;align-items:center;gap:6px">世の中の相場
               <span style="font-size:10.5px;font-weight:700;color:#1F6B5B;background:#E3F0EC;border-radius:3px;padding:2px 5px">相場</span></span>
             <span style="font-family:var(--mono);font-size:22px;font-weight:700;color:#1F6B5B;letter-spacing:-.01em">${m == null ? '—' : YEN(m)}</span></div>
-          <div style="display:flex;gap:6px;padding-top:10px">
+          <div style="display:flex;gap:6px;padding-top:8px">
             <button data-use="${it.id}" data-src="${y != null ? 'yotsuba' : 'market'}" style="flex:1.2;height:48px;
               background:${NAVY_GRAD};border:0;border-radius:6px;color:#fff;font-family:var(--font);
               font-size:14px;font-weight:700;cursor:pointer">この金額を使う</button>
@@ -332,7 +345,7 @@ export function renderRoughScreen(container, roughId) {
             <button data-pend="${it.id}" style="flex:1.1;height:48px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;
               color:#1B3A5C;font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer">単価待ち</button>
           </div>
-          <div style="font-size:11.5px;color:#8A96A3;padding-top:8px">どれか押すまで合計に入りません</div>
+          <div style="font-size:11.5px;color:#8A96A3;padding-top:6px">どれか押すまで合計に入りません</div>
         </div>`;
     }
 
@@ -364,7 +377,7 @@ export function renderRoughScreen(container, roughId) {
             <div style="${TITLE};flex:1;min-width:0">${esc(it.name || '（名前なし）')}</div>
             <span style="${AMT};flex:none">${YEN(amt || 0)}</span>${delBtn(it.id)}
           </div>
-          <div style="display:flex;align-items:center;gap:6px;padding-top:6px">
+          <div style="display:flex;align-items:center;gap:6px;padding-top:5px">
             <div style="flex:1;min-width:0;font-size:12.5px;color:#4A5A6B;line-height:1.4">
               ${esc(it.kind === '移動' ? '移動労務' : (it.trade || ''))}
               <b data-np="${it.id}" style="font-family:var(--mono);font-weight:700;color:#16202B;cursor:pointer">${it.persons ?? 0}</b>人 ×
@@ -375,7 +388,7 @@ export function renderRoughScreen(container, roughId) {
               background:#1B3A5C;border:0;color:#fff">くわしく<span style="font-size:11px;display:grid;place-items:center">${icons.caretRight}</span></button>` : ''}
           </div>
           ${it.kind === '移動' ? `
-            <div style="font-size:12px;color:#6B7783;padding-top:6px">片道
+            <div style="font-size:12px;color:#6B7783;padding-top:5px">片道
               <b data-km="${it.id}" style="font-family:var(--mono);color:#16202B;cursor:pointer">${it.km ?? '—'}</b> km
               <span style="color:#A9B3BE">（往復で計算・${unitRates.kmRate}円/km）</span></div>` : ''}
         </div>`;
@@ -425,6 +438,8 @@ export function renderRoughScreen(container, roughId) {
   //   ・下の env(safe-area-inset-bottom) をやめた。#app が
   //     「タブバー57px＋セーフエリア」ぶんの余白をすでに持っているので、
   //     ここで足すと iPhone では34pxを二重に空けていた（約34px）
+  // この帯は常に出したままにする。引っ込めない。
+  // 現場は親指の届く下側で金額を見る。スクロールで消えると金額を見失う。
   function bandHtml(band, c) {
     const note = !band.hasAmount
       ? '<span style="font-size:11.5px;color:rgba(255,255,255,0.68)">項目を出すと目安が出ます</span>'
@@ -440,7 +455,7 @@ export function renderRoughScreen(container, roughId) {
     // 未確定が残っているあいだは「文面を作る」を押させない（モックと同じ）
     const canQuote = band.hasAmount && !c.undecided;
     return `
-      <div style="flex:none;background:#1B3A5C;padding:8px 14px 10px">
+      <div style="flex:none;background:#1B3A5C;padding:7px 14px 8px">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
           <span style="font-size:11.5px;color:rgba(255,255,255,0.68);white-space:nowrap">提出価格の目安（税込）</span>
           ${note}
@@ -449,7 +464,7 @@ export function renderRoughScreen(container, roughId) {
           line-height:1.15;white-space:nowrap;color:${band.hasAmount ? '#fff' : 'rgba(255,255,255,0.34)'}">
           ${band.hasAmount ? `${YEN(band.displayLow)} 〜 ${YEN(band.displayHigh)}` : '￥— 〜 ￥—'}</div>
         ${bandBarHtml(band)}
-        <div style="display:flex;gap:8px;padding-top:8px">
+        <div style="display:flex;gap:8px;padding-top:6px">
           <button id="r-add" style="flex:1;height:48px;background:rgba(255,255,255,0.14);
             border:1px solid rgba(255,255,255,0.4);border-radius:6px;color:#fff;font-family:var(--font);
             font-size:16px;font-weight:700;cursor:pointer">項目を足す</button>
@@ -476,7 +491,7 @@ export function renderRoughScreen(container, roughId) {
     const later = unanswered.filter((q) => q.deferred);     // ［あとで］で脇へどけた
     const big = items.length === 0;          // まだ項目が無いとき＝モックの①
     // ①→②に変わる瞬間は中身が丸ごと入れ替わる。前の位置は引き継がない
-    if (lastBig !== big) { lastBig = big; scrollY = 0; topCollapsed = false; }
+    if (lastBig !== big) { lastBig = big; scrollY = 0; }
 
     const body = big ? `
       ${photosHtml()}
@@ -488,7 +503,7 @@ export function renderRoughScreen(container, roughId) {
         <div style="font-size:14px;color:#6B7783;text-align:center;line-height:1.8">
           「項目を出す」を押すと、ここに項目が並びます。<br>金額はあとから一つずつ直せます。</div>
       </div>` : `
-      <div style="display:flex;align-items:center;gap:8px;padding:10px 2px 8px">
+      <div style="display:flex;align-items:center;gap:8px;padding:7px 2px 6px">
         <span style="font-size:13px;font-weight:700;color:#1B3A5C">読み取った項目</span>
         <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:#7A8794">${c.items}件</span>
         <span style="flex:1;height:1px;background:#D2D8E0"></span>
@@ -497,16 +512,16 @@ export function renderRoughScreen(container, roughId) {
           : `<span style="display:flex;align-items:center;gap:4px;font-size:11.5px;color:#1F6B5B;font-weight:700">
                <span style="font-size:14px;display:grid;place-items:center">${icons.checkCircle}</span>${c.decided}件 確定</span>`}
       </div>
-      <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;flex-direction:column;gap:6px">
         ${questionStripHtml(asking, later)}
         ${qOpen ? [...asking, ...later].map(questionHtml).join('') : ''}
         ${items.map((it) => itemCard(it, rates, unitRates)).join('')}
       </div>
-      <div style="height:12px"></div>`;
+      <div style="height:10px"></div>`;
 
     setHtmlKeepScroll(container, `
       <div class="screen" style="background:#EEF0F3">
-        <div class="r-top${!big && topCollapsed ? ' collapsed' : ''}" id="r-top">
+        <div class="r-top" id="r-top">
           ${headerHtml()}
           ${big ? '' : `<div class="r-strip">${stripHtml()}</div>`}
         </div>
@@ -519,32 +534,22 @@ export function renderRoughScreen(container, roughId) {
     bind();
   }
 
-  // ---------- スクロールしたら上を引っ込める ----------
-  // 押すところは増やさない（芯5）。指を下へ動かせば畳み、上へ戻せばまた出る。
-  // 畳んでも scrollTop は動かないので、見ている項目はその場に留まる。
+  // ---------- 見ていた場所を覚えるだけ ----------
+  // 【畳む仕組みを外した】2026/8/7
+  //   前はここでスクロールの向きを見て .r-top に collapsed を付け外ししていた。
+  //   実機だと畳むたびに再レイアウトが走って動きが引っかかり、
+  //   片手で見ている現場では目で追えなかった。
+  //   場所は動きで作らず、最初から薄く作る（app.css の .r-head / .r-strip）。
+  //   ここに畳む処理を戻さないこと。
+  //
+  //   残しているのは scrollTop の記録だけ。＋8h を押すと Firestore の
+  //   通知で描き直しが起きるので、覚えていないと一覧の先頭へ飛ぶ。
+  //   これは「動き」ではなく「動かさないため」の処理。
   function bindScroll() {
     const sc = container.querySelector('#r-scroll');
-    const top = container.querySelector('#r-top');
-    if (!sc || !top) return;
+    if (!sc) return;
     if (scrollY) sc.scrollTop = scrollY;      // 描き直しのあとも同じ場所を見せる
-
-    let lastY = sc.scrollTop;
-    let upAcc = 0;                             // 上へ戻した量。少し戻せば上をまた出す
-    const setCollapsed = (on) => {
-      if (topCollapsed === on) return;
-      topCollapsed = on;
-      top.classList.toggle('collapsed', on);
-    };
-
-    sc.addEventListener('scroll', () => {
-      const y = sc.scrollTop;
-      const d = y - lastY;
-      lastY = y;
-      scrollY = y;
-      if (items.length === 0) return;          // 項目が無いうちは畳まない
-      if (d > 0) { upAcc = 0; if (y > 40) setCollapsed(true); }
-      else if (d < 0) { upAcc -= d; if (y < 8 || upAcc > 56) setCollapsed(false); }
-    }, { passive: true });
+    sc.addEventListener('scroll', () => { scrollY = sc.scrollTop; }, { passive: true });
   }
 
   // ---------- 操作 ----------

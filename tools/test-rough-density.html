@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>写真から見積 — 高さの確認</title>
+<!-- ============================================================
+     写真から見積の「上の帯・項目カード・下の帯」の高さを実寸で見る用。
+     Firebase を通さずに screen-rough.js と同じマークアップだけを並べる。
+     ※ここを直したら screen-rough.js 側も同じに直すこと（見た目の写しなので）
+     ============================================================ -->
+<link rel="stylesheet" href="../app.css?v=33">
+<style>
+  body { margin:0; background:#333; font-family:"Noto Sans JP",system-ui,sans-serif; }
+  .phone { width:390px; height:844px; margin:12px auto; background:#EEF0F3; overflow:hidden;
+           display:flex; flex-direction:column; position:relative; }
+  .phone .scroll { flex:1; overflow-y:auto; padding:0 12px 12px; }
+  .tabfake { flex:none; height:57px; background:#fff; border-top:1px solid #D9DEE4;
+             display:flex; align-items:center; justify-content:center; font-size:11px; color:#8A96A3; }
+  #out { color:#fff; font-family:"IBM Plex Mono",monospace; font-size:12px; padding:12px 20px; line-height:1.9; white-space:pre; }
+</style>
+</head>
+<body>
+<div class="phone" id="phone">
+  <div class="r-top" id="r-top">
+    <div class="r-head">
+      <button class="r-back">&lsaquo;</button>
+      <button class="r-title">
+        <span class="t1">写真から見積</span>
+        <span class="t2">駆動装置モーター更新及び駆動部オーバーホール工事</span>
+      </button>
+    </div>
+    <div class="r-strip" id="r-strip"></div>
+  </div>
+  <div class="scroll" id="sc"></div>
+  <div id="band"></div>
+  <div class="tabfake">タブバー 57px</div>
+</div>
+<div id="out"></div>
+
+<script>
+const PHOTOS = 4, PLANS = 1;
+const S = 'width:40px;height:40px;border-radius:5px;flex:none;overflow:hidden;position:relative;background:#5B6B7C';
+const ADD = 'width:40px;height:40px;border-radius:5px;border:1.5px dashed #A9B3BE;background:#fff;'
+  + 'display:grid;place-items:center;color:#1B3A5C;flex:none;font-size:18px';
+
+document.getElementById('r-strip').innerHTML = `
+  <button style="${ADD}">📷</button>
+  <button style="${ADD}">📄</button>
+  <div class="r-thumbs">
+    ${Array.from({length:PHOTOS},()=>`<div style="${S}"></div>`).join('')}
+    ${Array.from({length:PLANS},()=>`<div style="${S};background:#DDE3EA;border:1px solid #C3CBD4">
+      <span style="position:absolute;left:0;right:0;bottom:0;background:rgba(27,58,92,.85);color:#fff;
+        font-size:9px;text-align:center">図面</span></div>`).join('')}
+  </div>
+  <button class="r-oneliner" style="color:#16202B">
+    <span class="tx">ポンプの駆動部を全部やりかえ</span>
+    <span style="color:#8A96A3;font-size:16px;flex:none">✎</span>
+  </button>`;
+
+const CARD = 'background:#fff;border:1px solid #D9DEE4;border-radius:6px;padding:8px 12px';
+const TITLE = 'font-size:16px;font-weight:700;color:#16202B;line-height:1.25';
+const AMT = 'font-family:"IBM Plex Mono",monospace;font-size:22px;font-weight:700;color:#1B3A5C;line-height:1.1;white-space:nowrap';
+const STEP = 'width:46px;height:40px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;color:#1B3A5C;font-size:14px;font-weight:700;flex:none';
+const SUB = 'height:40px;padding:0 10px;background:#1B3A5C;border:0;border-radius:6px;color:#fff;font-size:13px;font-weight:700;flex:none';
+
+const labor = (n) => `
+  <div class="card-labor" style="${CARD}">
+    <div style="display:flex;align-items:baseline;gap:8px">
+      <div style="${TITLE};flex:1;min-width:0">${n}</div>
+      <span style="${AMT};flex:none">￥192,000</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;padding-top:5px">
+      <div style="flex:1;min-width:0;font-size:12.5px;color:#4A5A6B;line-height:1.4">整備 <b>2</b>人 × <b>32</b>h</div>
+      <button style="${STEP}">−8h</button><button style="${STEP}">＋8h</button>
+      <button style="${SUB}">くわしく›</button>
+    </div>
+  </div>`;
+
+const mat = (n) => `
+  <div class="card-mat" style="${CARD}">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="flex:1;min-width:0"><div style="${TITLE}">${n}</div></div>
+      <button style="display:flex;align-items:center;gap:6px;height:44px;padding:0 10px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;flex:none">
+        <span style="${AMT}">￥86,000</span><span style="color:#8A96A3;font-size:15px">✎</span></button>
+    </div>
+  </div>`;
+
+document.getElementById('sc').innerHTML = `
+  <div class="sec" style="display:flex;align-items:center;gap:8px;padding:7px 2px 6px">
+    <span style="font-size:13px;font-weight:700;color:#1B3A5C">読み取った項目</span>
+    <span style="font-family:monospace;font-size:13px;font-weight:700;color:#7A8794">11件</span>
+    <span style="flex:1;height:1px;background:#D2D8E0"></span>
+    <span style="font-size:11.5px;color:#1F6B5B;font-weight:700">11件 確定</span>
+  </div>
+  <div id="list" style="display:flex;flex-direction:column;gap:6px">
+    ${labor('駆動部オーバーホール')}${mat('モーター 22kW')}${labor('据付・芯出し')}
+    ${labor('試運転立会い')}${mat('カップリング一式')}${labor('現場までの移動')}
+    ${labor('錆落とし・下地')}${mat('塗料一式')}
+  </div>
+  <div style="height:10px"></div>`;
+
+document.getElementById('band').innerHTML = `
+  <div style="flex:none;background:#1B3A5C;padding:7px 14px 8px" id="bandbox">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <span style="font-size:11.5px;color:rgba(255,255,255,0.68)">提出価格の目安（税込）</span>
+      <span style="font-size:11.5px;color:#9FD5BE">✓ 11件 確定</span></div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:700;padding-top:2px;line-height:1.15;color:#fff">￥980,000 〜 ￥1,180,000</div>
+    <div style="height:6px;border-radius:3px;background:rgba(255,255,255,0.16);margin-top:6px;display:flex">
+      <div style="width:22%"></div><div style="width:36%;background:#BA7517;border-radius:3px"></div></div>
+    <div style="display:flex;gap:8px;padding-top:6px">
+      <button style="flex:1;height:48px;background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.4);border-radius:6px;color:#fff;font-size:16px;font-weight:700">項目を足す</button>
+      <button style="flex:1;height:48px;background:#fff;border:0;border-radius:6px;color:#1B3A5C;font-size:16px;font-weight:700">文面を作る</button>
+    </div>
+  </div>`;
+
+const h = (el) => Math.round(el.getBoundingClientRect().height);
+const sc = document.getElementById('sc');
+const laborH = h(document.querySelector('.card-labor'));
+const matH = h(document.querySelector('.card-mat'));
+const secH = h(document.querySelector('.sec'));
+const usable = h(sc) - secH;
+document.getElementById('out').textContent =
+`端末 390 x 844（セーフエリア0のブラウザ実測）
+ヘッダー .r-head    ${h(document.querySelector('.r-head'))} px
+写真の帯 .r-strip   ${h(document.querySelector('.r-strip'))} px
+上ぜんたい .r-top   ${h(document.getElementById('r-top'))} px
+下の金額の帯        ${h(document.getElementById('bandbox'))} px
+スクロールできる高さ ${h(sc)} px
+  うち見出し        ${secH} px
+労務カード1枚        ${laborH} px（間 6px → 送り ${laborH + 6}）
+材料カード1枚        ${matH} px（間 6px → 送り ${matH + 6}）
+一度に見える枚数     労務なら ${(usable / (laborH + 6)).toFixed(1)} 枚 / 材料なら ${(usable / (matH + 6)).toFixed(1)} 枚
+すること の幅        ${Math.round(document.querySelector('.r-oneliner').getBoundingClientRect().width)} px
+サムネイル欄の幅     ${Math.round(document.querySelector('.r-thumbs').getBoundingClientRect().width)} px`;
+</script>
+</body>
+</html>
