@@ -271,6 +271,17 @@ export function openItemDetailPage(roughId, itemId, getState) {
   }
 
   // ---------- くわしく ----------
+  // 【この中だけ時間で入れる】門型4h・玉掛け1h のような段取りは、
+  // 0.5工数（＝4時間）刻みでは刻めない。だから手順の行は時間のまま。
+  // 見出しに「（時間で入れます）」と書いて、ここだけ時間だと分かるようにしている。
+  // 単位を画面に3つ（工数・人時・h）出すと、中身が合っていても見る人が迷う。
+  //
+  // 【「のべ」と書く理由】stepsManHours は人時（人数×時間の合計）を返す。
+  // それを8で割って工数にしている（2人×8h ＝ 16人時 ＝ 2工数）。
+  //   ざっくり側 … 2人 × 1工数   ← 1人あたり（8h ÷ 8）
+  //   ここ       … のべ 2工数    ← 2人ぶんを足したもの
+  // 同じ項目で 1工数 と 2工数 が並ぶので、どちらの数え方かを言葉で分ける。
+  // 「合計」だと1人あたりと区別が付かない。この2文字を外さないこと。
   function detailBody(it, s, steps) {
     if (!steps.length) {
       return `
@@ -282,10 +293,10 @@ export function openItemDetailPage(roughId, itemId, getState) {
     const on = steps.filter((x) => x.enabled !== false);
     return `
       <div style="display:flex;align-items:center;gap:8px;padding:0 2px 8px">
-        <span style="font-size:13px;font-weight:700;color:#1B3A5C">手順</span>
+        <span style="font-size:13px;font-weight:700;color:#1B3A5C">手順（時間で入れます）</span>
         <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:#7A8794">${steps.length}つ</span>
         <span style="flex:1;height:1px;background:#D2D8E0"></span>
-        <span style="font-size:12px;color:#4A5A6B">合計 <b style="font-family:var(--mono)">${stepsManHours(steps)}</b>人時</span>
+        <span style="font-size:12px;color:#4A5A6B">のべ <b style="font-family:var(--mono)">${kosuText(stepsManHours(steps))}</b>工数</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px">
         ${steps.map((st, i) => stepCard(st, i, s)).join('')}
@@ -368,7 +379,8 @@ export function openItemDetailPage(roughId, itemId, getState) {
         await saveSteps([newStep({
           name: it.name || '作業', trade: it.trade, persons: it.persons, hours: it.hours, source: 'human',
         })]);
-        toast('いまの工数を1行目にしました。ここから足せます');
+        // 手順は時間で入れるので、ここも「人数と時間」と言う（工数と言わない）
+        toast('いまの人数と時間を1行目にしました。ここから足せます');
       }
       mode = 'detail'; paint();
     });
