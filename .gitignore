@@ -6,3 +6,14 @@ Desktop.ini
 # 作業用（リポジトリに含めない）
 _work/
 *.bak
+
+# 受付（Functions）
+# ※ GitHub Pages のワークフローはリポジトリを丸ごと公開する（path: .）。
+#    node_modules を入れると数万ファイルがそのまま公開に回るので必ず除く。
+#    APIキーはSecret Managerにあるので、functions/ の中身に秘密は無い。
+functions/node_modules/
+functions/.env
+functions/.env.*
+firebase-debug.log
+firebase-debug.*.log
+.firebase/

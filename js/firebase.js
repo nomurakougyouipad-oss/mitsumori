@@ -20,6 +20,9 @@ import {
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
 } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
+import {
+  getFunctions, httpsCallable,
+} from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-functions.js';
 
 import firebaseConfig from '../firebase-config.js?v=33';
 
@@ -44,6 +47,11 @@ export const persistenceEnabled = _persistenceEnabled;
 export const storage = getStorage(app);
 export const auth = getAuth(app);
 
+// 受付（Functions）。APIキーは向こう側（Secret Manager）にあり、こちらには無い。
+// リージョンは functions/index.js の region と必ず同じにすること。
+// 違うと「見つかりません」になる（よくある詰まりどころ）。
+export const functions = getFunctions(app, 'asia-northeast1');
+
 // 匿名サインイン。ready が解決したらデータ操作可能。
 export const ready = new Promise((resolve, reject) => {
   onAuthStateChanged(auth, (user) => {
@@ -61,4 +69,5 @@ export {
   getDocs, getDoc, onSnapshot, query, where, orderBy, limit,
   serverTimestamp, writeBatch, increment, Timestamp, arrayUnion, arrayRemove,
   storageRef, uploadBytes, getDownloadURL, deleteObject,
+  httpsCallable,
 };

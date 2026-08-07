@@ -1,9 +1,9 @@
 // ============================================================
 // 項目を出す — ひな形 と AI の切り替え口
 //
-// いまは ひな形だけ。AI呼び出しはまだ入れない。
-//   CLAUDE.md「3と4が未了のうちは、Functions と AI 呼び出しを実装しない」
-//   3 = APIキーを誰が取るか ／ 4 = データが外部に送られることの了解
+// CLAUDE.md の 3(APIキーを誰が取るか)・4(データが外部に送られることの了解) が
+// どちらも済んだので、AI側（generateByAi）を実装した。
+// 切り替えは下の isAiAvailable() 1行。デプロイが済むまでは ひな形のまま。
 //
 // 【あとから差し込む場所はここ1つだけ】
 //   画面（screen-rough.js）は generateItems() しか呼んでいない。
@@ -11,10 +11,20 @@
 // ============================================================
 
 import { templateItems, TEMPLATE_LABELS } from './rough-templates.js?v=33';
+import { functions, httpsCallable } from './firebase.js?v=33';
 
 // ---------- AIが使えるか ----------
-// Firebase Functions の受付ができて、社長の了解が取れたら true になる。
 // 画面はこれを見て「AIで出す」か「ひな形から出す」かの見せ方を変える。
+//
+// 【いまは false のまま。残っているのはデプロイだけ】
+//   3 APIキーを誰が取るか            … 済（2026/8/7）
+//   4 データが外部に送られることの了解 … 済（2026/8/6 社長）
+//   受付のコード（functions/index.js）… 書いた
+//   firebase deploy --only functions  … ★まだ
+//
+// デプロイ前に true にすると、現場が「項目を出す」を押した瞬間に
+// 「AIにつながりませんでした」で止まる。受付が動いてから true にすること。
+// 直すのはこの1行だけ。画面は1行も触らない。
 export function isAiAvailable() {
   return false;
 }
@@ -68,15 +78,22 @@ export function generateByTemplate({ workType }) {
 //                 steps[] … 手順（門型・玉掛け等）。無くてよい
 //   questions[] … { text, about, kind:'choice'|'photo'|'free', options[] }
 //
+// 受付を呼ぶ。httpsCallable が匿名認証のトークンを自動で付けるので、
+// こちらでトークンを組み立てる必要はない（前は fetch で自前で付ける想定だった）。
+// 写真そのものは送らない。Storage の置き場所（path）だけ送り、
+// 受付が Storage から読む。スマホから何MBも上げ直さずに済む。
 export async function generateByAi({ workType, oneLiner, photos }) {
-  // TODO: Functions の受付ができたらここを実装する。
-  //   const res = await fetch(FUNCTIONS_URL + '/estimateFromPhotos', {
-  //     method: 'POST',
-  //     headers: { 'Content-Type': 'application/json',
-  //                Authorization: 'Bearer ' + await auth.currentUser.getIdToken() },
-  //     body: JSON.stringify({ workType, oneLiner, photoPaths: photos.map((p) => p.path) }),
-  //   });
-  //   const data = await res.json();
-  //   return { source: SOURCES.AI, items: data.items, questions: data.questions };
-  throw new Error('AIはまだ使えません（Functionsの受付が未実装）');
+  const call = httpsCallable(functions, 'estimateFromPhotos', { timeout: 300000 });
+  const res = await call({
+    workType,
+    oneLiner: oneLiner || '',
+    photoPaths: (photos || []).map((p) => p.path).filter(Boolean),
+  });
+  const data = res.data || {};
+  return {
+    source: SOURCES.AI,
+    items: data.items || [],
+    questions: data.questions || [],
+    label: TEMPLATE_LABELS[workType] || workType,
+  };
 }

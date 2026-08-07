@@ -1,0 +1,19 @@
+{
+  "name": "mitsumori-functions",
+  "description": "見積アプリの受付（写真から見積・AI呼び出し）",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "serve": "firebase emulators:start --only functions",
+    "logs": "firebase functions:log",
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0",
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.1.0"
+  }
+}
