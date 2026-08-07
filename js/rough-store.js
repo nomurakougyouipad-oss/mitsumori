@@ -21,7 +21,7 @@
 import {
   db, storage, collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDoc, getDocs, onSnapshot, query, orderBy, serverTimestamp,
-  storageRef, uploadBytes, getDownloadURL, deleteObject,
+  storageRef, uploadBytes, getDownloadURL, deleteObject, listAll,
 } from './firebase.js?v=33';
 import { cache } from './store.js?v=33';
 import { recordRateChange, tradeKey } from './rate-history.js?v=33';
@@ -121,7 +121,27 @@ export async function updateRough(id, patch) {
   await updateDoc(ref(id), { ...patch, updatedAt: serverTimestamp() });
 }
 
+// フォルダごと消す。写真の実体はFirestoreとは別の場所（Storage）にあり、
+// 見積を消しても勝手には消えない。放っておくと孤児が溜まって容量だけ増える。
+// 一覧で見るので、photos配列から外れたのに実体だけ残っているもの
+// （removePhoto が実体の削除に失敗したときの取りこぼし）も、ここで片付く。
+// 消せなくても見積の削除は必ず進める。現場を止めない（芯2）。
+async function deleteStorageFolder(path) {
+  try {
+    const folder = await listAll(storageRef(storage, path));
+    await Promise.all(folder.items.map((it) => deleteObject(it)
+      .catch((e) => console.warn('写真の実体を消せませんでした:', it.fullPath, e))));
+    return folder.items.length;
+  } catch (e) {
+    console.warn('写真フォルダを見に行けませんでした（見積は消します）:', path, e);
+    return 0;
+  }
+}
+
 export async function deleteRough(id) {
+  // 先に写真の実体。ここを飛ばすとStorageに孤児が残る
+  await deleteStorageFolder(`roughPhotos/${id}`);
+  await deleteStorageFolder(`roughSketches/${id}`);
   // 子コレクションは残ると迷子になるので先に消す
   for (const name of ['items', 'questions', 'sketches', 'chat']) {
     const snap = await getDocs(sub(id, name));

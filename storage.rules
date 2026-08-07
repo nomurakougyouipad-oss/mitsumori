@@ -38,6 +38,17 @@ service firebase.storage {
       allow delete: if request.auth != null;
     }
 
+    // ---- フォルダの一覧 ----
+    // 見積を消すときに、中の写真をまとめて消すために要る（listAll）。
+    // 一覧の許可であって、中身の読み書きの許可は上の {fileName} 側が持つ。
+    // ここが無いと写真の実体だけがStorageに残り、容量だけ増える。
+    match /roughPhotos/{roughId} {
+      allow read: if request.auth != null;
+    }
+    match /roughSketches/{roughId} {
+      allow read: if request.auth != null;
+    }
+
     // 上記以外は全面的に拒否
     match /{allPaths=**} {
       allow read, write: if false;

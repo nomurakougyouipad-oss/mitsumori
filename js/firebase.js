@@ -15,7 +15,7 @@ import {
   serverTimestamp, writeBatch, increment, Timestamp, arrayUnion, arrayRemove,
 } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
 import {
-  getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject,
+  getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject, listAll,
 } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js';
 import {
   getAuth, signInAnonymously, onAuthStateChanged,
@@ -94,6 +94,6 @@ export {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDocs, getDoc, onSnapshot, query, where, orderBy, limit,
   serverTimestamp, writeBatch, increment, Timestamp, arrayUnion, arrayRemove,
-  storageRef, uploadBytes, getDownloadURL, deleteObject,
+  storageRef, uploadBytes, getDownloadURL, deleteObject, listAll,
   httpsCallable,
 };
