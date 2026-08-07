@@ -157,6 +157,8 @@ exports.estimateFromPhotos = onCall(
     const blocks = [];
     let total = 0;
     const bucket = admin.storage().bucket();
+    const read = [];      // 実際に読めた写真
+    const skipped = [];   // 飛ばした写真と、その理由
 
     for (const path of (Array.isArray(photoPaths) ? photoPaths : []).slice(0, MAX_PHOTOS)) {
       // 【必ず確かめる】概算の写真置き場の中だけ。
@@ -165,23 +167,39 @@ exports.estimateFromPhotos = onCall(
         throw new HttpsError('invalid-argument', '写真の置き場所が不正です');
       }
       const file = bucket.file(path);
-      const [meta] = await file.getMetadata().catch(() => [null]);
-      if (!meta) continue;                         // 消された写真は飛ばす
+      let meta = null;
+      try {
+        [meta] = await file.getMetadata();
+      } catch (e) {
+        // 【黙って飛ばさない】読めなかった理由を必ず残す。
+        // ここを握りつぶすと「写真を渡したのに読まれない」が原因不明のまま残る。
+        skipped.push({ path, why: '見に行けなかった', detail: String(e && e.message || e) });
+        continue;
+      }
 
       const size = Number(meta.size) || 0;
-      if (total + size > MAX_TOTAL_BYTES) break;   // 上限まで来たら残りは送らない
+      if (total + size > MAX_TOTAL_BYTES) {
+        skipped.push({ path, why: '合計サイズの上限を超えた', size, total });
+        break;
+      }
       total += size;
+
+      const mime = meta.contentType || '';
+      if (mime !== 'application/pdf' && !/^image\/(jpeg|png|gif|webp)$/.test(mime)) {
+        // iPad は写真を HEIC で上げてくることがある。ここに落ちると1枚も読めない
+        skipped.push({ path, why: '扱えない形式', mime, size });
+        continue;
+      }
 
       const [buf] = await file.download();
       const data = buf.toString('base64');
-      const mime = meta.contentType || '';
+      read.push({ path, mime, size });
 
       if (mime === 'application/pdf') {
         blocks.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } });
-      } else if (/^image\/(jpeg|png|gif|webp)$/.test(mime)) {
+      } else {
         blocks.push({ type: 'image', source: { type: 'base64', media_type: mime, data } });
       }
-      // それ以外の形式は黙って飛ばす（HEIC等はアプリ側でjpegに変換されている前提）
     }
 
     blocks.push({
@@ -191,6 +209,17 @@ exports.estimateFromPhotos = onCall(
         `すること: ${oneLiner || '（一言なし。写真から読み取ってください）'}`,
         blocks.length ? '' : '※写真がありません。工事の種類とすることだけで出してください。',
       ].filter(Boolean).join('\n'),
+    });
+
+    // 【何を送ったかを必ず残す】
+    // 「写真を渡したのに読まれない」を推測で追わないための記録。
+    logger.info('AIに送る中身', {
+      bucket: bucket.name,
+      pathsReceived: Array.isArray(photoPaths) ? photoPaths : [],
+      readCount: read.length,
+      read,
+      skipped,
+      promptText: blocks[blocks.length - 1].text,
     });
 
     // ---------- Anthropic を呼ぶ ----------
@@ -232,6 +261,13 @@ exports.estimateFromPhotos = onCall(
       throw new HttpsError('internal', 'AIの返事を読めませんでした');
     }
 
+    // 【何が返ったかを必ず残す】返事の頭を生のまま置く
+    logger.info('AIの返事（生）', {
+      stop_reason: res.stop_reason,
+      usage: res.usage,
+      head: text.slice(0, 4000),
+    });
+
     let parsed;
     try {
       parsed = JSON.parse(text);
@@ -258,6 +294,13 @@ exports.estimateFromPhotos = onCall(
       usage: res.usage,
     });
 
-    return { items, questions: parsed.questions || [] };
+    // 読めた枚数と、飛ばした枚数を必ず返す。
+    // 「写真を渡したのに読まれていない」を、画面側が出せるようにするため（芯4）。
+    return {
+      items,
+      questions: parsed.questions || [],
+      photosRead: read.length,
+      photosSkipped: skipped.length,
+    };
   },
 );
