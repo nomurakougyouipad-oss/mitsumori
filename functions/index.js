@@ -127,7 +127,10 @@ exports.estimateFromPhotos = onCall(
   {
     region: 'asia-northeast1',
     secrets: [ANTHROPIC_API_KEY],
-    timeoutSeconds: 300,   // 写真を読んで考えるので長め
+    // 写真を読んで考えるので長め。claude-opus-5 は既定で考えるぶん時間がかかる。
+    // ここを短くすると、考え終わる前に打ち切られて「AIにつながりませんでした」になる。
+    // スマホ側の待ち時間（rough-generate.js の timeout）と必ず同じにすること。
+    timeoutSeconds: 540,
     memory: '1GiB',
     cors: true,
   },
@@ -188,18 +191,24 @@ exports.estimateFromPhotos = onCall(
     // ---------- Anthropic を呼ぶ ----------
     const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY.value() });
 
+    // 【max_tokens は「考えるぶん」と「答えるぶん」の合計の上限】
+    //   claude-opus-5 は指定しなくても考える。16000 だと考えるだけで使い切り、
+    //   答えが途中で切れて JSON が壊れる（＝「AIの返事を読めませんでした」）。だから多めに取る。
+    // 【stream を使う理由】
+    //   max_tokens が大きいと、待っているだけの通信が途中で切られることがある。
+    //   流しながら受け取れば切れない。受け取り終わった全文は finalMessage() で取る。
     let res;
     try {
-      res = await anthropic.messages.create({
+      res = await anthropic.messages.stream({
         model: MODEL,
-        max_tokens: 16000,
+        max_tokens: 32000,
         system: SYSTEM,
         output_config: {
           effort: 'high',
           format: { type: 'json_schema', schema: SCHEMA },
         },
         messages: [{ role: 'user', content: blocks }],
-      });
+      }).finalMessage();
     } catch (e) {
       logger.error('Anthropic 呼び出しに失敗', e);
       throw new HttpsError('unavailable', 'AIにつながりませんでした。ひな形から出してください');

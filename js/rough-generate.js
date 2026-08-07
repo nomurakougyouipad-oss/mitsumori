@@ -83,7 +83,9 @@ export function generateByTemplate({ workType }) {
 // 写真そのものは送らない。Storage の置き場所（path）だけ送り、
 // 受付が Storage から読む。スマホから何MBも上げ直さずに済む。
 export async function generateByAi({ workType, oneLiner, photos }) {
-  const call = httpsCallable(functions, 'estimateFromPhotos', { timeout: 300000 });
+  // 待ち時間は受付側（functions/index.js の timeoutSeconds）と必ず同じにする。
+  // こちらが先に諦めると、向こうは動き続けて料金だけかかる。
+  const call = httpsCallable(functions, 'estimateFromPhotos', { timeout: 540000 });
   const res = await call({
     workType,
     oneLiner: oneLiner || '',

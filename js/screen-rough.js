@@ -30,7 +30,7 @@ import {
   addItem, decideItem, overrideItemAmount, markPending, clearDecision,
   uploadPhoto, removePhoto, saveRoughSummary, freezeRough, addQuestion, answerQuestion,
 } from './rough-store.js?v=33';
-import { generateItems, isAiAvailable } from './rough-generate.js?v=33';
+import { generateItems, generateByTemplate, isAiAvailable } from './rough-generate.js?v=33';
 import { buildQuoteText, subjectOf, addressOf, pendingNames } from './rough-quote.js?v=33';
 import { TEMPLATE_LABELS, templateRowCount } from './rough-templates.js?v=33';
 import { openItemDetailPage } from './screen-item.js?v=33';
@@ -652,19 +652,38 @@ export function renderRoughScreen(container, roughId) {
     input.click();
   }
 
+  // 【順番が大事】先に出す。出せてから消す。
+  //   先に消すと、AIにつながらなかったときに「項目が消えたまま、何も出ない」になる。
+  //   現場は手が止まり、消えたことも見えない。芯2（止めない）と芯4（止まったものが見える）に反する。
+  //   AIで出せなかったときは黙って諦めず、ひな形に戻して先へ進めるようにする。
   async function generate() {
     if (busy) return;
+    const ai = isAiAvailable();
     if (items.length && !(await confirmDialog(
-      `いまの ${items.length}件 を消して、ひな形から出しなおします。よろしいですか?`, '出しなおす'))) return;
+      `いまの ${items.length}件 を消して、${ai ? '出しなおします' : 'ひな形から出しなおします'}。よろしいですか?`,
+      '出しなおす'))) return;
     busy = true; paint();
     try {
+      let res;
+      let fellBack = false;
+      try {
+        res = await generateItems({
+          workType: rough.workType, oneLiner: rough.oneLiner, photos: rough.photos || [],
+        });
+      } catch (e) {
+        // ひな形のときに失敗したなら、それは本当の異常。握りつぶさない
+        if (!ai) throw e;
+        console.error('AIで出せませんでした。ひな形に戻します:', e);
+        res = generateByTemplate({ workType: rough.workType });
+        fellBack = true;
+      }
+      // ここまで来たら必ず出せる。ここで初めて古い項目を消す
       if (items.length) await Promise.all(items.map((it) => deleteItem(roughId, it.id)));
-      const res = await generateItems({
-        workType: rough.workType, oneLiner: rough.oneLiner, photos: rough.photos || [],
-      });
       await addItems(roughId, res.items);
       for (const qq of (res.questions || [])) await addQuestion(roughId, qq);
-      toast(`${res.items.length}項目を出しました。人数と時間を直してください`);
+      toast(fellBack
+        ? `AIにつながらないので、ひな形から${res.items.length}項目を出しました`
+        : `${res.items.length}項目を出しました。人数と時間を直してください`);
     } catch (e) {
       console.error(e);
       toast(e.message || '項目を出せませんでした');
