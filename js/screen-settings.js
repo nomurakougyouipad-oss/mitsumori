@@ -1,6 +1,6 @@
 // ============================================================
 // 設定とマスター（画面5）＋ 事務所の作業
-// 要対応（単価待ち・判断待ち）／率の設定（実例つき・履歴）／時間単価
+// 要対応（単価待ち・判断待ち）／率の設定（実例つき・履歴）／工数単価
 // 単価マスター・取引先・仕入先・常設注番／集計表読み込み／書き戻しCSV
 // ============================================================
 
@@ -17,6 +17,7 @@ import {
   onSnapshot, query, orderBy, serverTimestamp, Timestamp,
 } from './firebase.js?v=33';
 import { openTallyPage } from './screen-tally.js?v=33';
+import { HOURS_PER_KOSU, tradeWithKosuRate } from './rough-calc.js?v=33';
 import { recordRateChange, tradeKey } from './rate-history.js?v=33';
 import { openActualsListPage, openActualEditPage } from './screen-handover.js?v=33';
 
@@ -46,8 +47,8 @@ export function renderSettingsTab(container) {
       <div class="sec-head"><span class="ttl">率と単価</span><span class="rule"></span></div>
       <div class="card" id="st-rates" style="cursor:pointer"><div class="ttl" style="font-size:14px">率の設定</div>
         <div class="meta">${RATE_DEFS.slice(0, 5).map(([k]) => pctN(cache.rates[k]) + '%').join('・')} …</div></div>
-      <div class="card" id="st-units" style="cursor:pointer"><div class="ttl" style="font-size:14px">時間単価</div>
-        <div class="meta">職種${(cache.unitRates.trades || []).length}つ・車両${cache.unitRates.kmRate}円/km・移動労務${cache.unitRates.travelLabor}円/h</div></div>
+      <div class="card" id="st-units" style="cursor:pointer"><div class="ttl" style="font-size:14px">工数単価</div>
+        <div class="meta">職種${(cache.unitRates.trades || []).length}つ・車両${cache.unitRates.kmRate}円/km・移動労務${cache.unitRates.travelLabor}円/h（移動だけ時間）</div></div>
       <div class="sec-head"><span class="ttl">マスター</span><span class="rule"></span></div>
       <div class="card" id="st-items" style="cursor:pointer"><div class="ttl" style="font-size:14px">単価マスター ${cache.items.length}件</div>
         <div class="meta">検索・編集・古い単価に色・別名</div></div>
@@ -155,21 +156,30 @@ function openRatesPage() {
   load();
 }
 
-// ---------- 時間単価 ----------
+// ---------- 工数単価 ----------
+// 職種の単価は「円/工数」で見せて、円/工数 で入れる（1工数＝8時間）。
+// 保存は kosuRate（円/工数）と rate（円/h）の両方に書く。理由は rough-calc.js の
+// 「工数」の説明にある。片方しか読まない経路が残っていても金額がずれないため。
+// 移動労務費は時間のまま（片道1時間などを工数で書くと刻みが粗すぎる）。
 function openUnitRatesPage() {
   const ov = openOverlay();
   function paint() {
     const u = cache.unitRates;
+    const kosu = (t) => (typeof t.kosuRate === 'number' && isFinite(t.kosuRate)
+      ? t.kosuRate : (t.rate || 0) * HOURS_PER_KOSU);
     ov.el.innerHTML = `
-      <div class="page-head"><div class="bar"><button class="icon-btn" id="u-back">←</button><span class="ttl">時間単価</span></div></div>
+      <div class="page-head"><div class="bar"><button class="icon-btn" id="u-back">←</button><span class="ttl">工数単価</span></div></div>
       <div class="page-body"><div class="form-page form-2col">
         ${(u.trades || []).map((t, i) => `
           <div class="rate-row"><span class="lb">${esc(t.name)}</span>
-            <div class="rate-input" data-ti="${i}"><b>${t.rate.toLocaleString('ja-JP')}</b><span>円/h</span></div></div>`).join('')}
+            <div class="rate-input" data-ti="${i}"><b>${kosu(t).toLocaleString('ja-JP')}</b><span>円/工数</span></div></div>`).join('')}
         <div class="rate-row"><span class="lb">車両移動</span>
           <div class="rate-input" data-uk="kmRate"><b>${u.kmRate}</b><span>円/km</span></div></div>
         <div class="rate-row"><span class="lb">移動労務費</span>
           <div class="rate-input" data-uk="travelLabor"><b>${u.travelLabor.toLocaleString('ja-JP')}</b><span>円/h</span></div></div>
+        <div style="font-size:12px;color:var(--muted2);line-height:1.8;padding-top:6px">
+          1工数 ＝ 8時間（1人が1日）。<br>
+          移動だけは時間のままです。片道1時間を工数で書くと刻みが粗くなるためです。</div>
       </div></div>`;
     ov.el.querySelector('#u-back').addEventListener('click', ov.close);
     const save = async (patch) => {
@@ -178,16 +188,18 @@ function openUnitRatesPage() {
     };
     ov.el.querySelectorAll('[data-ti]').forEach((el) => el.addEventListener('click', () => {
       const i = +el.dataset.ti;
-      openNumpad({ title: u.trades[i].name, value: u.trades[i].rate, unit: '円/h', allowDecimal: false, onDone: async (n) => {
+      const from = kosu(u.trades[i]);
+      openNumpad({ title: u.trades[i].name, value: from, unit: '円/工数', allowDecimal: false, onDone: async (n) => {
         if (n == null) return;
-        const from = u.trades[i].rate;
-        const trades = u.trades.map((t, j) => j === i ? { ...t, rate: n } : t);
+        // kosuRate（円/工数）と rate（円/h）の両方を書く
+        const trades = u.trades.map((t, j) => (j === i ? tradeWithKosuRate(t, n) : t));
         await save({ trades });
         // 職種の単価も履歴に残す（誰が・いつ・何を・いくらから いくらに）
+        // 単位は行ごとに持っているので、前の「円/h」の行はそのまま正しく残る
         try {
           await recordRateChange({
             scope: 'standard', key: tradeKey(u.trades[i].name), label: u.trades[i].name,
-            unit: '円/h', from, to: n, staff: local.get('staff', ''),
+            unit: '円/工数', from, to: n, staff: local.get('staff', ''),
           });
         } catch (e) { console.warn('履歴を残せませんでした:', e); }
       } });

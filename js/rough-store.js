@@ -29,6 +29,7 @@ import { DEFAULT_RATES, DEFAULT_UNIT_RATES } from './calc.js?v=33';
 import {
   DEFAULT_ROUGH_OPTIONS, WORK_TYPES, ITEM_KINDS,
   resolveRates, resolveUnitRates, roughTotals, priceBand, counts, sumByKind,
+  tradeKosuRate, tradeWithKosuRate,
 } from './rough-calc.js?v=33';
 
 const COL = 'roughEstimates';
@@ -405,19 +406,21 @@ export async function saveCustomerRate(customerName, key, value, { label, staff,
   });
 }
 
-// 職種の1h単価を1つ上書き（例: 現場工事 4,000 → 3,800）
-export async function saveCustomerTradeRate(customerName, tradeName, rate, { staff, reason } = {}) {
+// 職種の工数単価を1つ上書き（例: 現場工事 32,000 → 30,400 円/工数）
+// kosuRate（円/工数）と rate（円/h）の両方を書く。理由は rough-calc.js の「工数」の説明。
+export async function saveCustomerTradeKosuRate(customerName, tradeName, kosuRate, { staff, reason } = {}) {
   const c = requireCustomer(customerName);
   const trades = [...(c.unitRates?.trades || [])];
   const i = trades.findIndex((t) => t.name === tradeName);
-  const before = i >= 0 ? trades[i].rate
-    : (cache.unitRates.trades || []).find((t) => t.name === tradeName)?.rate ?? null;
-  if (i >= 0) trades[i] = { ...trades[i], rate };
-  else trades.push({ name: tradeName, rate });
+  const before = i >= 0
+    ? tradeKosuRate(c.unitRates, tradeName)
+    : tradeKosuRate(cache.unitRates, tradeName);
+  if (i >= 0) trades[i] = tradeWithKosuRate(trades[i], kosuRate);
+  else trades.push(tradeWithKosuRate({ name: tradeName }, kosuRate));
   await updateDoc(doc(db, 'customers', c.id), { unitRates: { ...(c.unitRates || {}), trades } });
   await recordRateChange({
     scope: 'customer', target: customerName, key: tradeKey(tradeName),
-    label: tradeName, unit: '円/h', from: before, to: rate, staff, reason,
+    label: tradeName, unit: '円/工数', from: before, to: kosuRate, staff, reason,
   });
 }
 

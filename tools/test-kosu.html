@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>工数に変えても金額が動かないことの確認</title>
+<!-- ============================================================
+     人工（時間）→ 工数 に変えたときに、金額が1円も動かないことを確かめる。
+     写しは作らない。js/rough-calc.js の実物をそのまま読む。
+
+     見るのは3つ。
+       ① 前の形のデータ（rate だけ・円/h）の金額が、前と1円も違わないこと
+       ② 工数単価（kosuRate）を入れた形でも、金額が①と1円も違わないこと
+       ③ 36h ＝ 4.5工数 の読み替えが往復で狂わないこと
+     ============================================================ -->
+<link rel="stylesheet" href="../app.css?v=33">
+<style>
+  body { margin:0; background:#EEF0F3; font-family:"Noto Sans JP",system-ui,sans-serif; padding:16px; }
+  h1 { font-size:17px; margin-bottom:4px; }
+  .sub { font-size:12.5px; color:#6B7783; margin-bottom:14px; line-height:1.7; }
+  table { border-collapse:collapse; background:#fff; width:100%; max-width:900px; font-size:13px; }
+  th, td { border:1px solid #D9DEE4; padding:6px 10px; text-align:left; }
+  th { background:#F3F5F8; font-size:12px; color:#4A5A6B; }
+  td.n { font-family:"IBM Plex Mono",monospace; text-align:right; }
+  .ok { color:#177a49; font-weight:700; }
+  .ng { color:#b3261e; font-weight:700; }
+  #sum { font-size:15px; font-weight:700; margin:16px 0 8px; }
+  pre { background:#fff; border:1px solid #D9DEE4; padding:12px; font-size:12px; overflow-x:auto; max-width:900px; }
+</style>
+</head>
+<body>
+<h1>工数に変えても金額が動かないことの確認</h1>
+<div class="sub">
+  ひな形「機械の修理・整備」＝ポンプ整備と同じ並びで確かめます。<br>
+  1工数 ＝ 8時間。工数単価 ＝ 時間単価 × 8。<code>36h × 時間単価 ＝ 4.5工数 × 工数単価</code>
+</div>
+<div id="sum">計算しています…</div>
+<div id="out"></div>
+
+<script type="module">
+import {
+  roughTotals, priceBand, itemAmount, tradeRate, tradeKosuRate,
+  HOURS_PER_KOSU, hoursToKosu, kosuToHours, kosuText, DEFAULT_ROUGH_OPTIONS,
+} from '../js/rough-calc.js?v=33';
+import { DEFAULT_RATES } from '../js/calc.js?v=33';
+
+// 現場で使っている職種と単価（CLAUDE.md の「労務単価」そのまま・円/h）
+const TRADES_OLD = [
+  { name: '溶接加工', rate: 3500 }, { name: '曲げ加工', rate: 3000 },
+  { name: '穴あけ加工', rate: 2800 }, { name: '塗装', rate: 2500 },
+  { name: '整備', rate: 3000 }, { name: '現場工事', rate: 4000 },
+];
+// 工数単価を入れた形（円/工数 ＝ 円/h × 8）。rate も残す
+const TRADES_NEW = TRADES_OLD.map((t) => ({ ...t, kosuRate: t.rate * HOURS_PER_KOSU }));
+
+const UNIT_OLD = { trades: TRADES_OLD, travelLabor: 3000, kmRate: 25 };
+const UNIT_NEW = { trades: TRADES_NEW, travelLabor: 3000, kmRate: 25 };
+
+// ひな形「修理・整備」＝ポンプ整備。材料と外注は現場で入れる金額を仮に置く
+const ITEMS = [
+  { id: '1', kind: '労務', name: '現地調査・寸法及び仕様確認', trade: '現場工事', persons: 1, hours: 8, state: '確定', chosen: 'yotsuba' },
+  { id: '2', kind: '労務', name: '既設モーター・駆動装置 取外し', trade: '現場工事', persons: 2, hours: 8, state: '確定', chosen: 'yotsuba' },
+  { id: '3', kind: '材料', name: '交換用モーター購入費', qty: 1, cost: 480000, state: '確定', chosen: 'yotsuba' },
+  { id: '4', kind: '労務', name: '駆動部ベアリング交換', trade: '整備', persons: 2, hours: 8, state: '確定', chosen: 'yotsuba' },
+  { id: '5', kind: '材料', name: 'オイルシール・パッキン・消耗部品', qty: 1, cost: 63500, state: '確定', chosen: 'yotsuba' },
+  { id: '6', kind: '労務', name: '駆動部 分解・清掃・点検・組立', trade: '整備', persons: 2, hours: 32, state: '確定', chosen: 'yotsuba' },
+  { id: '7', kind: '労務', name: '軸・スプロケット・カップリング等 点検調整', trade: '整備', persons: 2, hours: 8, state: '確定', chosen: 'yotsuba' },
+  { id: '8', kind: '労務', name: 'ケーシング補修・部分塗装', trade: '塗装', persons: 1, hours: 8, state: '確定', chosen: 'yotsuba' },
+  { id: '9', kind: '労務', name: '現場搬入・据付・芯出し調整', trade: '現場工事', persons: 2, hours: 16, state: '確定', chosen: 'yotsuba' },
+  { id: '10', kind: '外注', name: '配線脱着・絶縁確認・試運転', amount: 85000, state: '確定', chosen: 'yotsuba' },
+  { id: '11', kind: '材料', name: '運搬費', qty: 1, cost: 30000, state: '確定', chosen: 'yotsuba' },
+  { id: '12', kind: '移動', name: '現場移動', persons: 2, hours: 1, km: 18, state: '確定', chosen: 'yotsuba' },
+  // 手順を出した労務（手順があるときは手順が正）
+  { id: '13', kind: '労務', name: '門型で吊り出し', trade: '現場工事', persons: 2, hours: 4, state: '確定', chosen: 'yotsuba',
+    steps: [
+      { name: '門型 組立・解体', trade: '現場工事', persons: 2, hours: 4 },
+      { name: 'チェンブロックで吊り', trade: '現場工事', persons: 2, hours: 2 },
+      { name: 'トロリーで吊り出し', trade: '現場工事', persons: 2, hours: 1, enabled: false },
+    ] },
+  // 単価待ちと未確定（合計に入らないもの）も混ぜる
+  { id: '14', kind: '材料', name: '特殊ベアリング', state: '単価待ち' },
+  { id: '15', kind: '材料', name: 'カップリング', state: '未確定', qty: 1, cost: 42000, marketAmount: 58000 },
+];
+
+const R = DEFAULT_RATES;
+const O = DEFAULT_ROUGH_OPTIONS;
+const yen = (v) => (v == null ? '—' : Math.round(v).toLocaleString('ja-JP'));
+
+const rows = [];
+let ng = 0;
+const check = (cond) => { if (!cond) ng++; return cond; };
+
+// ① と ② … 項目ごとの金額を突き合わせる
+for (const it of ITEMS) {
+  const a = itemAmount(it, R, UNIT_OLD);
+  const b = itemAmount(it, R, UNIT_NEW);
+  const same = (a == null && b == null) || a === b;
+  check(same);
+  rows.push(`<tr>
+    <td>${it.name}</td><td>${it.kind}</td>
+    <td class="n">${it.hours != null ? it.hours + 'h' : '—'}</td>
+    <td class="n">${it.kind === '労務' ? kosuText(it.hours) + '工数' : '—'}</td>
+    <td class="n">${yen(a)}</td><td class="n">${yen(b)}</td>
+    <td class="${same ? 'ok' : 'ng'}">${same ? '同じ' : 'ちがう'}</td></tr>`);
+}
+
+// 合計と提出価格の幅
+const tOld = roughTotals(ITEMS, R, UNIT_OLD, O);
+const tNew = roughTotals(ITEMS, R, UNIT_NEW, O);
+const bOld = priceBand(ITEMS, R, UNIT_OLD, O);
+const bNew = priceBand(ITEMS, R, UNIT_NEW, O);
+for (const [label, x, y] of [
+  ['材料費', tOld.material, tNew.material], ['労務費', tOld.labor, tNew.labor],
+  ['移動費', tOld.travel, tNew.travel], ['外注費', tOld.outsource, tNew.outsource],
+  ['諸経費', tOld.overhead, tNew.overhead], ['法定福利費', tOld.welfare, tNew.welfare],
+  ['損料', tOld.depreciation, tNew.depreciation],
+  ['税抜計', tOld.taxable, tNew.taxable], ['消費税', tOld.tax, tNew.tax],
+  ['税込合計', tOld.withTax, tNew.withTax],
+  ['提出価格 下限', bOld.displayLow, bNew.displayLow],
+  ['提出価格 上限', bOld.displayHigh, bNew.displayHigh],
+]) {
+  const same = x === y;
+  check(same);
+  rows.push(`<tr style="background:#F7F8FA"><td colspan="4"><b>${label}</b></td>
+    <td class="n"><b>${yen(x)}</b></td><td class="n"><b>${yen(y)}</b></td>
+    <td class="${same ? 'ok' : 'ng'}">${same ? '同じ' : 'ちがう'}</td></tr>`);
+}
+
+document.getElementById('out').innerHTML = `<table>
+  <tr><th>項目</th><th>費目</th><th>時間</th><th>工数</th>
+      <th>前（円/h）</th><th>後（円/工数）</th><th>判定</th></tr>
+  ${rows.join('')}</table>`;
+
+// ③ 読み替えが往復で狂わないか
+const conv = [];
+for (const h of [8, 16, 32, 36, 4, 2, 1, 0, 60]) {
+  const k = hoursToKosu(h);
+  const back = kosuToHours(k);
+  const ok = back === h;
+  check(ok);
+  conv.push(`${String(h).padStart(3)}h → ${String(kosuText(h)).padStart(6)}工数 → ${String(back).padStart(3)}h  ${ok ? 'OK' : 'NG'}`);
+}
+// 単価の読み替え
+const rateLines = TRADES_OLD.map((t) => {
+  const hOld = tradeRate(UNIT_OLD, t.name);
+  const hNew = tradeRate(UNIT_NEW, t.name);
+  const kOld = tradeKosuRate(UNIT_OLD, t.name);
+  const kNew = tradeKosuRate(UNIT_NEW, t.name);
+  const ok = hOld === hNew && kOld === kNew && kNew === hNew * HOURS_PER_KOSU;
+  check(ok);
+  return `${t.name.padEnd(6, '　')} 計算に使う単価 ${yen(hOld)}円/h（前）＝${yen(hNew)}円/h（後） ／ 画面 ${yen(kNew)}円/工数  ${ok ? 'OK' : 'NG'}`;
+});
+// 36h × 時間単価 ＝ 4.5工数 × 工数単価
+const idn = [3000, 4000, 2500].map((r) => {
+  const a = 2 * 36 * r;
+  const b = 2 * hoursToKosu(36) * (r * HOURS_PER_KOSU);
+  const ok = a === b;
+  check(ok);
+  return `2人 × 36h × ${yen(r)}円/h ＝ ${yen(a)}　／　2人 × 4.5工数 × ${yen(r * 8)}円/工数 ＝ ${yen(b)}  ${ok ? 'OK' : 'NG'}`;
+});
+
+document.getElementById('out').insertAdjacentHTML('beforeend',
+  `<pre>${[...conv, '', ...rateLines, '', ...idn].join('\n')}</pre>`);
+
+const el = document.getElementById('sum');
+el.textContent = ng === 0
+  ? '金額はすべて同じでした。1円も動いていません。'
+  : `${ng}件 ちがいました。工数への読み替えが金額を動かしています。`;
+el.className = ng === 0 ? 'ok' : 'ng';
+</script>
+</body>
+</html>

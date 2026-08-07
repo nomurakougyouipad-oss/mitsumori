@@ -89,7 +89,9 @@ export function closeAllOverlays() {
 
 // ---------- テンキー（数量のその場編集） ----------
 // ページを動かさず下からシートで出す。完了で onDone(数値 or null)
-export function openNumpad({ title = '数量', value = '', unit = '', allowDecimal = true, onDone }) {
+// hint … 単位の数え方を一言だけ添える（例「1工数 ＝ 8時間」）。
+// 数字の意味が数え方に依るものは、入れる場所に書いておかないと間違える。
+export function openNumpad({ title = '数量', value = '', unit = '', allowDecimal = true, hint = '', onDone }) {
   const root = document.getElementById('modal-root');
   const back = document.createElement('div');
   back.className = 'numpad-back';
@@ -100,6 +102,7 @@ export function openNumpad({ title = '数量', value = '', unit = '', allowDecim
         <span class="np-title">${esc(title)}</span>
         <span class="np-value"><b id="np-val"></b><span class="np-unit">${esc(unit)}</span></span>
       </div>
+      ${hint ? `<div style="font-size:12px;color:var(--muted);padding:0 4px 8px">${esc(hint)}</div>` : ''}
       <div class="np-grid">
         ${[7, 8, 9, 4, 5, 6, 1, 2, 3].map((n) => `<button class="np-key" data-k="${n}">${n}</button>`).join('')}
         <button class="np-key" data-k="." ${allowDecimal ? '' : 'disabled'}>.</button>

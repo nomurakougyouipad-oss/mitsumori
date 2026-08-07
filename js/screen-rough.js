@@ -12,7 +12,7 @@
 //   写真を撮って貼る（あとでAIが読む。今は残すだけ）
 //   すること を一言だけ打つ
 //   工事の種類を押す → ひな形から項目が並ぶ
-//   人工（人数×時間）を直す → その場で金額と提出価格の幅が動く
+//   工数（人数×工数）を直す → 金額と提出価格の幅が動く（直すのは「くわしく」の中）
 //   分からない材料は「単価待ち」で置いたまま先へ進める
 //
 // 【AIが入ったら変わるところ】
@@ -25,16 +25,17 @@
 
 import { esc, YEN, local } from './util.js?v=33';
 import { icons } from './icons.js?v=33';
-import { openOverlay, openNumpad, openTextInput, toast, confirmDialog, setHtmlKeepScroll } from './ui.js?v=33';
-import { cache } from './store.js?v=33';
+// 金額と人数×時間を直す道は screen-item.js へ移した（一覧は見るところ）。
+// openNumpad / overrideItemAmount / updateItem をここへ戻さないこと。
+import { openOverlay, openTextInput, toast, confirmDialog, setHtmlKeepScroll } from './ui.js?v=33';
 import {
-  WORK_TYPES, ITEM_KINDS, itemAmount, itemCandidates,
+  WORK_TYPES, ITEM_KINDS, itemAmount, kosuText,
   yotsubaAmount, marketAmount, roughTotals, priceBand, counts, DISCLAIMER,
 } from './rough-calc.js?v=33';
 import {
   subscribeRough, subscribeRoughItems, subscribeRoughQuestions,
-  effectiveRates, optionsFor, updateRough, addItems, updateItem, deleteItem,
-  addItem, decideItem, overrideItemAmount, markPending, clearDecision,
+  effectiveRates, optionsFor, updateRough, addItems, deleteItem,
+  addItem, decideItem, markPending,
   uploadPhoto, removePhoto, saveRoughSummary, freezeRough, addQuestion, answerQuestion, deferQuestion,
 } from './rough-store.js?v=33';
 import { generateItems, generateByTemplate, isAiAvailable } from './rough-generate.js?v=33';
@@ -42,8 +43,6 @@ import { buildQuoteText, subjectOf, addressOf, pendingNames } from './rough-quot
 import { TEMPLATE_LABELS, templateRowCount } from './rough-templates.js?v=33';
 import { openItemDetailPage } from './screen-item.js?v=33';
 import { openPhotoViewer as openPhotoViewerUI, isPdf } from './photo-viewer.js?v=33';
-
-const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 
 // ============================================================
 // 画面本体
@@ -288,71 +287,74 @@ export function renderRoughScreen(container, roughId) {
   }
 
   // ---------- 項目カード ----------
+  // 【一覧は見るところ、くわしくは直すところ】2026/8/7
+  //   前はカードの上で人数・時間・金額を直せた。一覧と直しが混ざっていて迷う。
+  //   直すのは「項目のくわしい中身」（screen-item.js）だけにした。
+  //   ・±8h／±1h、人数・時間・kmの数字、金額を直すボタン … すべて一覧から外した
+  //     ざっくりの段階で1時間ずつ動かしても、出す金額はまだ幅で持っている
+  //   ・カードぜんたいが「くわしく」への入口。押すところは1枚に1つ
+  //   ・消すのもくわしくの中。間違って足したものはそこで消す
+  //   例外は未確定の2つだけ（この金額を使う／単価待ちにする）。
+  //   これは金額を直すのではなく、合計に入れるかどうかを決めるボタン。
+  //   AIが出した金額は人が押すまで合計に入らない、という決めごとを持っている。
+  //
   // 【詰めた理由】11〜12項目あるのに1画面に2つ半しか入らなかった。
   // 高さを削ったのは余白と行数だけで、名前16px・金額22pxの読みやすさは残している。
-  //   ・名前と金額を同じ行に置く（前は金額が下段だった）
-  //   ・材料/外注は「金額を直す」ボタンを金額そのものにした（押すところは減っている）
-  // 【さらに詰めた】2026/8/7 上を畳むのをやめたぶん、ここでも余白を返してもらう。
-  //   上下の余白 10→8px、名前の行送り 1.35→1.25、カード間 8→6px。
-  //   字の大きさとボタンの高さ（40px以上）はそのまま。指と目には触っていない。
-  // 1枚 約81px。畳まなくても5枚が一度に見える。
-  const CARD = 'background:#fff;border:1px solid #D9DEE4;border-radius:6px;padding:8px 12px';
+  // 押すところがカード1枚になったので、軍手でも狙いを外さない。
+  const CARD = 'width:100%;text-align:left;font-family:var(--font);background:#fff;border:1px solid #D9DEE4;'
+    + 'border-radius:6px;padding:8px 12px;cursor:pointer;display:block';
   const TITLE = 'font-size:16px;font-weight:700;color:#16202B;line-height:1.25';
   const AMT = 'font-family:var(--mono);font-size:22px;font-weight:700;color:#1B3A5C;letter-spacing:-.01em;'
     + 'line-height:1.1;white-space:nowrap';
-  const STEP_BTN = 'width:46px;height:40px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;color:#1B3A5C;'
-    + 'font-family:var(--mono);font-size:14px;font-weight:700;cursor:pointer;flex:none';
-  const SUB_BTN = 'height:40px;padding:0 10px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;'
-    + 'color:#1B3A5C;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;flex:none';
-  // 金額そのものを押させる（材料・外注の「金額を直す」）
-  const AMT_BTN = 'display:flex;align-items:center;gap:6px;height:44px;padding:0 10px;background:#fff;'
-    + 'border:1px solid #C3CBD4;border-radius:6px;cursor:pointer;flex:none;font-family:var(--font)';
-
-  // 【芯5】押すところを増やさない。
-  // モックの項目カードに削除ボタンは無いので、こちらでも出さない。
-  // 要らない行は時間を0にすれば0円になる。行ごと消す道は、
-  // 「項目のくわしい中身」を作るときにそちらへ入れる。
-  function delBtn() { return ''; }
+  const SUB = 'font-size:12.5px;color:#4A5A6B;line-height:1.4';
+  // カードのどこを押しても「くわしく」が開く、と分かるための印
+  const MORE = `<span style="flex:none;display:flex;align-items:center;gap:1px;font-size:12px;font-weight:700;color:#1B3A5C">
+    くわしく<span style="font-size:11px;display:grid;place-items:center">${icons.caretRight}</span></span>`;
 
   function itemCard(it, rates, unitRates) {
     const amt = itemAmount(it, rates, unitRates);
+    const open = `data-steps="${it.id}"`;   // 押すと「項目のくわしい中身」
 
     // 未確定 … よつばの単価と相場を2つ並べて、人に押させる
+    // 金額を直すのはくわしくの中。ここに残すのは「合計に入れるかどうか」の2つだけ
     if (it.state === '未確定') {
       const y = yotsubaAmount(it, rates, unitRates);
       const m = marketAmount(it);
       return `
         <div style="background:#fff;border:1px dashed #C3CBD4;border-radius:6px;padding:10px 14px">
-          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-            <div style="${TITLE}">${esc(it.name || '（名前なし）')}</div>
-            <span style="font-size:11px;font-weight:700;color:#7A8794;border:1px solid #D2D8E0;border-radius:3px;
-              padding:2px 6px;flex:none">未確定</span>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:6px;font-size:13px;color:#6B7783">
-            <span>よつばの単価</span>
-            <span style="font-family:var(--mono)${y != null ? ';font-size:18px;font-weight:700;color:#16202B' : ''}">${y == null ? 'なし' : YEN(y)}</span></div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:3px;font-size:13px;color:#6B7783">
-            <span style="display:flex;align-items:center;gap:6px">世の中の相場
-              <span style="font-size:10.5px;font-weight:700;color:#1F6B5B;background:#E3F0EC;border-radius:3px;padding:2px 5px">相場</span></span>
-            <span style="font-family:var(--mono);font-size:22px;font-weight:700;color:#1F6B5B;letter-spacing:-.01em">${m == null ? '—' : YEN(m)}</span></div>
+          <button ${open} style="width:100%;text-align:left;background:none;border:0;padding:0;
+            font-family:var(--font);cursor:pointer">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <div style="${TITLE}">${esc(it.name || '（名前なし）')}</div>
+              <span style="font-size:11px;font-weight:700;color:#7A8794;border:1px solid #D2D8E0;border-radius:3px;
+                padding:2px 6px;flex:none">未確定</span>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding-top:6px;font-size:13px;color:#6B7783">
+              <span>よつばの単価</span>
+              <span style="font-family:var(--mono)${y != null ? ';font-size:18px;font-weight:700;color:#16202B' : ''}">${y == null ? 'なし' : YEN(y)}</span></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding-top:3px;font-size:13px;color:#6B7783">
+              <span style="display:flex;align-items:center;gap:6px">世の中の相場
+                <span style="font-size:10.5px;font-weight:700;color:#1F6B5B;background:#E3F0EC;border-radius:3px;padding:2px 5px">相場</span></span>
+              <span style="font-family:var(--mono);font-size:22px;font-weight:700;color:#1F6B5B;letter-spacing:-.01em">${m == null ? '—' : YEN(m)}</span></div>
+          </button>
           <div style="display:flex;gap:6px;padding-top:8px">
-            <button data-use="${it.id}" data-src="${y != null ? 'yotsuba' : 'market'}" style="flex:1.2;height:48px;
+            <button data-use="${it.id}" data-src="${y != null ? 'yotsuba' : 'market'}" style="flex:1.3;height:48px;
               background:${NAVY_GRAD};border:0;border-radius:6px;color:#fff;font-family:var(--font);
-              font-size:14px;font-weight:700;cursor:pointer">この金額を使う</button>
-            <button data-edit="${it.id}" style="flex:1;height:48px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;
-              color:#1B3A5C;font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer">金額を直す</button>
-            <button data-pend="${it.id}" style="flex:1.1;height:48px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;
-              color:#1B3A5C;font-family:var(--font);font-size:14px;font-weight:700;cursor:pointer">単価待ち</button>
+              font-size:15px;font-weight:700;cursor:pointer">この金額を使う</button>
+            <button data-pend="${it.id}" style="flex:1;height:48px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;
+              color:#1B3A5C;font-family:var(--font);font-size:15px;font-weight:700;cursor:pointer">単価待ち</button>
           </div>
-          <div style="font-size:11.5px;color:#8A96A3;padding-top:6px">どれか押すまで合計に入りません</div>
+          <div style="display:flex;align-items:center;gap:8px;padding-top:6px">
+            <span style="flex:1;font-size:11.5px;color:#8A96A3">どれか押すまで合計に入りません</span>
+            <button ${open} style="background:none;border:0;padding:2px;cursor:pointer">${MORE}</button>
+          </div>
         </div>`;
     }
 
     // 単価待ち … 左に山吹の帯。合計に入らない
-    // 札は名前と同じ行に流し込む（前は説明が2行あり、1枚で110px使っていた）
     if (it.state === '単価待ち') {
       return `
-        <div style="${CARD};border-left:4px solid #BA7517">
+        <button ${open} style="${CARD};border-left:4px solid #BA7517">
           <div style="display:flex;align-items:center;gap:10px">
             <div style="flex:1;min-width:0">
               <div style="${TITLE}">
@@ -361,58 +363,53 @@ export function renderRoughScreen(container, roughId) {
                   <span style="font-size:12px;display:grid;place-items:center">${icons.clock}</span>単価待ち</span>${esc(it.name || '（名前なし）')}</div>
               <div style="font-size:11.5px;color:#8A96A3;padding-top:3px">聞いてから入れます。空けたまま先へ進めます</div>
             </div>
-            <button data-edit="${it.id}" style="${SUB_BTN};height:44px">金額を入れる</button>
-            ${delBtn(it.id)}
+            ${MORE}
           </div>
-        </div>`;
+        </button>`;
     }
 
-    // 労務・移動 … 人数×時間をその場で増減
+    // 労務・移動 … 人数×工数は見せるだけ。直すのはくわしくの中
+    // 労務は工数（1工数＝8時間）。移動だけは時間のまま
+    // （片道1時間を0.125工数と書いても読めない）。
     if (it.kind === '労務' || it.kind === '移動') {
-      const step = it.kind === '移動' ? 1 : 8;
+      const travel = it.kind === '移動';
+      const B = 'font-family:var(--mono);font-weight:700;color:#16202B';
       return `
-        <div style="${CARD}">
+        <button ${open} style="${CARD}">
           <div style="display:flex;align-items:baseline;gap:8px">
             <div style="${TITLE};flex:1;min-width:0">${esc(it.name || '（名前なし）')}</div>
-            <span style="${AMT};flex:none">${YEN(amt || 0)}</span>${delBtn(it.id)}
+            <span style="${AMT};flex:none">${YEN(amt || 0)}</span>
           </div>
-          <div style="display:flex;align-items:center;gap:6px;padding-top:5px">
-            <div style="flex:1;min-width:0;font-size:12.5px;color:#4A5A6B;line-height:1.4">
-              ${esc(it.kind === '移動' ? '移動労務' : (it.trade || ''))}
-              <b data-np="${it.id}" style="font-family:var(--mono);font-weight:700;color:#16202B;cursor:pointer">${it.persons ?? 0}</b>人 ×
-              <b data-nh="${it.id}" style="font-family:var(--mono);font-weight:700;color:#16202B;cursor:pointer">${it.hours ?? 0}</b>h</div>
-            <button data-h="${it.id}" data-d="-${step}" style="${STEP_BTN}">−${step}h</button>
-            <button data-h="${it.id}" data-d="${step}" style="${STEP_BTN}">＋${step}h</button>
-            ${it.kind === '労務' ? `<button data-steps="${it.id}" style="${SUB_BTN};display:flex;align-items:center;gap:2px;
-              background:#1B3A5C;border:0;color:#fff">くわしく<span style="font-size:11px;display:grid;place-items:center">${icons.caretRight}</span></button>` : ''}
+          <div style="display:flex;align-items:center;gap:8px;padding-top:5px">
+            <div style="flex:1;min-width:0;${SUB}">
+              ${esc(travel ? '移動労務' : (it.trade || ''))}
+              <b style="${B}">${it.persons ?? 0}</b>人 ×
+              ${travel
+                ? `<b style="${B}">${it.hours ?? 0}</b>h　片道 <b style="${B}">${it.km ?? '—'}</b> km`
+                : `<b style="${B}">${kosuText(it.hours)}</b>工数`}</div>
+            ${MORE}
           </div>
-          ${it.kind === '移動' ? `
-            <div style="font-size:12px;color:#6B7783;padding-top:5px">片道
-              <b data-km="${it.id}" style="font-family:var(--mono);color:#16202B;cursor:pointer">${it.km ?? '—'}</b> km
-              <span style="color:#A9B3BE">（往復で計算・${unitRates.kmRate}円/km）</span></div>` : ''}
-        </div>`;
+        </button>`;
     }
 
     // 材料・外注（確定）
-    // 金額そのものが「金額を直す」ボタン。押すところが1つ減り、1行に収まる
     const isMarket = it.chosen === 'market';
     return `
-      <div style="${CARD}">
+      <button ${open} style="${CARD}">
         <div style="display:flex;align-items:center;gap:10px">
           <div style="flex:1;min-width:0">
             <div style="${TITLE}">${esc(it.name || '（名前なし）')}</div>
-            ${it.kind === '外注' ? '<div style="font-size:11.5px;color:#8A96A3;padding-top:3px">外注費 1式</div>' : ''}
-            ${isMarket ? `<div style="padding-top:4px"><span style="display:inline-flex;align-items:center;gap:3px;
-              font-size:11px;font-weight:700;color:#1F6B5B;background:#E3F0EC;border-radius:3px;padding:2px 6px">
-              <span style="font-size:12px;display:grid;place-items:center">${icons.check}</span>相場で確定</span></div>` : ''}
+            <div style="display:flex;align-items:center;gap:6px;padding-top:3px">
+              ${it.kind === '外注' ? '<span style="font-size:11.5px;color:#8A96A3">外注費 1式</span>' : ''}
+              ${isMarket ? `<span style="display:inline-flex;align-items:center;gap:3px;
+                font-size:11px;font-weight:700;color:#1F6B5B;background:#E3F0EC;border-radius:3px;padding:2px 6px">
+                <span style="font-size:12px;display:grid;place-items:center">${icons.check}</span>相場で確定</span>` : ''}
+              ${MORE}
+            </div>
           </div>
-          <button data-edit="${it.id}" style="${AMT_BTN}" aria-label="金額を直す">
-            <span style="${AMT}">${YEN(amt || 0)}</span>
-            <span style="color:#8A96A3;font-size:15px;display:grid;place-items:center">${icons.pencil}</span>
-          </button>
-          ${delBtn(it.id)}
+          <span style="${AMT};flex:none">${YEN(amt || 0)}</span>
         </div>
-      </div>`;
+      </button>`;
   }
 
   // ---------- 下の帯 ----------
@@ -597,7 +594,8 @@ export function renderRoughScreen(container, roughId) {
     all('.r-gen').forEach((el) => el.addEventListener('click', generate));
     on('#r-add', addBlank);
 
-    // 項目のくわしい中身（手順の内訳・行ごと消す）
+    // 項目のくわしい中身。直すのも消すのも、入口はここだけ（芯5）。
+    // カードぜんたいが入口なので、1枚につき押すところは1つ。
     all('[data-steps]').forEach((el) => el.addEventListener('click', () => {
       detail = openItemDetailPage(roughId, el.dataset.steps, () => ({ rough, items, ...calcAll() }));
     }));
@@ -608,32 +606,19 @@ export function renderRoughScreen(container, roughId) {
       openQuotePage(roughId, () => ({ rough, items, ...calcAll() }));
     });
 
-    // 人工の増減
-    all('[data-h]').forEach((el) => el.addEventListener('click', () => {
-      const it = items.find((x) => x.id === el.dataset.h);
-      if (!it) return;
-      const next = Math.max(0, (num(it.hours) || 0) + Number(el.dataset.d));
-      updateItem(roughId, it.id, { hours: next }).catch(() => toast('保存できませんでした'));
-    }));
-    all('[data-np]').forEach((el) => el.addEventListener('click', () => askNum(el.dataset.np, 'persons', '人数', '人')));
-    all('[data-nh]').forEach((el) => el.addEventListener('click', () => askNum(el.dataset.nh, 'hours', '時間', 'h')));
-    all('[data-km]').forEach((el) => el.addEventListener('click', () => askNum(el.dataset.km, 'km', '片道の距離', 'km')));
-
-    all('[data-del]').forEach((el) => el.addEventListener('click', async () => {
-      const it = items.find((x) => x.id === el.dataset.del);
-      if (!it) return;
-      if (await confirmDialog(`「${it.name || 'この行'}」を消しますか?`, '消す')) {
-        try { await deleteItem(roughId, it.id); } catch (e) { console.error(e); toast('消せませんでした'); }
-      }
-    }));
-
+    // 【一覧から直す道を外した】2026/8/7
+    //   ここにあった ±8h／±1h・人数・時間・km・金額を直す は全部
+    //   「項目のくわしい中身」（screen-item.js）へ移した。
+    //   一覧は見るところ。直すところと混ざっていると迷う。ここに戻さないこと。
+    //
+    // 残しているのは未確定の2つだけ。これは金額を直すのではなく、
+    // 合計に入れるかどうかを決めるボタン（AIの金額は人が押すまで入らない）。
     all('[data-use]').forEach((el) => el.addEventListener('click', () => {
       decideItem(roughId, el.dataset.use, el.dataset.src, local.get('staff', '')).catch(() => toast('保存できませんでした'));
     }));
     all('[data-pend]').forEach((el) => el.addEventListener('click', () => {
       markPending(roughId, el.dataset.pend).catch(() => toast('保存できませんでした'));
     }));
-    all('[data-edit]').forEach((el) => el.addEventListener('click', () => editAmount(el.dataset.edit)));
     all('[data-ans]').forEach((el) => el.addEventListener('click', () => {
       answerQuestion(roughId, el.dataset.ans, el.dataset.ansv, local.get('staff', ''))
         .catch(() => toast('保存できませんでした'));
@@ -644,31 +629,6 @@ export function renderRoughScreen(container, roughId) {
       // 消さずに脇へどけるだけ。件数は「あとで」として残り続ける（芯4）
       deferQuestion(roughId, el.dataset.later).catch(() => toast('保存できませんでした'));
     }));
-  }
-
-  function askNum(id, field, title, unit) {
-    const it = items.find((x) => x.id === id);
-    if (!it) return;
-    openNumpad({
-      title, value: it[field] ?? '', unit, allowDecimal: field !== 'persons',
-      onDone: (n) => { if (n != null) updateItem(roughId, id, { [field]: n }).catch(() => toast('保存できませんでした')); },
-    });
-  }
-
-  function editAmount(id) {
-    const it = items.find((x) => x.id === id);
-    if (!it) return;
-    const cur = itemAmount(it, ...Object.values(effectiveRates(rough))) ?? it.manualAmount ?? it.marketAmount ?? '';
-    openNumpad({
-      title: it.name || '金額', value: typeof cur === 'number' ? Math.round(cur) : '', unit: '円', allowDecimal: false,
-      onDone: async (n) => {
-        if (n == null) return;
-        try {
-          if (it.kind === '外注') await updateItem(roughId, id, { amount: n, state: '確定', chosen: 'yotsuba' });
-          else await overrideItemAmount(roughId, id, n, local.get('staff', ''));
-        } catch (e) { console.error(e); toast('保存できませんでした'); }
-      },
-    });
   }
 
   // 写真を大きく見る（ピンチで拡大・左右で送る）。中身は js/photo-viewer.js。

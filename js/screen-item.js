@@ -2,7 +2,7 @@
 // 項目のくわしい中身（画面2）
 // 画面/AI概算見積_UI設計/項目のくわしい中身.dc.html のとおりに作る。
 //
-//   ざっくり … 人工の合計と、この項目にかかるもの（損料・法定福利費）
+//   ざっくり … 工数（1工数＝8時間）と、この項目にかかるもの（損料・法定福利費）
 //   くわしく … 門型・玉掛け・トロリー等の段取りを行で出す。使わない行は外せる
 //
 // 【手順を出しても金額は変わらない】
@@ -10,9 +10,14 @@
 //   最初の1行は、いまの人数×時間をそのまま写して作る。
 //   そこから足したぶんだけ増え、「使わない」を押したぶんだけ減る。
 //
+// 【直すのはここだけ】2026/8/7
+//   一覧は見るところ、ここは直すところ。分かれていないと迷う。
+//   だから一覧から金額と人数×時間の直しを全部こちらへ移した。
+//   ・費目に関係なく、どの項目からもここへ来られる（材料も外注も単価待ちも）
+//   ・消せるのもここだけ。1画面に1つ、いちばん下に、静かに置く
+//   一覧側に直すボタンを戻さないこと（screen-rough.js の itemCard）。
+//
 // 【芯5】押すところを増やさない。モックにあるものだけ置く。
-//   ただし「この項目を消す」だけは足してある（項目カードの✕を全部やめた代わり。
-//   1画面に1つ、いちばん下に、静かに置く）。
 // ============================================================
 
 import { esc, YEN, local } from './util.js?v=33';
@@ -20,9 +25,17 @@ import { icons } from './icons.js?v=33';
 import { openOverlay, openNumpad, openTextInput, toast, confirmDialog } from './ui.js?v=33';
 import {
   tradeRate, itemAmount, itemBreakdown, stepsManHours, stepAmount,
+  yotsubaAmount, marketAmount,
+  HOURS_PER_KOSU, hoursToKosu, kosuToHours, kosuText,
 } from './rough-calc.js?v=33';
-import { updateItem, deleteItem, setSteps, newStep } from './rough-store.js?v=33';
+import {
+  updateItem, deleteItem, setSteps, newStep,
+  decideItem, markPending, overrideItemAmount,
+} from './rough-store.js?v=33';
 import { STEP_CHOICES } from './rough-templates.js?v=33';
+
+// 人数×時間で数える費目かどうか。それ以外は金額そのものを直す
+const isTimeKind = (it) => it.kind === '労務' || it.kind === '移動';
 
 const num = (v) => (typeof v === 'number' && isFinite(v) ? v : null);
 const NAVY_GRAD = 'linear-gradient(180deg,#24507A 0%,#1B3A5C 100%)';
@@ -33,10 +46,13 @@ export function openItemDetailPage(roughId, itemId, getState) {
   let mode = 'rough';          // 'rough' = ざっくり / 'detail' = くわしく
   let currentId = itemId;
 
+  // 【全部の費目を並べる】前は労務と移動しか入れていなかった。
+  // そのせいで材料・外注・単価待ち・未確定はここへ来られず、直すことも消すこともできなかった。
+  // 「前の項目／これでOK」も一覧の並びどおりに送れるようになる。
   const state = () => {
     const s = getState();
-    const list = (s.items || []).filter((i) => i.kind === '労務' || i.kind === '移動');
-    const item = (s.items || []).find((i) => i.id === currentId);
+    const list = (s.items || []).slice();
+    const item = list.find((i) => i.id === currentId);
     return { ...s, list, item, idx: list.findIndex((i) => i.id === currentId) };
   };
 
@@ -64,18 +80,21 @@ export function openItemDetailPage(roughId, itemId, getState) {
                 overflow:hidden;text-overflow:ellipsis">${esc(s.rough.projectName || '')}</div>
             </div>
           </div>
-          <div style="display:flex;gap:8px;padding:10px 4px 10px">
-            ${['rough', 'detail'].map((m) => `
-              <div data-mode="${m}" style="flex:1;display:flex;align-items:center;justify-content:center;height:44px;
-                border-radius:6px;font-size:15px;cursor:pointer;
-                ${mode === m ? 'background:#fff;color:#1B3A5C;font-weight:700'
-                  : 'border:1px solid rgba(255,255,255,0.35);color:rgba(255,255,255,0.85);font-weight:500'}"
-                >${m === 'rough' ? 'ざっくり' : 'くわしく'}</div>`).join('')}
-          </div>
+          ${it.kind === '労務' ? `
+            <div style="display:flex;gap:8px;padding:10px 4px 10px">
+              ${['rough', 'detail'].map((m) => `
+                <div data-mode="${m}" style="flex:1;display:flex;align-items:center;justify-content:center;height:44px;
+                  border-radius:6px;font-size:15px;cursor:pointer;
+                  ${mode === m ? 'background:#fff;color:#1B3A5C;font-weight:700'
+                    : 'border:1px solid rgba(255,255,255,0.35);color:rgba(255,255,255,0.85);font-weight:500'}"
+                  >${m === 'rough' ? 'ざっくり' : 'くわしく'}</div>`).join('')}
+            </div>` : '<div style="height:10px"></div>'}
         </div>
 
         <div class="scroll est-list-scroll" style="padding:12px">
-          ${mode === 'rough' ? roughBody(it, s, rate, steps) : detailBody(it, s, steps)}
+          ${mode === 'detail' && it.kind === '労務'
+            ? detailBody(it, s, steps)
+            : isTimeKind(it) ? roughBody(it, s, rate, steps) : moneyBody(it, s)}
         </div>
 
         <div style="flex:none;background:#1B3A5C;padding:12px 14px calc(14px + env(safe-area-inset-bottom, 0px))">
@@ -107,8 +126,14 @@ export function openItemDetailPage(roughId, itemId, getState) {
   }
 
   // ---------- ざっくり ----------
+  // 【労務は工数で数える】2026/8/7
+  //   1工数＝8時間。刻みは0.5工数（＝4時間）。
+  //   保存は今までどおり時間（hours）。見せるときに8で割り、入れるときに8を掛ける。
+  //   すでに入っている見積もそのまま工数で出る。金額の出し方は変えていない。
+  //   移動だけは時間のまま。片道1時間を0.125工数と書いても読めない。
   function roughBody(it, s, rate, steps) {
-    const step = it.kind === '移動' ? 1 : 8;
+    const travel = it.kind === '移動';
+    const stepH = travel ? 1 : HOURS_PER_KOSU / 2;   // 移動は±1h／労務は±0.5工数
     const amt = itemAmount(it, s.rates, s.unitRates) || 0;
     const b = itemBreakdown(it, s.rates, s.unitRates);
     const row = (l, v) => `
@@ -119,14 +144,16 @@ export function openItemDetailPage(roughId, itemId, getState) {
       <div style="background:#fff;border:1px solid #D9DEE4;border-radius:6px;padding:14px">
         <div style="font-size:16px;font-weight:700;color:#16202B;line-height:1.4">${esc(it.name || '')}</div>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:10px">
-          <div style="font-size:13px;color:#4A5A6B">${esc(it.kind === '移動' ? '移動労務' : (it.trade || ''))}
+          <div style="font-size:13px;color:#4A5A6B">${esc(travel ? '移動労務' : (it.trade || ''))}
             <b data-np style="font-family:var(--mono);font-weight:700;color:#16202B;cursor:pointer">${it.persons ?? 0}</b>人 ×
-            <b data-nh style="font-family:var(--mono);font-weight:700;color:#16202B;cursor:pointer">${it.hours ?? 0}</b>h</div>
+            ${travel
+              ? `<b data-nh style="font-family:var(--mono);font-weight:700;color:#16202B;cursor:pointer">${it.hours ?? 0}</b>h`
+              : `<b data-nk style="font-family:var(--mono);font-weight:700;color:#16202B;cursor:pointer">${kosuText(it.hours)}</b>工数`}</div>
           <div style="display:flex;gap:6px;flex:none">
-            <button data-d="-${step}" style="width:56px;height:44px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;
-              color:#1B3A5C;font-family:var(--mono);font-size:15px;font-weight:700;cursor:pointer">−${step}h</button>
-            <button data-d="${step}" style="width:56px;height:44px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;
-              color:#1B3A5C;font-family:var(--mono);font-size:15px;font-weight:700;cursor:pointer">＋${step}h</button>
+            <button data-d="-${stepH}" style="width:68px;height:44px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;
+              color:#1B3A5C;font-family:var(--mono);font-size:14px;font-weight:700;cursor:pointer">−${travel ? '1h' : '0.5'}</button>
+            <button data-d="${stepH}" style="width:68px;height:44px;background:#fff;border:1px solid #C3CBD4;border-radius:6px;
+              color:#1B3A5C;font-family:var(--mono);font-size:14px;font-weight:700;cursor:pointer">＋${travel ? '1h' : '0.5'}</button>
           </div>
         </div>
         <div style="text-align:right;padding-top:8px">
@@ -147,9 +174,96 @@ export function openItemDetailPage(roughId, itemId, getState) {
 
       <div style="font-size:13px;font-weight:700;color:#1B3A5C;padding:18px 2px 8px">この項目にかかるもの</div>
       <div style="background:#fff;border:1px solid #D9DEE4;border-radius:6px;padding:4px 14px">
-        ${row(`${it.kind === '移動' ? '移動労務' : '労務費'}（${esc(it.trade || '移動')} ${rate ? rate.toLocaleString('ja-JP') : '—'}円/h）`, b.amount)}
+        ${row(travel
+          ? `移動労務（${rate ? rate.toLocaleString('ja-JP') : '—'}円/h）`
+          : `労務費（${esc(it.trade || '')} ${rate ? (rate * HOURS_PER_KOSU).toLocaleString('ja-JP') : '—'}円/工数）`, b.amount)}
         ${b.depreciation ? row('損料 5%（吊具・工具）', b.depreciation) : ''}
         ${b.welfare ? row('法定福利費 16%（労務費のみ）', b.welfare) : ''}
+      </div>
+
+      <button id="d-del" style="width:100%;background:none;border:0;color:#b3261e;font-family:var(--font);
+        font-size:14px;padding:22px 0 8px;cursor:pointer">この項目を消す</button>`;
+  }
+
+  // ---------- 材料・外注・単価待ち・未確定（人数×時間で数えないもの） ----------
+  // ここが無かったので、材料と外注は直すことも消すこともできなかった。
+  // 未確定の3択（この金額を使う／金額を直す／単価待ちにする）もここに置く。
+  // AIが出した金額は人が押すまで合計に入らない、という決めごとは変えていない。
+  function moneyBody(it, s) {
+    const amt = itemAmount(it, s.rates, s.unitRates);
+    const b = itemBreakdown(it, s.rates, s.unitRates);
+    const row = (l, v) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;height:36px;font-size:13.5px;color:#4A5A6B">
+        <span>${l}</span><span style="font-family:var(--mono);font-weight:600;color:#16202B">${YEN(v)}</span></div>`;
+    const BIG = 'width:100%;height:52px;border-radius:6px;font-family:var(--font);font-size:16px;font-weight:700;cursor:pointer';
+
+    // 未確定 … よつばの単価と相場を並べて、人に押させる
+    if (it.state === '未確定') {
+      const y = yotsubaAmount(it, s.rates, s.unitRates);
+      const m = marketAmount(it);
+      return `
+        <div style="background:#fff;border:1px dashed #C3CBD4;border-radius:6px;padding:14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div style="font-size:16px;font-weight:700;color:#16202B;line-height:1.4">${esc(it.name || '')}</div>
+            <span style="font-size:11px;font-weight:700;color:#7A8794;border:1px solid #D2D8E0;border-radius:3px;
+              padding:2px 6px;flex:none">未確定</span>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:10px;font-size:13.5px;color:#6B7783">
+            <span>よつばの単価</span>
+            <span style="font-family:var(--mono)${y != null ? ';font-size:20px;font-weight:700;color:#16202B' : ''}">${y == null ? 'なし' : YEN(y)}</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding-top:6px;font-size:13.5px;color:#6B7783">
+            <span style="display:flex;align-items:center;gap:6px">世の中の相場
+              <span style="font-size:10.5px;font-weight:700;color:#1F6B5B;background:#E3F0EC;border-radius:3px;padding:2px 5px">相場</span></span>
+            <span style="font-family:var(--mono);font-size:24px;font-weight:700;color:#1F6B5B;letter-spacing:-.01em">${m == null ? '—' : YEN(m)}</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;padding-top:12px">
+          <button id="m-use" data-src="${y != null ? 'yotsuba' : 'market'}"
+            style="${BIG};background:${NAVY_GRAD};border:0;color:#fff">この金額を使う</button>
+          <button id="m-edit" style="${BIG};background:#fff;border:1px solid #C3CBD4;color:#1B3A5C">金額を直す</button>
+          <button id="m-pend" style="${BIG};background:#fff;border:1px solid #C3CBD4;color:#1B3A5C">単価待ちにする</button>
+        </div>
+        <div style="font-size:12px;color:#8A96A3;padding:10px 2px 0;line-height:1.7">
+          どれか押すまで合計に入りません。<br>あとからここで何度でも直せます。</div>
+
+        <button id="d-del" style="width:100%;background:none;border:0;color:#b3261e;font-family:var(--font);
+          font-size:14px;padding:22px 0 8px;cursor:pointer">この項目を消す</button>`;
+    }
+
+    // 単価待ち … 合計に入らない。空けたまま先へ進める（芯2）
+    if (it.state === '単価待ち') {
+      return `
+        <div style="background:#fff;border:1px solid #D9DEE4;border-left:4px solid #BA7517;border-radius:6px;padding:14px">
+          <div style="font-size:16px;font-weight:700;color:#16202B;line-height:1.4">
+            <span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;color:#fff;
+              background:#BA7517;border-radius:3px;padding:2px 6px;vertical-align:2px;margin-right:5px">
+              <span style="font-size:12px;display:grid;place-items:center">${icons.clock}</span>単価待ち</span>${esc(it.name || '')}</div>
+          <div style="font-size:12.5px;color:#8A96A3;padding-top:8px;line-height:1.7">
+            聞いてから入れます。入れるまで合計には入りません。</div>
+        </div>
+        <button id="m-edit" style="${BIG};background:${NAVY_GRAD};border:0;color:#fff;margin-top:12px">金額を入れる</button>
+
+        <button id="d-del" style="width:100%;background:none;border:0;color:#b3261e;font-family:var(--font);
+          font-size:14px;padding:22px 0 8px;cursor:pointer">この項目を消す</button>`;
+    }
+
+    // 確定した材料・外注
+    const isMarket = it.chosen === 'market';
+    return `
+      <div style="background:#fff;border:1px solid #D9DEE4;border-radius:6px;padding:14px">
+        <div style="font-size:16px;font-weight:700;color:#16202B;line-height:1.4">${esc(it.name || '')}</div>
+        <div style="font-size:12.5px;color:#8A96A3;padding-top:4px">${esc(it.kind)}費${it.kind === '外注' ? ' 1式' : ''}</div>
+        ${isMarket ? `<div style="padding-top:8px"><span style="display:inline-flex;align-items:center;gap:3px;
+          font-size:11px;font-weight:700;color:#1F6B5B;background:#E3F0EC;border-radius:3px;padding:2px 6px">
+          <span style="font-size:12px;display:grid;place-items:center">${icons.check}</span>相場で確定</span></div>` : ''}
+        <div style="text-align:right;padding-top:10px">
+          <span style="font-family:var(--mono);font-size:28px;font-weight:700;color:#1B3A5C;letter-spacing:-.01em">${YEN(amt || 0)}</span></div>
+      </div>
+      <button id="m-edit" style="${BIG};background:#fff;border:1px solid #C3CBD4;color:#1B3A5C;margin-top:12px">金額を直す</button>
+
+      <div style="font-size:13px;font-weight:700;color:#1B3A5C;padding:18px 2px 8px">この項目にかかるもの</div>
+      <div style="background:#fff;border:1px solid #D9DEE4;border-radius:6px;padding:4px 14px">
+        ${row(`${esc(it.kind)}費`, b.amount)}
+        ${b.depreciation ? row('損料 5%（吊具・工具）', b.depreciation) : ''}
       </div>
 
       <button id="d-del" style="width:100%;background:none;border:0;color:#b3261e;font-family:var(--font);
@@ -171,7 +285,7 @@ export function openItemDetailPage(roughId, itemId, getState) {
         <span style="font-size:13px;font-weight:700;color:#1B3A5C">手順</span>
         <span style="font-family:var(--mono);font-size:13px;font-weight:700;color:#7A8794">${steps.length}つ</span>
         <span style="flex:1;height:1px;background:#D2D8E0"></span>
-        <span style="font-size:12px;color:#4A5A6B">合計 <b style="font-family:var(--mono)">${stepsManHours(steps)}h</b></span>
+        <span style="font-size:12px;color:#4A5A6B">合計 <b style="font-family:var(--mono)">${stepsManHours(steps)}</b>人時</span>
       </div>
       <div style="display:flex;flex-direction:column;gap:8px">
         ${steps.map((st, i) => stepCard(st, i, s)).join('')}
@@ -237,6 +351,15 @@ export function openItemDetailPage(roughId, itemId, getState) {
     }));
     const np = q('[data-np]'); if (np) np.addEventListener('click', () => askNum(it, 'persons', '人数', '人'));
     const nh = q('[data-nh]'); if (nh) nh.addEventListener('click', () => askNum(it, 'hours', '時間', 'h'));
+    // 工数で受けて、8を掛けて時間で保存する（保存の形は変えていない）
+    const nk = q('[data-nk]');
+    if (nk) nk.addEventListener('click', () => {
+      openNumpad({
+        title: '工数', value: hoursToKosu(it.hours) ?? '', unit: '工数', allowDecimal: true,
+        hint: '1工数 ＝ 8時間（1人が1日）',
+        onDone: (n) => { if (n != null) save({ hours: kosuToHours(n) }); },
+      });
+    });
 
     const ex = q('#d-expand');
     if (ex) ex.addEventListener('click', async () => {
@@ -245,9 +368,36 @@ export function openItemDetailPage(roughId, itemId, getState) {
         await saveSteps([newStep({
           name: it.name || '作業', trade: it.trade, persons: it.persons, hours: it.hours, source: 'human',
         })]);
-        toast('いまの人工を1行目にしました。ここから足せます');
+        toast('いまの工数を1行目にしました。ここから足せます');
       }
       mode = 'detail'; paint();
+    });
+
+    // 材料・外注・単価待ち・未確定（金額そのものを直す）
+    const mEdit = q('#m-edit');
+    if (mEdit) mEdit.addEventListener('click', () => {
+      const cur = itemAmount(it, s.rates, s.unitRates) ?? it.manualAmount ?? it.marketAmount ?? '';
+      openNumpad({
+        title: it.name || '金額', value: typeof cur === 'number' ? Math.round(cur) : '',
+        unit: '円', allowDecimal: false,
+        onDone: async (n) => {
+          if (n == null) return;
+          try {
+            // 外注は1式なので金額をそのまま持つ。材料は単価の上書きとして残す
+            // （誰がいつ直したかを履歴に残すため overrideItemAmount を通す）
+            if (it.kind === '外注') await updateItem(roughId, it.id, { amount: n, state: '確定', chosen: 'yotsuba' });
+            else await overrideItemAmount(roughId, it.id, n, local.get('staff', ''));
+          } catch (e) { console.error(e); toast('保存できませんでした'); }
+        },
+      });
+    });
+    const mUse = q('#m-use');
+    if (mUse) mUse.addEventListener('click', () => {
+      decideItem(roughId, it.id, mUse.dataset.src, local.get('staff', '')).catch(() => toast('保存できませんでした'));
+    });
+    const mPend = q('#m-pend');
+    if (mPend) mPend.addEventListener('click', () => {
+      markPending(roughId, it.id).catch(() => toast('保存できませんでした'));
     });
 
     const del = q('#d-del');

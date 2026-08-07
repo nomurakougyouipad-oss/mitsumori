@@ -51,11 +51,64 @@ export const DEFAULT_ROUGH_OPTIONS = {
 
 const has = (v) => typeof v === 'number' && isFinite(v);
 
-// ---------- 職種の1h単価 ----------
-// unitRates.trades = [{name:'現場工事', rate:4000}, ...]
+// ============================================================
+// 工数（2026/8/7）
+//
+// 1工数 ＝ 8時間（1人が1日）。数え方だけを変えた。金額の出し方は変えていない。
+//   36h × 時間単価 ＝ 4.5工数 × 工数単価   （工数単価 ＝ 時間単価 × 8）
+//
+// 【保存は時間のまま】item.hours / step.hours は今までどおり「時間」で入れる。
+//   すでに入っているデータをそのまま読めるようにするため。見せるときに8で割る。
+//   入力は工数で受けて、8を掛けて時間で書く（kosuToHours）。
+//
+// 【単価は工数単価で持つ】trades = [{name, kosuRate, rate}]
+//   ・kosuRate … 工数あたり（円/工数）。これからはこちらが正
+//   ・rate     … 時間あたり（円/h）。前からある欄。kosuRate が無いときだけ使う
+//   両方書く。片方しか読まない古い経路が残っていても金額がずれない。
+//
+// 【なぜ古い欄を消さないか】
+//   単価は保存済みの見積すべてに焼き付けてある（unitRatesFrozen）。
+//   会社の標準・元請けごと・この見積だけ・項目ごと・手順ごとの5か所にも散っている。
+//   欄の意味をまとめて8倍に読み替えると、1か所でも漏れたその見積の金額が8倍ずれる。
+//   「保存したら金額は動かない」（CLAUDE.md）はそこを守るための決めごとなので、
+//   古い欄は古い意味のまま残し、新しい欄を足す形にした。
+//   → kosuRate が無いデータでは tradeRate が今までと1円も変わらない値を返す。
+// ============================================================
+export const HOURS_PER_KOSU = 8;
+
+export const hoursToKosu = (hours) => (has(hours) ? hours / HOURS_PER_KOSU : null);
+export const kosuToHours = (kosu) => (has(kosu) ? kosu * HOURS_PER_KOSU : null);
+
+// 画面に出す工数の文字。4.5工数 / 1工数 / 0.38工数
+// ※丸めた値を保存に戻さないこと。見せるためだけの丸め。
+export function kosuText(hours) {
+  const k = hoursToKosu(hours);
+  if (k == null) return '—';
+  return String(Math.round(k * 100) / 100);
+}
+
+// ---------- 職種の単価 ----------
+// unitRates.trades = [{name:'現場工事', kosuRate:32000, rate:4000}, ...]
+// 計算は今までどおり「円/h」で通す。kosuRate があればそれを8で割って使う。
+// 古いデータ（kosuRate 無し）は rate をそのまま返すので、金額は1円も動かない。
 export function tradeRate(unitRates, tradeName) {
   const t = (unitRates?.trades || []).find((x) => x.name === tradeName);
-  return t && has(t.rate) ? t.rate : null;
+  if (!t) return null;
+  if (has(t.kosuRate)) return t.kosuRate / HOURS_PER_KOSU;
+  return has(t.rate) ? t.rate : null;
+}
+
+// 画面に出す・画面から入れる単価（円/工数）
+export function tradeKosuRate(unitRates, tradeName) {
+  const t = (unitRates?.trades || []).find((x) => x.name === tradeName);
+  if (!t) return null;
+  if (has(t.kosuRate)) return t.kosuRate;
+  return has(t.rate) ? t.rate * HOURS_PER_KOSU : null;
+}
+
+// 工数単価を入れたときに書く形。新旧どちらの欄も同時に更新する
+export function tradeWithKosuRate(trade, kosuRate) {
+  return { ...trade, kosuRate, rate: kosuRate / HOURS_PER_KOSU };
 }
 
 // ---------- 率と単価の3段階 ----------

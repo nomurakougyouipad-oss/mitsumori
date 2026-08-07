@@ -228,7 +228,7 @@ export function convertSummaryHtml(rough, items) {
     <div style="background:#fff;border:1px solid var(--line);border-radius:6px;padding:2px 16px">
       ${keepRow('工事名・宛先・施工場所')}
       ${keepRow(photos ? `写真 ${photos}枚` : '写真（まだありません）')}
-      ${keepRow(items === null ? '作業の行…' : `作業の行 ${work.length}件（人工そのまま）`)}
+      ${keepRow(items === null ? '作業の行…' : `作業の行 ${work.length}件（工数そのまま）`)}
       ${keepRow('現場移動費・外注費')}
       ${keepMaterials.length ? keepRow(`材料 ${keepMaterials.length}件（単価マスターから採ったもの）`) : ''}
       <div style="display:flex;align-items:center;gap:8px;min-height:42px;padding:6px 0;font-size:14px">
