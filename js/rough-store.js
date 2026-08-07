@@ -244,17 +244,53 @@ export async function answerQuestion(roughId, qid, answer, staffName) {
   });
 }
 
+// ［あとで］答えずに脇へどける。消さない（あとから開けば残っている）。
+// 現場は質問に答えに来たのではなく、見積を出しに来ている（芯2）。
+export async function deferQuestion(roughId, qid) {
+  await updateDoc(doc(db, COL, roughId, 'questions', qid), { deferred: true });
+}
+
 export async function deleteQuestion(roughId, qid) {
   await deleteDoc(doc(db, COL, roughId, 'questions', qid));
 }
 
 // ---------- 写真 ----------
 // role: '現場' | '図面' | '銘板'。一致しても元の写真は必ず残す（消すのは人が押したときだけ）。
+// 【縮めてから送る】
+//   iPadの写真は1枚3MB。4枚で11.8MBになり、受付の上限12MBの直下だった。
+//   あと1枚で、写真が無言で落ちる状態だった（2026/8/7 実機で確認）。
+//   長辺2000pxあればAIは十分読める。画面で見るぶんにも足りる。
+//   ついでにHEICもJPEGになる。受付はHEICを扱えないので、これで落ちなくなる。
+const PHOTO_MAX_EDGE = 2000;
+const PHOTO_QUALITY = 0.85;
+
+async function shrinkImage(file) {
+  if (!String(file.type || '').startsWith('image/')) return file;   // PDFはそのまま
+  const bmp = await createImageBitmap(file).catch(() => null);
+  if (!bmp) return file;                                            // 読めなければ触らずに送る
+  const long = Math.max(bmp.width, bmp.height);
+  const scale = Math.min(1, PHOTO_MAX_EDGE / long);
+  // すでに小さく、受付が扱える形式なら、そのまま使う（作り直さない）
+  if (scale === 1 && /^image\/(jpeg|png|gif|webp)$/.test(file.type)) { bmp.close?.(); return file; }
+  const w = Math.round(bmp.width * scale);
+  const h = Math.round(bmp.height * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
+  bmp.close?.();
+  const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', PHOTO_QUALITY));
+  if (!blob) return file;
+  const base = String(file.name || 'photo').replace(/\.[^.]+$/, '');
+  return new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
+}
+
 export async function uploadPhoto(roughId, file, role = '現場') {
-  const safe = String(file.name || 'photo').replace(/[^\w.-]/g, '_').slice(-40);
+  const sending = await shrinkImage(file);
+  const safe = String(sending.name || 'photo').replace(/[^\w.-]/g, '_').slice(-40);
   const path = `roughPhotos/${roughId}/${Date.now()}_${safe}`;
   const sref = storageRef(storage, path);
-  await uploadBytes(sref, file);
+  await uploadBytes(sref, sending);
   const url = await getDownloadURL(sref);
   const snap = await getDoc(ref(roughId));
   const photos = [...(snap.data()?.photos || []), { path, url, role, at: Date.now() }];

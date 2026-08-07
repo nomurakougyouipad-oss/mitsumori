@@ -89,16 +89,17 @@ export async function generateByAi({ workType, oneLiner, photos }) {
   // 待ち時間は受付側（functions/index.js の timeoutSeconds）と必ず同じにする。
   // こちらが先に諦めると、向こうは動き続けて料金だけかかる。
   const call = httpsCallable(functions, 'estimateFromPhotos', { timeout: 540000 });
-  const res = await call({
-    workType,
-    oneLiner: oneLiner || '',
-    photoPaths: (photos || []).map((p) => p.path).filter(Boolean),
-  });
+  const paths = (photos || []).map((p) => p.path).filter(Boolean);
+  const res = await call({ workType, oneLiner: oneLiner || '', photoPaths: paths });
   const data = res.data || {};
   return {
     source: SOURCES.AI,
     items: data.items || [],
     questions: data.questions || [],
     label: TEMPLATE_LABELS[workType] || workType,
+    // 渡した枚数と、受付が実際に読めた枚数。食い違ったら画面で出す（芯4）
+    photosSent: paths.length,
+    photosRead: data.photosRead ?? null,
+    photosSkipped: data.photosSkipped ?? 0,
   };
 }

@@ -28,7 +28,7 @@ import {
   subscribeRough, subscribeRoughItems, subscribeRoughQuestions,
   effectiveRates, optionsFor, updateRough, addItems, updateItem, deleteItem,
   addItem, decideItem, overrideItemAmount, markPending, clearDecision,
-  uploadPhoto, removePhoto, saveRoughSummary, freezeRough, addQuestion, answerQuestion,
+  uploadPhoto, removePhoto, saveRoughSummary, freezeRough, addQuestion, answerQuestion, deferQuestion,
 } from './rough-store.js?v=33';
 import { generateItems, generateByTemplate, isAiAvailable } from './rough-generate.js?v=33';
 import { buildQuoteText, subjectOf, addressOf, pendingNames } from './rough-quote.js?v=33';
@@ -48,6 +48,7 @@ export function renderRoughScreen(container, roughId) {
   let lastSig = '';
   let detail = null;        // 開いている「項目のくわしい中身」
   let topCollapsed = false; // 上（ヘッダー本体・写真・すること）を畳んでいるか
+  let qOpen = false;        // ききたいことを開いているか。既定は畳む（芯2）
   let scrollY = 0;          // 描き直しても見ていた場所に留まるように持ち回る
   let lastBig = null;       // 直前が「まだ項目が無い」画面だったか
 
@@ -229,6 +230,30 @@ export function renderRoughScreen(container, roughId) {
   }
 
   // ---------- ききたいこと ----------
+  // 【畳んである理由】
+  //   現場は質問に答えに来たのではなく、見積を出しに来ている。
+  //   3件が全部開いていると画面を占領し、「答えないと進めない」に見える。
+  //   答えなくても項目と金額はもう出ている。だから既定は畳む（芯2）。
+  //   ただし件数は必ず出す。隠すのではなく畳むだけ（芯4）。
+  function questionStripHtml(asking, later) {
+    const n = asking.length;
+    const l = later.length;
+    if (!n && !l) return '';
+    const label = n
+      ? `ききたいこと <span style="font-family:var(--mono)">${n}</span>件`
+      : `ききたいこと（あとで）<span style="font-family:var(--mono)">${l}</span>件`;
+    const color = n ? '#BA7517' : '#8A96A3';
+    return `
+      <button id="q-toggle" style="width:100%;display:flex;align-items:center;gap:8px;
+        background:${n ? '#FBF2E4' : '#F2F4F7'};border:1px solid ${n ? '#E0CDA6' : '#D9DEE4'};border-radius:6px;
+        padding:9px 12px;font-family:var(--font);font-size:13px;font-weight:700;color:${color};cursor:pointer">
+        <span style="font-size:15px;display:grid;place-items:center">${icons.question}</span>
+        <span style="flex:1;text-align:left">${label}</span>
+        ${n && l ? `<span style="font-weight:400;color:#8A96A3">あとで ${l}</span>` : ''}
+        <span style="font-size:15px;display:grid;place-items:center;transform:rotate(${qOpen ? 180 : 0}deg)">${icons.caretDown}</span>
+      </button>`;
+  }
+
   function questionHtml(q) {
     const opts = (q.options || []).length ? q.options : ['要る', '要らない'];
     return `
@@ -244,6 +269,11 @@ export function renderRoughScreen(container, roughId) {
               font-family:var(--font);font-size:${opts.length > 2 ? 15 : 16}px;font-weight:700;cursor:pointer;
               ${i === 0 ? 'background:#BA7517;border:0;color:#fff' : 'background:#fff;border:1px solid #C6B79A;color:#7A5A18'}"
               >${esc(o)}</button>`).join('')}
+        </div>
+        <div style="display:flex;justify-content:flex-end;padding-top:8px">
+          <button data-later="${q.id}" style="background:transparent;border:0;font-family:var(--font);
+            font-size:13px;font-weight:700;color:#8A7550;text-decoration:underline;cursor:pointer;padding:4px 2px"
+            >あとで</button>
         </div>
       </div>`;
   }
@@ -441,7 +471,9 @@ export function renderRoughScreen(container, roughId) {
   function paint() {
     if (!rough) return;
     const { rates, unitRates, band, c } = calcAll();
-    const open = questions.filter((q) => !q.answer);
+    const unanswered = questions.filter((q) => !q.answer);
+    const asking = unanswered.filter((q) => !q.deferred);   // まだ聞きたい
+    const later = unanswered.filter((q) => q.deferred);     // ［あとで］で脇へどけた
     const big = items.length === 0;          // まだ項目が無いとき＝モックの①
     // ①→②に変わる瞬間は中身が丸ごと入れ替わる。前の位置は引き継がない
     if (lastBig !== big) { lastBig = big; scrollY = 0; topCollapsed = false; }
@@ -466,7 +498,8 @@ export function renderRoughScreen(container, roughId) {
                <span style="font-size:14px;display:grid;place-items:center">${icons.checkCircle}</span>${c.decided}件 確定</span>`}
       </div>
       <div style="display:flex;flex-direction:column;gap:8px">
-        ${open.map(questionHtml).join('')}
+        ${questionStripHtml(asking, later)}
+        ${qOpen ? [...asking, ...later].map(questionHtml).join('') : ''}
         ${items.map((it) => itemCard(it, rates, unitRates)).join('')}
       </div>
       <div style="height:12px"></div>`;
@@ -589,6 +622,12 @@ export function renderRoughScreen(container, roughId) {
       answerQuestion(roughId, el.dataset.ans, el.dataset.ansv, local.get('staff', ''))
         .catch(() => toast('保存できませんでした'));
     }));
+    const qt = q('#q-toggle');
+    if (qt) qt.addEventListener('click', () => { qOpen = !qOpen; paint(); });
+    all('[data-later]').forEach((el) => el.addEventListener('click', () => {
+      // 消さずに脇へどけるだけ。件数は「あとで」として残り続ける（芯4）
+      deferQuestion(roughId, el.dataset.later).catch(() => toast('保存できませんでした'));
+    }));
   }
 
   function askNum(id, field, title, unit) {
@@ -637,17 +676,31 @@ export function renderRoughScreen(container, roughId) {
     });
   }
 
+  // 【1枚しか入らなかった理由】
+  //   capture='environment' を付けるとiPadはカメラに直行し、アルバムを選べない。
+  //   さらに files[0] しか見ていなかったので、何枚選んでも1枚しか入らなかった。
+  //   capture を外すと「写真を撮る／アルバムから選ぶ」が最初から両方出る。
+  //   multiple を付けると、アルバムから一度に何枚でも入る（現場の5枚10枚はこちら）。
+  //   ※カメラを開いたまま連続で撮ることは、iOS側の作りでできない。
+  //     続けて撮るときは撮るたびにこのボタンを押す。まとめるならアルバムから選ぶ。
   async function pickPhoto(role) {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = role === '図面' ? 'image/*,application/pdf' : 'image/*';
-    if (role === '現場') input.capture = 'environment';
+    input.multiple = true;
     input.addEventListener('change', async () => {
-      const f = input.files?.[0];
-      if (!f) return;
-      toast('写真を送っています…');
-      try { await uploadPhoto(roughId, f, role); toast('写真を足しました'); }
-      catch (e) { console.error(e); toast('送れませんでした。電波を確認してください'); }
+      const files = Array.from(input.files || []);
+      if (!files.length) return;
+      toast(files.length > 1 ? `写真を${files.length}枚送っています…` : '写真を送っています…');
+      let ok = 0;
+      let ng = 0;
+      // 1枚ずつ送る。1枚失敗しても残りは入れる（芯2）
+      for (const f of files) {
+        try { await uploadPhoto(roughId, f, role); ok += 1; }
+        catch (e) { console.error(e); ng += 1; }
+      }
+      if (ng) toast(`${ok}枚入れました。${ng}枚は送れませんでした。電波を確認してください`);
+      else toast(ok > 1 ? `写真を${ok}枚足しました` : '写真を足しました');
     });
     input.click();
   }
@@ -681,9 +734,19 @@ export function renderRoughScreen(container, roughId) {
       if (items.length) await Promise.all(items.map((it) => deleteItem(roughId, it.id)));
       await addItems(roughId, res.items);
       for (const qq of (res.questions || [])) await addQuestion(roughId, qq);
+      // 【写真が読めていないことを黙らせない】
+      // 写真を渡したのに1枚も読めていないなら、それは出た項目の質に直結する。
+      // 黙っていると「AIが写真を見てくれない」が原因不明のまま残る（芯4）。
+      const sent = res.photosSent || 0;
+      const gotNone = sent && res.photosRead === 0;
+      const gotSome = sent && res.photosRead > 0 && res.photosRead < sent;
       toast(fellBack
         ? `AIにつながらないので、ひな形から${res.items.length}項目を出しました`
-        : `${res.items.length}項目を出しました。人数と時間を直してください`);
+        : gotNone
+          ? `写真${sent}枚が読めませんでした。写真なしで${res.items.length}項目を出しています`
+          : gotSome
+            ? `写真${sent}枚のうち${res.photosRead}枚だけ読めました。${res.items.length}項目を出しました`
+            : `${res.items.length}項目を出しました。人数と時間を直してください`);
     } catch (e) {
       console.error(e);
       toast(e.message || '項目を出せませんでした');
