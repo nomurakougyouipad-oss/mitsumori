@@ -129,6 +129,31 @@
 - 組織ポリシー「共有先のドメインを制限」を `mitsumori-35e9d` だけ外してある。
   外さないと Cloud Run が門前払いして、受付までそもそも届かない
 
+### 受付を直したら push だけでは反映されない
+
+`functions/index.js` は Google 側にある。GitHub Pages が配るのはアプリ側だけ。
+`firebase deploy --only functions:estimateFromPhotos --project mitsumori-35e9d` が要る。
+手順とつまずきどころは [functions/デプロイ手順.md](functions/デプロイ手順.md)。
+**この端末には firebase CLI も gcloud も入っていない。** 上げるのは Node のある端末。
+
+### 相場（marketAmount）に「分からなければ null」と書かない
+
+2026/8/7、概算に「世の中の相場」が1件も出なかった。
+調べたら **受付・App Check・画面はすべて正常**で、AIも動いていた
+（直近4件のうち3件が `source:'ai'`・全項目 `未確定`）。
+**AIが `marketAmount` を返したり返さなかったりしていた**（20項目中11件の回と、16項目全部 null の回）。
+
+原因は聞き方。`SYSTEM` の「写真から読み取れないこと（寸法・型式・kW・数量）を
+推測で埋めないでください」が**相場にも効いていた**。schema の説明も
+「分からなければ null」で、null が楽な逃げ道になっていた。
+
+**寸法・型式・kW・数量は推測してはいけない。相場はもともと当てにいく数字で性質が逆。**
+禁止の対象は `qty・cost・trade・persons・hours` に限る。
+`marketAmount` は「必ず入れる。null は例外」と書く。**書き戻さないこと。**
+
+切り分けは [tools/test-ai.html](tools/test-ai.html)。①受付に届くか ②相場を返しているか
+③写真が読めているか を順に出す。**実際にAIを呼ぶので1回数十円かかる。**
+
 ### 「動くはず」で true にしない
 
 デプロイが成功しただけでは動かない。実際に外から呼んで、
