@@ -342,6 +342,18 @@ export async function saveGenerateResult(roughId, info) {
       at: Date.now(),
       by: info.by || '',
       why: info.why || '',              // ひな形に戻ったときの理由
+      // よつばの単価と相場のそろい具合。片方だけの項目が何件残ったか。
+      // 【残す理由】トーストは消える。あとから「あのときは片方だけだった」を辿れるようにする。
+      // undefined は Firestore が受け取らないので、必ず数に落としてから入れる。
+      coverage: info.coverage ? {
+        items: info.coverage.items ?? 0,
+        needBoth: info.coverage.needBoth ?? 0,
+        withYotsuba: info.coverage.withYotsuba ?? 0,
+        withMarket: info.coverage.withMarket ?? 0,
+        missingYotsuba: info.coverage.missingYotsuba ?? 0,
+        missingMarket: info.coverage.missingMarket ?? 0,
+        filled: info.coverage.filled ?? 0,     // 聞き直して埋まった件数
+      } : null,
     },
   });
 }

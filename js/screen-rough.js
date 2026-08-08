@@ -778,6 +778,21 @@ export function renderRoughScreen(container, roughId) {
   // 知らせておらず、見逃すと「AIが相場を出さない」のか「そもそもAIが動いていない」のか
   // 分からなくなっていた。実際にそれで1回混乱した（2026/8/7）。
   // 見積本体に残して、一覧の上にいつでも出す（芯4）。
+  // 【片方だけを黙らせない】2026/8/8
+  // よつばの単価と相場は2つで1組。片方しか無いと比べられないので現場では使えない。
+  // 8/7 は相場が、8/8 はよつばの単価が黙って消えた。どちらも画面は普通に出ていたので
+  // 見た人が気づけず、実データを掘るまで分からなかった。件数で出せば、その場で気づける。
+  function coverageNote(g) {
+    const c = g && g.coverage;
+    if (!c) return '';
+    const miss = [];
+    if (c.missingYotsuba) miss.push(`よつばの単価が出ていない項目 ${c.missingYotsuba}件`);
+    if (c.missingMarket) miss.push(`世の中の相場が入っていない項目 ${c.missingMarket}件`);
+    if (!miss.length) return '';
+    return `<br><span style="color:#8A560F;font-weight:700">${miss.join('・')}。</span>`
+      + 'その項目は片方だけなので比べられません。くわしくを開いて直せます。';
+  }
+
   function originHtml() {
     const g = rough.lastGenerate;
     if (!g || !g.source) return '';
@@ -787,14 +802,17 @@ export function renderRoughScreen(container, roughId) {
       : read === 0 ? `写真${g.photosSent}枚は読めませんでした`
         : read != null && read < g.photosSent ? `写真${g.photosSent}枚のうち${read}枚を読みました`
           : `写真${g.photosSent}枚を読みました`;
+    const gap = ai ? coverageNote(g) : '';
+    // 片方だけが残っているときは、AIでも山吹（気づいてほしい色）にする
+    const warn = !ai || !!gap;
     return `
       <div style="display:flex;align-items:flex-start;gap:8px;margin-top:8px;padding:9px 12px;border-radius:6px;
-        background:${ai ? '#EAF0F6' : '#FBF2E4'};border:1px solid ${ai ? '#C3D3E4' : '#E0CDA6'}">
-        <span style="font-size:15px;flex:none;display:grid;place-items:center;color:${ai ? '#1B3A5C' : '#BA7517'}">
-          ${ai ? icons.checkCircle : icons.warning}</span>
-        <div style="flex:1;min-width:0;font-size:12px;line-height:1.7;color:${ai ? '#1B3A5C' : '#7A5A18'}">
+        background:${warn ? '#FBF2E4' : '#EAF0F6'};border:1px solid ${warn ? '#E0CDA6' : '#C3D3E4'}">
+        <span style="font-size:15px;flex:none;display:grid;place-items:center;color:${warn ? '#BA7517' : '#1B3A5C'}">
+          ${warn ? icons.warning : icons.checkCircle}</span>
+        <div style="flex:1;min-width:0;font-size:12px;line-height:1.7;color:${warn ? '#7A5A18' : '#1B3A5C'}">
           ${ai
-            ? `<b>AIが出した項目です。</b>${photoNote}。よつばの単価と世の中の相場を並べています。`
+            ? `<b>AIが出した項目です。</b>${photoNote}。よつばの単価と世の中の相場を並べています。${gap}`
             : `<b>ひな形から出した項目です。</b>AIにつながらなかったので、決まった並びを出しています。
                世の中の相場は入りません。${g.why ? `<br>理由: ${esc(g.why)}` : ''}`}
         </div>
@@ -844,6 +862,7 @@ export function renderRoughScreen(container, roughId) {
           items: res.items.length,
           by: local.get('staff', ''),
           why,
+          coverage: fellBack ? null : res.coverage,
         });
       } catch (e) { console.warn('出どころを残せませんでした:', e); }
       // 【写真が読めていないことを黙らせない】
@@ -851,13 +870,18 @@ export function renderRoughScreen(container, roughId) {
       // 黙っていると「AIが写真を見てくれない」が原因不明のまま残る（芯4）。
       const gotNone = !fellBack && sent && res.photosRead === 0;
       const gotSome = !fellBack && sent && res.photosRead > 0 && res.photosRead < sent;
+      // 片方だけの項目が残ったら、写真の話より先にそれを言う。金額に直結するのはこちら
+      const c = !fellBack ? res.coverage : null;
+      const half = c ? (c.missingYotsuba || 0) + (c.missingMarket || 0) : 0;
       toast(fellBack
         ? `AIにつながらないので、ひな形から${res.items.length}項目を出しました`
-        : gotNone
-          ? `写真${sent}枚が読めませんでした。写真なしで${res.items.length}項目を出しています`
-          : gotSome
-            ? `写真${sent}枚のうち${res.photosRead}枚だけ読めました。${res.items.length}項目を出しました`
-            : `${res.items.length}項目を出しました。人数と時間を直してください`);
+        : half
+          ? `${res.items.length}項目を出しました。うち${half}件は よつばの単価 か 相場 の片方だけです`
+          : gotNone
+            ? `写真${sent}枚が読めませんでした。写真なしで${res.items.length}項目を出しています`
+            : gotSome
+              ? `写真${sent}枚のうち${res.photosRead}枚だけ読めました。${res.items.length}項目を出しました`
+              : `${res.items.length}項目を出しました。人数と時間を直してください`);
     } catch (e) {
       console.error(e);
       toast(e.message || '項目を出せませんでした');

@@ -63,9 +63,17 @@ const ITEM = {
     kind: { type: 'string', enum: ['材料', '労務', '移動', '外注'] },
     name: { type: 'string', description: '見積書に出す項目名' },
     state: { type: 'string', enum: ['未確定'], description: '必ず未確定。人が押すまで合計に入れない' },
-    trade: { type: ['string', 'null'], description: '労務のときの職種' },
-    persons: { type: ['number', 'null'], description: '労務・移動のときの人数' },
-    hours: { type: ['number', 'null'], description: '労務・移動のときの時間' },
+    // 【この3つが「よつばの単価」の材料】2026/8/8
+    // よつばの単価は 職種の単価 × 人数 × 時間 で出る（js/rough-calc.js yotsubaBase）。
+    // 2026/8/7 にこの3つを「推測してはいけないもの」に入れた日、よつばの単価が消えた。
+    // 人工の見立ては下の①②で聞いていることそのもので、写真から読み取る事実ではない。
+    // ここに「分からなければ null」と書き戻さないこと。相場と同じ轍になる。
+    trade: {
+      type: ['string', 'null'],
+      description: '職種。労務では必ず入れる。渡した職種の一覧にある名前をそのまま使う',
+    },
+    persons: { type: ['number', 'null'], description: '人数。労務・移動では必ず入れる' },
+    hours: { type: ['number', 'null'], description: '時間。労務・移動では必ず入れる' },
     // 【「分からなければ null」と書かないこと】2026/8/7
     // 前はそう書いていた。それが楽な逃げ道になり、20項目すべて null で返る回があった。
     // 相場が入らないと画面が「よつばの単価」1本になり、2つ並べて見せる意味が消える。
@@ -74,9 +82,11 @@ const ITEM = {
       description: '世の中の相場（税抜・売値）。必ず入れる。写真で細部が分からなくても、'
         + 'その工種・その規模の世間並みの金額を入れる。本当に見当が付かないときだけ null',
     },
-    qty: { type: ['number', 'null'], description: 'よつばの単価で出せるときの数量' },
-    unit: { type: ['string', 'null'], description: '数量の単位。本／枚／式 など' },
-    cost: { type: ['number', 'null'], description: 'よつばの単価で出せるときの1つあたりの原価' },
+    qty: { type: ['number', 'null'], description: '数量。写真や一言に書いてあるときだけ入れる。無ければ null' },
+    unit: { type: ['string', 'null'], description: '数量の単位。本／枚／m／式 など' },
+    // よつばの仕入れ値。単価マスター（1,567品目）の数字で、AIには分からない。
+    // ここを埋めさせると、作り話の金額が「よつばの単価」の顔をして出る。必ず null。
+    cost: { type: ['number', 'null'], description: 'よつばの仕入れ値。あなたには分からないので必ず null' },
     steps: { type: 'array', items: STEP, description: '労務の手順の内訳。無ければ空の配列' },
   },
 };
@@ -106,13 +116,21 @@ const SCHEMA = {
 // ============================================================
 // 毎回聞くこと（職人には見えない。アプリが裏で付ける）
 // 出どころ: js/rough-generate.js の【毎回聞くこと】①〜④
+//
+// 【2026/8/8 に直したこと — 同じ間違いを2度した】
+//   8/7: 相場が出なかったので「相場は必ず入れる」を足した。
+//        そのとき同時に、禁止リストに trade・persons・hours を名指しで足してしまった。
+//        よつばの単価はその3つから出るので、今度はよつばの単価が消えた。
+//   直し方の筋: **片方を強めるときは、もう片方も同じ強さで書く。**
+//   よつばの単価と相場は2つで1組。片方だけでは現場が比べられず、画面の意味が消える。
 // ============================================================
-const SYSTEM = `あなたは鉄工所（よつば建設工業）の見積を手伝います。
+function systemPrompt(trades) {
+  return `あなたは鉄工所（よつば建設工業）の見積を手伝います。
 現場の写真と、職人が打った一言から、概算見積の項目を出してください。
 
 やること:
 ① この工事でやることを、順番に並べる
-② それぞれ、何人で何時間かかるかを出す
+② それぞれ、何人で何時間かかるかを出す（必ず入れる）
 ③ それぞれ、世の中の相場ではいくらかを出す（必ず入れる）
 ④ 写真から分からないことを、質問にする
 
@@ -120,26 +138,197 @@ const SYSTEM = `あなたは鉄工所（よつば建設工業）の見積を手�
 - 合計・諸経費・法定福利費・損料・消費税は計算しないでください。アプリが計算します。
   あなたが返すのは「1項目ごとの生の数字」だけです。
 
-- 【推測してはいけないもの】写真から読み取れない 寸法・型式・kW・数量 を
-  推測で埋めないでください。qty・cost・trade・persons・hours がこれに当たります。
-  分からないものは null にして、④の質問に回してください。
-  よつばの原価（cost）が分からない材料・外注は、0ではなく null にしてください。
-  0は「タダ」の意味になります。nullなら「単価待ち」として空けたまま先へ進めます。
+- 【必ず入れるもの — 2つで1組】
+  現場はこの2つを画面に並べて見比べ、どちらの金額を使うかを決めます。
+  片方しか無い項目は比べられないので、現場では使えません。両方入れてください。
 
-- 【必ず入れるもの】marketAmount（世の中の相場）は、上の禁止の対象外です。
-  相場はもともと当てにいく数字なので、性質が逆です。
-  写真で細部が分からなくても、その工種・その規模の世間並みの金額を必ず入れてください。
-  材料・外注・労務・移動、どれも同じです。
-  型式が分からない材料でも、同じ用途の一般的なものの相場を入れてください。
-  本当に見当が付かないときだけ null にしてください。null は例外です。
-  ※この金額がそのまま客に出るわけではありません。現場が「よつばの単価」と
-    見比べるための目安です。人が押すまで合計には入りません。
+  (1) よつばの単価を出すための数字 … 労務と移動の trade・persons・hours（上の②）
+      職種は次の中から選んでください: ${trades.join('・')}
+      この一覧に無い呼び方（例「配管工」）を書くと、アプリが単価表を引けず
+      よつばの単価が出ません。近いものを一覧から選んでください。
+      人工の見立ては②で聞いていることそのもので、写真から読み取る事実ではありません。
+      写真で細部が分からなくても、その工種・その規模で普通どれだけかかるかを入れてください。
+
+  (2) 世の中の相場 … marketAmount（税抜・売値）。材料・労務・移動・外注のどれにも入れます（上の③）。
+      相場はもともと当てにいく数字です。型式が分からない材料でも、
+      同じ用途の一般的なものの相場を入れてください。
+      ※この金額がそのまま客に出るわけではありません。現場が「よつばの単価」と
+        見比べるための目安です。人が押すまで合計には入りません。
+
+  (1)(2) とも、本当に見当が付かないときだけ null にしてください。null は例外です。
+
+- 【推測してはいけないもの】これは上の(1)(2)には掛かりません。掛けないでください。
+  写真にも一言にも書いていない 寸法・型式・kW・数量 を推測で埋めないこと。欄でいうと2つだけです。
+  ・qty（数量） … 写真や一言に書いてあるときはそのまま使う。書いていなければ null
+  ・cost（よつばの仕入れ値） … 単価マスターの数字で、あなたには分かりません。必ず null。
+    0にしないでください。0は「タダ」の意味になります。
+    null なら「単価待ち」として空けたまま先へ進めます（相場は入っているので比べる材料は残ります）。
+  分からないものは④の質問に回してください。
+
 - 移動が要る仕事のときだけ kind:'移動' の項目を入れてください（人数と時間だけ。距離は現場が入れます）。
   工場で作るだけで現場に出ないなら、移動は入れないでください。
 - 項目名は見積書にそのまま出ます。職人と元請けの両方が読んで分かる言葉にしてください。
-- 質問は多くて3つまで。答えなくても先へ進めるものにしてください。
+- 質問は多くて3つまで。答えなくても先へ進めるものにしてください。`;
+}
 
-職種の呼び方は「現場工事」「整備」「溶接加工」「塗装」を使ってください。`;
+// ============================================================
+// 職種の呼び方は、アプリの設定（settings/unitRates）から取る
+//
+// よつばの単価は「職種名 → 円/工数」の表を引いて出す（js/rough-calc.js tradeRate）。
+// AIが表に無い名前を返すと、その場で単価が引けず、よつばの単価が黙って消える。
+// 数字は渡さない。渡す必要が無いし、社内の単価を外へ出す理由も無い。渡すのは名前だけ。
+// ============================================================
+const FALLBACK_TRADES = ['現場工事', '整備', '溶接加工', '塗装'];
+
+async function tradeNames() {
+  try {
+    const snap = await admin.firestore().doc('settings/unitRates').get();
+    const names = (snap.data()?.trades || []).map((t) => t && t.name).filter(Boolean);
+    return names.length ? names : FALLBACK_TRADES;
+  } catch (e) {
+    // 読めなくても止めない（芯2）。既定の呼び方で聞く
+    logger.warn('職種の一覧を読めませんでした。既定の呼び方で聞きます', e);
+    return FALLBACK_TRADES;
+  }
+}
+
+// ============================================================
+// 両方そろっているか（よつばの単価 と 相場）
+//
+// 判定は js/rough-calc.js の yotsubaBase / marketAmount と同じにすること。
+// ここがずれると「受付は そろっている と言うのに画面では なし」になる。
+// ============================================================
+const num = (v) => typeof v === 'number' && isFinite(v);
+
+function hasYotsuba(it, trades) {
+  switch (it.kind) {
+    case '労務': return num(it.persons) && num(it.hours) && trades.includes(it.trade);
+    case '移動': return num(it.persons) && num(it.hours);
+    case '材料': return num(it.qty) && num(it.cost);
+    default: return false;     // 外注は相手の見積が来るまで金額が無い
+  }
+}
+
+const hasMarket = (it) => num(it.marketAmount);
+
+// 【「両方そろって当たり前」なのは労務と移動だけ】
+// 材料と外注のよつば側は 仕入れ値・外注先の見積 で、AIには分からない。
+// そこは埋めさせずに「単価待ち」で空けたまま先へ進める（芯2）。相場は入るので比べる材料は残る。
+const needsBoth = (it) => it.kind === '労務' || it.kind === '移動';
+
+// ---------- 埋め直し（片方しか返ってこなかったとき） ----------
+// 聞き方をどれだけ強く書いても、返さない回は必ず出る（8/7 の相場がそうだった）。
+// 文章の直しだけに頼らず、返ってきたものを見て、欠けていたら1回だけ聞き直す。
+// 写真は送らない（項目はもう出ているので要らない）。安く・速く済む。
+const FIX = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['index', 'trade', 'persons', 'hours', 'marketAmount'],
+  properties: {
+    index: { type: 'number', description: '渡した一覧の番号。そのまま返す' },
+    trade: { type: ['string', 'null'], description: '職種。渡した一覧から選ぶ' },
+    persons: { type: ['number', 'null'], description: '人数' },
+    hours: { type: ['number', 'null'], description: '時間' },
+    marketAmount: { type: ['number', 'null'], description: '世の中の相場（税抜・売値）' },
+  },
+};
+
+const FIX_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['fixes'],
+  properties: { fixes: { type: 'array', items: FIX } },
+};
+
+function fixPrompt(trades) {
+  return `さきほど出した概算見積の項目のうち、欄が空いているものだけを渡します。
+空いている欄を埋めてください。渡した番号（index）はそのまま返してください。
+
+・trade / persons / hours … 労務と移動に入れます。
+  職種は次の中から選んでください: ${trades.join('・')}
+  一覧に無い呼び方だと、アプリが単価表を引けず金額が出ません。
+・marketAmount … 世の中の相場（税抜・売値）。どの費目にも入れます。
+
+現場はこの2つ（よつばの単価 と 相場）を並べて見比べます。片方しか無いと使えません。
+写真が無くても、その工種・その規模で普通どれだけかかるか・いくらかを入れてください。
+
+qty（数量）と cost（よつばの仕入れ値）は聞いていません。空けたままで正しい欄です。
+本当に見当が付かないものだけ null にしてください。`;
+}
+
+// 欠けている項目だけを聞き直して、欠けていた欄にだけ書き入れる。
+// 【入っている値は上書きしない】1回目の答えが正。ここは穴を塞ぐだけの役目。
+async function fillGaps(anthropic, items, trades) {
+  const gaps = items
+    .map((it, index) => ({ it, index }))
+    .filter(({ it }) => !hasMarket(it) || (needsBoth(it) && !hasYotsuba(it, trades)));
+  if (!gaps.length) return { asked: 0, filled: 0 };
+
+  const ask = gaps.map(({ it, index }) => ({
+    index,
+    kind: it.kind,
+    name: it.name,
+    足りない欄: [
+      needsBoth(it) && !hasYotsuba(it, trades) ? 'trade・persons・hours' : null,
+      !hasMarket(it) ? 'marketAmount' : null,
+    ].filter(Boolean).join(' と '),
+    いま入っているもの: { trade: it.trade ?? null, persons: it.persons ?? null, hours: it.hours ?? null },
+  }));
+
+  let text;
+  try {
+    const res = await anthropic.messages.stream({
+      model: MODEL,
+      max_tokens: 16000,
+      system: fixPrompt(trades),
+      output_config: { effort: 'medium', format: { type: 'json_schema', schema: FIX_SCHEMA } },
+      messages: [{ role: 'user', content: JSON.stringify(ask, null, 1) }],
+    }).finalMessage();
+    text = (res.content || []).find((b) => b.type === 'text')?.text;
+  } catch (e) {
+    // 【ここで止めない】1回目の項目はもう出ている。埋まらなかったぶんは
+    // 「片方だけ」として画面に出る（芯2・芯4）。黙って消えるより見えている方がよい。
+    logger.warn('埋め直しに失敗しました。片方だけのまま返します', e);
+    return { asked: gaps.length, filled: 0, why: String(e && e.message || e) };
+  }
+  if (!text) return { asked: gaps.length, filled: 0, why: '返事が空' };
+
+  let fixes;
+  try { fixes = JSON.parse(text).fixes || []; }
+  catch (e) { return { asked: gaps.length, filled: 0, why: 'JSONではなかった' }; }
+
+  let filled = 0;
+  for (const f of fixes) {
+    const it = items[f.index];
+    if (!it) continue;
+    let touched = false;
+    // 空いている欄だけ。入っている値は触らない
+    if (needsBoth(it)) {
+      if (!it.trade && typeof f.trade === 'string' && trades.includes(f.trade)) { it.trade = f.trade; touched = true; }
+      if (!num(it.persons) && num(f.persons)) { it.persons = f.persons; touched = true; }
+      if (!num(it.hours) && num(f.hours)) { it.hours = f.hours; touched = true; }
+    }
+    if (!hasMarket(it) && num(f.marketAmount)) { it.marketAmount = f.marketAmount; touched = true; }
+    if (touched) filled += 1;
+  }
+  return { asked: gaps.length, filled };
+}
+
+// 画面と記録に出す「そろい具合」。数字と、足りない項目の名前（多くて3つ）
+function coverageOf(items, trades) {
+  const missingYotsuba = items.filter((it) => needsBoth(it) && !hasYotsuba(it, trades));
+  const missingMarket = items.filter((it) => !hasMarket(it));
+  return {
+    items: items.length,
+    needBoth: items.filter(needsBoth).length,
+    withYotsuba: items.filter((it) => hasYotsuba(it, trades)).length,
+    withMarket: items.filter(hasMarket).length,
+    missingYotsuba: missingYotsuba.length,
+    missingMarket: missingMarket.length,
+    missingYotsubaNames: missingYotsuba.slice(0, 3).map((it) => it.name || '（名前なし）'),
+    missingMarketNames: missingMarket.slice(0, 3).map((it) => it.name || '（名前なし）'),
+  };
+}
 
 // ============================================================
 // 受付本体
@@ -175,6 +364,9 @@ exports.estimateFromPhotos = onCall(
     if (!workType || typeof workType !== 'string') {
       throw new HttpsError('invalid-argument', '工事の種類がありません');
     }
+
+    // 職種の呼び方（設定にあるものをそのまま聞く。無ければ既定の4つ）
+    const trades = await tradeNames();
 
     // ---------- 写真を集める ----------
     const blocks = [];
@@ -259,7 +451,7 @@ exports.estimateFromPhotos = onCall(
       res = await anthropic.messages.stream({
         model: MODEL,
         max_tokens: 32000,
-        system: SYSTEM,
+        system: systemPrompt(trades),
         output_config: {
           effort: 'high',
           format: { type: 'json_schema', schema: SCHEMA },
@@ -304,16 +496,34 @@ exports.estimateFromPhotos = onCall(
     // 「AIの金額を勝手に合計へ入れない」はこのアプリの土台なので、二重に守る。
     const items = (parsed.items || []).map((it, i) => ({
       ...it,
+      // よつばの仕入れ値はAIには分からない。返してきても捨てる。
+      // 作り話の数字が「よつばの単価」の顔をして合計候補に出るのがいちばん悪い
+      cost: null,
       state: '未確定',
       source: 'ai',
       order: i,
     }));
+
+    // ---------- 両方そろっているか ----------
+    // よつばの単価と相場は2つで1組。片方だけでは現場が比べられない。
+    // 欠けていたら1回だけ聞き直し（写真は送らない）、それでも欠けたぶんは数で返して画面に出す。
+    const before = coverageOf(items, trades);
+    const fix = await fillGaps(anthropic, items, trades);
+    const coverage = { ...coverageOf(items, trades), asked: fix.asked, filled: fix.filled };
+
+    if (coverage.missingYotsuba || coverage.missingMarket) {
+      // 【黙って片方だけ返さない】8/7 は相場が、8/8 はよつばの単価が黙って消えた。
+      // どちらも「返ってきたものを見ていなかった」から気づけなかった。ここで必ず残す。
+      logger.warn('片方だけの項目が残りました', { workType, before, after: coverage, why: fix.why });
+    }
 
     logger.info('項目を出しました', {
       workType,
       photos: blocks.length - 1,
       items: items.length,
       questions: (parsed.questions || []).length,
+      trades,
+      coverage,
       usage: res.usage,
     });
 
@@ -324,6 +534,7 @@ exports.estimateFromPhotos = onCall(
       questions: parsed.questions || [],
       photosRead: read.length,
       photosSkipped: skipped.length,
+      coverage,
     };
   },
 );

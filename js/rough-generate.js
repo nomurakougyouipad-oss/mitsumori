@@ -101,5 +101,9 @@ export async function generateByAi({ workType, oneLiner, photos }) {
     photosSent: paths.length,
     photosRead: data.photosRead ?? null,
     photosSkipped: data.photosSkipped ?? 0,
+    // よつばの単価と相場がそろっているか。片方だけの項目が残ったら画面に出す。
+    // 【なぜ数で返させるか】2026/8/7 は相場が、8/8 はよつばの単価が黙って消えた。
+    // どちらも画面は普通に出ていたので、見た人が気づけなかった。数で見えれば気づける（芯4）。
+    coverage: data.coverage || null,
   };
 }

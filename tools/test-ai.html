@@ -5,14 +5,21 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>AIの受付につながるか</title>
 <!-- ============================================================
-     「世の中の相場が1件も出ない」を切り分ける用。
+     「よつばの単価と相場が両方そろっているか」を見る用。
 
-     見たいのは順番に3つ。
+     見たいのは順番に4つ。
        ① 受付（Firebase Functions）にそもそも届くか
           → 届かないと画面はひな形に戻る。ひな形に相場は入らない
-       ② 届くなら、AIが marketAmount を返しているか
-          → null ばかりなら聞き方（functions/index.js の SYSTEM）の問題
-       ③ 写真が読めているか（photosRead）
+       ② 世の中の相場（marketAmount）が入っているか
+       ③ よつばの単価（労務・移動の trade・persons・hours）が入っているか
+       ④ 写真が読めているか（photosRead）
+
+     【②と③は必ず一緒に見ること】2026/8/8
+     8/7 は相場が消え、聞き方を直したら 8/8 はよつばの単価が消えた。
+     片方だけ見て直すと、もう片方が落ちても気づけない。このページは両方を並べて出す。
+
+     文言は下の欄で変えられる。現場で出た症状と同じ文言で試すため
+     （例: 工事の種類「配管工事」／一言「ステンレス・40A配管・60m」）。
 
      ※このページは実際にAIを呼ぶ。料金がかかる（1回数十円）。
        むやみに押さないこと。上限は月$10で止まる。
@@ -28,56 +35,105 @@
   .ok { color:#177a49; font-weight:700; }
   .ng { color:#b3261e; font-weight:700; }
   .warn { color:#8A560F; font-weight:700; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; max-width:900px; margin-bottom:10px; }
+  .row label { font-size:12px; color:#4A5A6B; display:flex; flex-direction:column; gap:4px; }
+  .row input, .row select { height:40px; font-size:15px; font-family:inherit; padding:0 8px;
+        border:1px solid #D9DEE4; border-radius:6px; background:#fff; }
 </style>
 </head>
 <body>
 <h1>AIの受付につながるか</h1>
 <div class="sub">
-  項目が全部「よつばの単価」で「世の中の相場」が出ないときに、<br>
-  <b>受付に届いていない</b>のか <b>AIが相場を返していない</b>のかを分けます。<br>
+  <b>よつばの単価</b>と<b>世の中の相場</b>が、両方そろって返っているかを見ます。<br>
+  片方だけなら比べられないので、現場では使えません。<b>必ず両方を見ます。</b><br>
   <b class="warn">実際にAIを呼ぶので料金がかかります（1回数十円）。押しすぎないでください。</b>
 </div>
-<button class="btn" id="run">受付を呼んでみる（写真なし）</button>
+<div class="row">
+  <label>工事の種類
+    <select id="wt">
+      <option>修理・整備</option>
+      <option>製作もの</option>
+      <option selected>配管工事</option>
+    </select>
+  </label>
+  <label style="flex:1;min-width:260px">一言（現場で打つ文章）
+    <input id="ol" value="ステンレス・40A配管・60m">
+  </label>
+</div>
+<button class="btn" id="run">この文言で呼んでみる（写真なし）</button>
 <button class="btn" id="runp">いちばん新しい概算の写真で呼ぶ</button>
 <pre id="o">ボタンを押してください。</pre>
 
 <script type="module">
-import { db, ready, functions, httpsCallable, collection, getDocs, query, orderBy, limit } from '../js/firebase.js?v=33';
+import { db, ready, functions, httpsCallable, collection, getDocs, doc, getDoc, query, orderBy, limit } from '../js/firebase.js?v=33';
 
 const o = document.getElementById('o');
 const say = (s, cls) => { o.innerHTML += `\n<span class="${cls || ''}">${s}</span>`; };
 
+const num = (v) => typeof v === 'number' && isFinite(v);
+// 「よつばの単価が出せるか」の判定は js/rough-calc.js の yotsubaBase と同じにする。
+// ここがずれると、このページだけ「そろっている」と言って画面では「なし」になる。
+const needsBoth = (i) => i.kind === '労務' || i.kind === '移動';
+const hasYotsuba = (i, trades) => (
+  i.kind === '労務' ? num(i.persons) && num(i.hours) && trades.includes(i.trade)
+    : i.kind === '移動' ? num(i.persons) && num(i.hours)
+      : i.kind === '材料' ? num(i.qty) && num(i.cost)
+        : false);
+
 async function call(photoPaths) {
   o.textContent = '呼んでいます…（30秒〜2分かかります）';
   const t0 = Date.now();
+  const workType = document.getElementById('wt').value;
+  const oneLiner = document.getElementById('ol').value;
   try {
     // 【先に匿名ログインを待つ】待たずに呼ぶと request.auth が無く、
     // 受付が unauthenticated を返す。それを見て「届かない」と誤診しかねない。
     await ready;
+    // 職種の一覧は設定から取る。受付が使うのと同じものを見ないと、
+    // 「AIは職種を返しているのに単価表に無い名前だった」を見落とす
+    const us = await getDoc(doc(db, 'settings', 'unitRates'));
+    const trades = (us.data()?.trades || []).map((t) => t.name).filter(Boolean);
     const fn = httpsCallable(functions, 'estimateFromPhotos', { timeout: 540000 });
-    const res = await fn({ workType: '修理・整備', oneLiner: 'ポンプの駆動部を全部やりかえ', photoPaths });
+    const res = await fn({ workType, oneLiner, photoPaths });
     const sec = ((Date.now() - t0) / 1000).toFixed(1);
     const d = res.data || {};
     const items = d.items || [];
     say(`\n① 受付に届いた: <span class="ok">はい</span>（${sec}秒）`);
-    say(`③ 写真: 渡した ${photoPaths.length}枚 ／ 読めた ${d.photosRead ?? '—'}枚 ／ 飛ばした ${d.photosSkipped ?? 0}枚`,
+    say(`   文言: ${workType} ／ ${oneLiner || '（一言なし）'}`);
+    say(`   単価表の職種: ${trades.length ? trades.join('・') : '（設定にありません）'}`, trades.length ? '' : 'warn');
+    say(`④ 写真: 渡した ${photoPaths.length}枚 ／ 読めた ${d.photosRead ?? '—'}枚 ／ 飛ばした ${d.photosSkipped ?? 0}枚`,
       photoPaths.length && d.photosRead === 0 ? 'ng' : '');
 
-    const withMarket = items.filter((i) => typeof i.marketAmount === 'number');
-    say(`\n② 相場つきの項目: <span class="${withMarket.length ? 'ok' : 'ng'}">${withMarket.length} / ${items.length} 件</span>`);
-    if (!withMarket.length && items.length) {
-      say('  → 受付には届いている。AIが marketAmount を null で返している。', 'warn');
-      say('     直すのは functions/index.js の SYSTEM（聞き方）。画面側ではない。', 'warn');
+    // ---------- ②③ 両方そろっているか（必ず並べて出す） ----------
+    const both = items.filter(needsBoth);
+    const okY = both.filter((i) => hasYotsuba(i, trades));
+    const okM = items.filter((i) => num(i.marketAmount));
+    const allY = both.length && okY.length === both.length;
+    const allM = items.length && okM.length === items.length;
+    say(`\n② 相場が入っている項目: <span class="${allM ? 'ok' : 'ng'}">${okM.length} / ${items.length} 件</span>`);
+    say(`③ よつばの単価が出せる項目: <span class="${allY ? 'ok' : 'ng'}">${okY.length} / ${both.length} 件</span>（労務・移動）`);
+    say(`   ※材料・外注のよつば側は仕入れ値なので、AIには出せません。単価待ちで正しい。`);
+    if (d.coverage) {
+      say(`   受付の見立て: 相場なし ${d.coverage.missingMarket}件 ／ よつばの単価なし ${d.coverage.missingYotsuba}件`
+        + `（聞き直して埋めたぶん ${d.coverage.filled ?? 0}件）`,
+        (d.coverage.missingMarket || d.coverage.missingYotsuba) ? 'warn' : 'ok');
     }
+    if (!allM || !allY) {
+      say('\n  → 片方だけの項目が残っています。直すのは functions/index.js の聞き方。', 'warn');
+      say('     片方を強めるときは、もう片方も同じ強さで書くこと。', 'warn');
+      say('     （8/7 に相場を強めて よつばの単価 が落ちた。それがこの症状の元）', 'warn');
+    } else {
+      say('\n  → よつばの単価と相場が両方そろっています。', 'ok');
+    }
+
     say('\n返ってきた項目:');
     for (const i of items) {
-      const m = typeof i.marketAmount === 'number' ? `相場 ${i.marketAmount.toLocaleString('ja-JP')}` : '相場 null';
-      const y = (typeof i.qty === 'number' && typeof i.cost === 'number')
-        ? `よつば ${(i.qty * i.cost).toLocaleString('ja-JP')}`
-        : (typeof i.persons === 'number' && typeof i.hours === 'number')
-          ? `よつば ${i.persons}人×${i.hours}h`
-          : 'よつば なし';
-      say(`  ${String(i.kind).padEnd(2, '　')} ${i.name} ／ ${y} ／ ${m} ／ state=${i.state}`);
+      const m = num(i.marketAmount) ? `相場 ${i.marketAmount.toLocaleString('ja-JP')}` : '相場 null';
+      const y = num(i.qty) && num(i.cost) ? `よつば ${(i.qty * i.cost).toLocaleString('ja-JP')}`
+        : num(i.persons) && num(i.hours) ? `よつば ${i.trade || '職種なし'} ${i.persons}人×${i.hours}h`
+          : needsBoth(i) ? 'よつば なし' : 'よつば 単価待ち';
+      const bad = (needsBoth(i) && !hasYotsuba(i, trades)) || !num(i.marketAmount);
+      say(`  ${String(i.kind).padEnd(2, '　')} ${i.name} ／ ${y} ／ ${m} ／ state=${i.state}`, bad ? 'warn' : '');
     }
     say(`\nききたいこと: ${(d.questions || []).length}件`);
     for (const q of (d.questions || [])) say(`  ・${q.text}`);
