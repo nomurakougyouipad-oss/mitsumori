@@ -67,7 +67,7 @@
 <script type="module">
 import { db, ready, functions, httpsCallable, collection, getDocs, doc, getDoc, query, orderBy, limit } from '../js/firebase.js?v=33';
 import { cache, startSubscriptions, onCacheChange } from '../js/store.js?v=33';
-import { applyMaterialCounts, materialKindLabels } from '../js/rough-material.js?v=33';
+import { applyMaterialCounts, materialKindLabels, isLengthUnit } from '../js/rough-material.js?v=33';
 import { materialCountText } from '../js/rough-calc.js?v=33';
 
 const o = document.getElementById('o');
@@ -140,10 +140,14 @@ async function call(photoPaths) {
     // ここでも同じ関数を通す。通さないと、現場が見る画面と違うものを見て確かめたことになる
     const mat = applyMaterialCounts(items, cache.items);
     const mats = mat.items.filter((i) => i.kind === '材料');
+    // 【分母は「長さで数える材料」だけ】枚・個・組・式の材料は、はじめから本数に直す対象ではない。
+    // 全部の材料を分母にすると「1/5件しか本数にならなかった」と読めて、直さなくてよいものを追うことになる
+    const lenMats = mats.filter((i) => isLengthUnit(i.totalUnit));
     if (mats.length) {
       say(`\n⑤ 材料の数え方: <span class="${mat.unresolved ? 'warn' : 'ok'}">`
-        + `${mat.counted} / ${mats.length} 件が本数になりました</span>`
-        + `${mat.unresolved ? `（${mat.unresolved}件は定尺が分からず長さのまま）` : ''}`);
+        + `長さで数える材料 ${mat.counted} / ${lenMats.length} 件が本数になりました</span>`
+        + `${mat.unresolved ? `（${mat.unresolved}件は定尺が分からず長さのまま）` : ''}`
+        + `　※残り${mats.length - lenMats.length}件は 枚・個・組・式 で数えるもの`);
       for (const i of mats) {
         say(`  ${i.name}`);
         say(`    ${materialCountText(i)}`
