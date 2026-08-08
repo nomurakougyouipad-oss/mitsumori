@@ -127,7 +127,10 @@ const x = resolveMaterial(master, {
 eq('定尺は付けない', x.perLengthM, null);
 eq('総量のまま残す', [x.qty, x.unit], [60, 'm']);
 say(`  → 理由: ${x.why}`, 'warn');
-say(`  → 画面には「${materialCountText({ kind: '材料', ...x })}」と出る`);
+// 【ここを緩めないこと】長さのままだと qty=60 / unit='m' なので、
+// 見せ方を1行間違えると「60m」とだけ出て、定尺が決まっていないことが画面から消える
+eq('画面では「定尺が決まっていません」と分かる',
+  materialCountText({ kind: '材料', ...x }), '合わせて 60m ／ 定尺が決まっていません');
 
 // ---------- AIに渡す種類の一覧 ----------
 say('\n■ AIに選ばせる材料の種類（マスターに実在するものだけ）');

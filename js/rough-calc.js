@@ -169,10 +169,13 @@ export function materialCountText(item) {
     const total = has(item.totalM) ? `（${trimNum(item.totalM)}m分）` : '';
     return `定尺${trimNum(item.perLengthM)}m × ${n}本${total}`;
   }
+  // 定尺が決まらなかったもの … 総量のまま出す。黙って本数にしない（芯4）
+  // 【個数ものより先に見ること】長さのままだと qty=60 / unit='m' なので、
+  // 順番を逆にすると「60m」とだけ出て、定尺が決まっていないことが画面から消える。
+  // totalM が入っているのは「長さで数える材料」だけなので、ここで見分けがつく
+  if (has(item.totalM)) return `合わせて ${trimNum(item.totalM)}m ／ 定尺が決まっていません`;
   // はじめから個数で数えるもの（フランジ・パッキン等）
   if (n != null && item.unit) return `${trimNum(n)}${item.unit}`;
-  // 定尺が決まらなかったもの … 総量のまま出す。黙って本数にしない（芯4）
-  if (has(item.totalM)) return `合わせて ${trimNum(item.totalM)}m ／ 定尺が決まっていません`;
   return '';
 }
 
