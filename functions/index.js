@@ -172,24 +172,28 @@ function systemPrompt(trades) {
 }
 
 // ============================================================
-// 職種の呼び方は、アプリの設定（settings/unitRates）から取る
+// 職種の呼び方は、アプリから受け取る
 //
 // よつばの単価は「職種名 → 円/工数」の表を引いて出す（js/rough-calc.js tradeRate）。
 // AIが表に無い名前を返すと、その場で単価が引けず、よつばの単価が黙って消える。
-// 数字は渡さない。渡す必要が無いし、社内の単価を外へ出す理由も無い。渡すのは名前だけ。
+// だから聞くときに、表にある名前をそのまま渡す。
+//
+// 【受付が自分で Firestore を読む形にしなかった理由】2026/8/8
+// 一度そう書いて上げたら PERMISSION_DENIED になった。受付のサービスアカウントに
+// Firestore の読み取り権限が無い。権限を足すより、表を持っているアプリから
+// 渡すほうが早くて確か。渡すのは名前だけで、社内の単価そのものは渡さない。
+//
+// 古いアプリ（この欄を送らない版）から呼ばれることもあるので、既定を用意しておく。
 // ============================================================
 const FALLBACK_TRADES = ['現場工事', '整備', '溶接加工', '塗装'];
 
-async function tradeNames() {
-  try {
-    const snap = await admin.firestore().doc('settings/unitRates').get();
-    const names = (snap.data()?.trades || []).map((t) => t && t.name).filter(Boolean);
-    return names.length ? names : FALLBACK_TRADES;
-  } catch (e) {
-    // 読めなくても止めない（芯2）。既定の呼び方で聞く
-    logger.warn('職種の一覧を読めませんでした。既定の呼び方で聞きます', e);
-    return FALLBACK_TRADES;
-  }
+function tradeNames(sent) {
+  const names = (Array.isArray(sent) ? sent : [])
+    .filter((s) => typeof s === 'string')
+    .map((s) => s.trim())
+    .filter((s) => s && s.length <= 20)
+    .slice(0, 30);
+  return names.length ? names : FALLBACK_TRADES;
 }
 
 // ============================================================
@@ -365,8 +369,8 @@ exports.estimateFromPhotos = onCall(
       throw new HttpsError('invalid-argument', '工事の種類がありません');
     }
 
-    // 職種の呼び方（設定にあるものをそのまま聞く。無ければ既定の4つ）
-    const trades = await tradeNames();
+    // 職種の呼び方（アプリの単価表にある名前をそのまま聞く。無ければ既定の4つ）
+    const trades = tradeNames(request.data?.trades);
 
     // ---------- 写真を集める ----------
     const blocks = [];

@@ -89,12 +89,12 @@ async function call(photoPaths) {
     // 【先に匿名ログインを待つ】待たずに呼ぶと request.auth が無く、
     // 受付が unauthenticated を返す。それを見て「届かない」と誤診しかねない。
     await ready;
-    // 職種の一覧は設定から取る。受付が使うのと同じものを見ないと、
-    // 「AIは職種を返しているのに単価表に無い名前だった」を見落とす
+    // 職種の一覧は設定から取って、受付にも渡す（アプリと同じ渡し方にする）。
+    // 同じものを見ないと「AIは職種を返しているのに単価表に無い名前だった」を見落とす
     const us = await getDoc(doc(db, 'settings', 'unitRates'));
     const trades = (us.data()?.trades || []).map((t) => t.name).filter(Boolean);
     const fn = httpsCallable(functions, 'estimateFromPhotos', { timeout: 540000 });
-    const res = await fn({ workType, oneLiner, photoPaths });
+    const res = await fn({ workType, oneLiner, photoPaths, trades });
     const sec = ((Date.now() - t0) / 1000).toFixed(1);
     const d = res.data || {};
     const items = d.items || [];

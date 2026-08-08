@@ -839,6 +839,11 @@ export function renderRoughScreen(container, roughId) {
       try {
         res = await generateItems({
           workType: rough.workType, oneLiner: rough.oneLiner, photos: rough.photos || [],
+          // 【職種の呼び方を渡す】よつばの単価は「職種名 → 円/工数」の表を引いて出す。
+          // AIが表に無い名前（例「配管工」）を返すと単価が引けず、金額が黙って消える。
+          // 単価そのものは渡さない。渡すのは名前だけ。
+          // この見積に効いている一覧（会社の標準→元請け→この見積、を解いたあと）を渡す。
+          trades: (calcAll().unitRates.trades || []).map((t) => t.name).filter(Boolean),
         });
       } catch (e) {
         // ひな形のときに失敗したなら、それは本当の異常。握りつぶさない

@@ -85,12 +85,18 @@ export function generateByTemplate({ workType }) {
 // こちらでトークンを組み立てる必要はない（前は fetch で自前で付ける想定だった）。
 // 写真そのものは送らない。Storage の置き場所（path）だけ送り、
 // 受付が Storage から読む。スマホから何MBも上げ直さずに済む。
-export async function generateByAi({ workType, oneLiner, photos }) {
+export async function generateByAi({ workType, oneLiner, photos, trades }) {
   // 待ち時間は受付側（functions/index.js の timeoutSeconds）と必ず同じにする。
   // こちらが先に諦めると、向こうは動き続けて料金だけかかる。
   const call = httpsCallable(functions, 'estimateFromPhotos', { timeout: 540000 });
   const paths = (photos || []).map((p) => p.path).filter(Boolean);
-  const res = await call({ workType, oneLiner: oneLiner || '', photoPaths: paths });
+  // trades は職種の「名前だけ」。単価は渡さない。
+  // 受付が自分で Firestore を読む形も試したが、受付のサービスアカウントに
+  // Firestore の読み取り権限が無く PERMISSION_DENIED になった（2026/8/8 のログ）。
+  // 権限を足すより、持っている側から渡すほうが早くて確か。
+  const res = await call({
+    workType, oneLiner: oneLiner || '', photoPaths: paths, trades: trades || [],
+  });
   const data = res.data || {};
   return {
     source: SOURCES.AI,
