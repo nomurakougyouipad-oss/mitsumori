@@ -66,6 +66,9 @@
 
 <script type="module">
 import { db, ready, functions, httpsCallable, collection, getDocs, doc, getDoc, query, orderBy, limit } from '../js/firebase.js?v=33';
+import { cache, startSubscriptions, onCacheChange } from '../js/store.js?v=33';
+import { applyMaterialCounts, materialKindLabels } from '../js/rough-material.js?v=33';
+import { materialCountText } from '../js/rough-calc.js?v=33';
 
 const o = document.getElementById('o');
 const say = (s, cls) => { o.innerHTML += `\n<span class="${cls || ''}">${s}</span>`; };
@@ -93,8 +96,14 @@ async function call(photoPaths) {
     // 同じものを見ないと「AIは職種を返しているのに単価表に無い名前だった」を見落とす
     const us = await getDoc(doc(db, 'settings', 'unitRates'));
     const trades = (us.data()?.trades || []).map((t) => t.name).filter(Boolean);
+    // 材料の種類も同じ。単価マスターが届くまで待つ（届く前だと定尺が引けない）
+    startSubscriptions();
+    await new Promise((done) => {
+      const off = onCacheChange(() => { if (cache.itemsLoaded) { off(); done(); } });
+      if (cache.itemsLoaded) { off(); done(); }
+    });
     const fn = httpsCallable(functions, 'estimateFromPhotos', { timeout: 540000 });
-    const res = await fn({ workType, oneLiner, photoPaths, trades });
+    const res = await fn({ workType, oneLiner, photoPaths, trades, matKinds: materialKindLabels(cache.items) });
     const sec = ((Date.now() - t0) / 1000).toFixed(1);
     const d = res.data || {};
     const items = d.items || [];
@@ -126,10 +135,27 @@ async function call(photoPaths) {
       say('\n  → よつばの単価と相場が両方そろっています。', 'ok');
     }
 
+    // ---------- 材料を本数に直す（アプリと同じ手順） ----------
+    // 受付は「合わせて60m」までしか返さない。定尺で割るのはアプリの仕事なので、
+    // ここでも同じ関数を通す。通さないと、現場が見る画面と違うものを見て確かめたことになる
+    const mat = applyMaterialCounts(items, cache.items);
+    const mats = mat.items.filter((i) => i.kind === '材料');
+    if (mats.length) {
+      say(`\n⑤ 材料の数え方: <span class="${mat.unresolved ? 'warn' : 'ok'}">`
+        + `${mat.counted} / ${mats.length} 件が本数になりました</span>`
+        + `${mat.unresolved ? `（${mat.unresolved}件は定尺が分からず長さのまま）` : ''}`);
+      for (const i of mats) {
+        say(`  ${i.name}`);
+        say(`    ${materialCountText(i)}`
+          + `${i.cost != null ? ` ／ 1本 ${i.cost.toLocaleString('ja-JP')}円` : ' ／ 単価待ち'}`
+          + `${i.matWhy ? ` ／ ${i.matWhy}` : ''}`, i.perLengthM ? '' : 'warn');
+      }
+    }
+
     say('\n返ってきた項目:');
-    for (const i of items) {
+    for (const i of mat.items) {
       const m = num(i.marketAmount) ? `相場 ${i.marketAmount.toLocaleString('ja-JP')}` : '相場 null';
-      const y = num(i.qty) && num(i.cost) ? `よつば ${(i.qty * i.cost).toLocaleString('ja-JP')}`
+      const y = num(i.qty) && num(i.cost) ? `よつば ${(i.qty * i.cost).toLocaleString('ja-JP')}（${i.qty}${i.unit || ''}）`
         : num(i.persons) && num(i.hours) ? `よつば ${i.trade || '職種なし'} ${i.persons}人×${i.hours}h`
           : needsBoth(i) ? 'よつば なし' : 'よつば 単価待ち';
       const bad = (needsBoth(i) && !hasYotsuba(i, trades)) || !num(i.marketAmount);

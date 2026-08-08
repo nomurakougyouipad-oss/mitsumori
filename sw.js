@@ -5,7 +5,7 @@
 // （zaiko-shohin から流用）
 // ============================================================
 
-const VERSION = 'v61';
+const VERSION = 'v62';
 const CACHE = 'mitsumori-' + VERSION;
 
 // アプリシェル（オフラインでも起動できる最小セット）
