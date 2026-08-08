@@ -29,7 +29,7 @@ import { icons } from './icons.js?v=33';
 // openNumpad / overrideItemAmount / updateItem をここへ戻さないこと。
 import { openOverlay, openTextInput, toast, confirmDialog, setHtmlKeepScroll } from './ui.js?v=33';
 import {
-  WORK_TYPES, ITEM_KINDS, itemAmount, kosuText,
+  WORK_TYPES, ITEM_KINDS, itemAmount, kosuText, materialCountText,
   yotsubaAmount, marketAmount, roughTotals, priceBand, counts, DISCLAIMER,
 } from './rough-calc.js?v=33';
 import {
@@ -343,6 +343,17 @@ export function renderRoughScreen(container, roughId) {
   const MORE = `<span style="flex:none;display:flex;align-items:center;gap:1px;font-size:12px;font-weight:700;color:#1B3A5C">
     くわしく<span style="font-size:11px;display:grid;place-items:center">${icons.caretRight}</span></span>`;
 
+  // 材料の数え方の1行。「定尺4m × 15本（60m分）」
+  // 現場と発注は本数で数えるので、合計の長さだけでは足りない（2026/8/8 現場より）。
+  // 定尺が引けなかったものは総量のまま出す。黙って本数にしない（芯4）。
+  const matLine = (it) => {
+    const t = materialCountText(it);
+    if (!t) return '';
+    const unresolved = !it.perLengthM && it.totalM != null;
+    return `<div style="font-size:12px;color:${unresolved ? '#8A560F' : '#6B7783'};
+      font-family:var(--mono);padding-top:3px">${esc(t)}</div>`;
+  };
+
   function itemCard(it, rates, unitRates) {
     const amt = itemAmount(it, rates, unitRates);
     const open = `data-steps="${it.id}"`;   // 押すと「項目のくわしい中身」
@@ -361,6 +372,7 @@ export function renderRoughScreen(container, roughId) {
               <span style="font-size:11px;font-weight:700;color:#7A8794;border:1px solid #D2D8E0;border-radius:3px;
                 padding:2px 6px;flex:none">未確定</span>
             </div>
+            ${matLine(it)}
             <div style="display:flex;align-items:center;justify-content:space-between;padding-top:6px;font-size:13px;color:#6B7783">
               <span>よつばの単価</span>
               <span style="font-family:var(--mono)${y != null ? ';font-size:18px;font-weight:700;color:#16202B' : ''}">${y == null ? 'なし' : YEN(y)}</span></div>
@@ -393,6 +405,7 @@ export function renderRoughScreen(container, roughId) {
                 <span style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:700;color:#fff;
                   background:#BA7517;border-radius:3px;padding:2px 6px;vertical-align:2px;margin-right:5px">
                   <span style="font-size:12px;display:grid;place-items:center">${icons.clock}</span>単価待ち</span>${esc(it.name || '（名前なし）')}</div>
+              ${matLine(it)}
               <div style="font-size:11.5px;color:#8A96A3;padding-top:3px">聞いてから入れます。空けたまま先へ進めます</div>
             </div>
             ${MORE}
@@ -431,6 +444,7 @@ export function renderRoughScreen(container, roughId) {
         <div style="display:flex;align-items:center;gap:10px">
           <div style="flex:1;min-width:0">
             <div style="${TITLE}">${esc(it.name || '（名前なし）')}</div>
+            ${matLine(it)}
             <div style="display:flex;align-items:center;gap:6px;padding-top:3px">
               ${it.kind === '外注' ? '<span style="font-size:11.5px;color:#8A96A3">外注費 1式</span>' : ''}
               ${isMarket ? `<span style="display:inline-flex;align-items:center;gap:3px;
@@ -878,15 +892,19 @@ export function renderRoughScreen(container, roughId) {
       // 片方だけの項目が残ったら、写真の話より先にそれを言う。金額に直結するのはこちら
       const c = !fellBack ? res.coverage : null;
       const half = c ? (c.missingYotsuba || 0) + (c.missingMarket || 0) : 0;
+      // 定尺が引けなかった材料も黙らせない。総量のままだと発注の本数が出せない
+      const noStock = !fellBack ? (res.materials?.unresolved || 0) : 0;
       toast(fellBack
         ? `AIにつながらないので、ひな形から${res.items.length}項目を出しました`
         : half
           ? `${res.items.length}項目を出しました。うち${half}件は よつばの単価 か 相場 の片方だけです`
-          : gotNone
-            ? `写真${sent}枚が読めませんでした。写真なしで${res.items.length}項目を出しています`
-            : gotSome
-              ? `写真${sent}枚のうち${res.photosRead}枚だけ読めました。${res.items.length}項目を出しました`
-              : `${res.items.length}項目を出しました。人数と時間を直してください`);
+          : noStock
+            ? `${res.items.length}項目を出しました。うち${noStock}件は定尺が分からず、長さのままです`
+            : gotNone
+              ? `写真${sent}枚が読めませんでした。写真なしで${res.items.length}項目を出しています`
+              : gotSome
+                ? `写真${sent}枚のうち${res.photosRead}枚だけ読めました。${res.items.length}項目を出しました`
+                : `${res.items.length}項目を出しました。人数と時間を直してください`);
     } catch (e) {
       console.error(e);
       toast(e.message || '項目を出せませんでした');

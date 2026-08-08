@@ -25,9 +25,10 @@ import { icons } from './icons.js?v=33';
 import { openOverlay, openNumpad, openTextInput, toast, confirmDialog } from './ui.js?v=33';
 import {
   tradeRate, itemAmount, itemBreakdown, stepsManHours, stepAmount,
-  yotsubaAmount, marketAmount,
+  yotsubaAmount, marketAmount, materialCountText,
   HOURS_PER_KOSU, hoursToKosu, kosuToHours, kosuText,
 } from './rough-calc.js?v=33';
+import { piecesFor } from './rough-material.js?v=33';
 import {
   updateItem, deleteItem, setSteps, newStep,
   decideItem, markPending, overrideItemAmount,
@@ -189,6 +190,42 @@ export function openItemDetailPage(roughId, itemId, getState) {
   // ここが無かったので、材料と外注は直すことも消すこともできなかった。
   // 未確定の3択（この金額を使う／金額を直す／単価待ちにする）もここに置く。
   // AIが出した金額は人が押すまで合計に入らない、という決めごとは変えていない。
+  // ---------- 材料の数え方（定尺 × 本数） ----------
+  // 現場と発注は本数で数える。定尺は単価マスターから引いてある（js/rough-material.js）。
+  // 一覧は見るだけ、直すのはここ、という決めごとに従ってここにだけ置く。
+  // 定尺は候補が2つ以上あるときだけ押せる（1つしかないなら押しても何も変わらない＝芯5）。
+  function matBody(it) {
+    if (it.kind !== '材料') return '';
+    const line = materialCountText(it);
+    if (!line) return '';
+    const opts = (it.stockOptions || []).filter((v) => typeof v === 'number');
+    const canPickLen = opts.length > 1;
+    const cell = (id, label, value, on) => `
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11.5px;color:#8A96A3;padding-bottom:4px">${label}</div>
+        <button ${on ? `id="${id}"` : ''} style="width:100%;height:48px;background:${on ? '#fff' : '#F4F6F8'};
+          border:1px solid #D9DEE4;border-radius:6px;font-family:var(--mono);font-size:17px;font-weight:700;
+          color:#16202B;cursor:${on ? 'pointer' : 'default'}">${value}</button>
+      </div>`;
+    return `
+      <div style="font-size:13px;font-weight:700;color:#1B3A5C;padding:18px 2px 8px">数え方</div>
+      <div style="background:#fff;border:1px solid #D9DEE4;border-radius:6px;padding:12px 14px">
+        <div style="font-size:12.5px;color:#6B7783;font-family:var(--mono);padding-bottom:10px">${esc(line)}</div>
+        ${it.perLengthM ? `
+          <div style="display:flex;gap:10px">
+            ${cell('mt-len', '定尺', `${it.perLengthM}m`, canPickLen)}
+            ${cell('mt-qty', '本数', `${it.qty ?? '—'}本`, true)}
+          </div>
+          <div style="font-size:11.5px;color:#8A96A3;line-height:1.7;padding-top:8px">
+            合計の長さを定尺で割って、切り上げた本数です。余分が要るときは本数を直してください。
+            ${canPickLen ? `<br>この呼び径の定尺: ${opts.map((v) => v + 'm').join('・')}` : ''}
+          </div>`
+        : `<div style="font-size:12px;color:#8A560F;line-height:1.7">
+            単価マスターに定尺が見つからなかったので、合計の長さのままにしてあります。<br>
+            ${esc(it.matWhy || '')}</div>`}
+      </div>`;
+  }
+
   function moneyBody(it, s) {
     const amt = itemAmount(it, s.rates, s.unitRates);
     const b = itemBreakdown(it, s.rates, s.unitRates);
@@ -224,6 +261,7 @@ export function openItemDetailPage(roughId, itemId, getState) {
         </div>
         <div style="font-size:12px;color:#8A96A3;padding:10px 2px 0;line-height:1.7">
           どれか押すまで合計に入りません。<br>あとからここで何度でも直せます。</div>
+        ${matBody(it)}
 
         <button id="d-del" style="width:100%;background:none;border:0;color:#b3261e;font-family:var(--font);
           font-size:14px;padding:22px 0 8px;cursor:pointer">この項目を消す</button>`;
@@ -241,6 +279,7 @@ export function openItemDetailPage(roughId, itemId, getState) {
             聞いてから入れます。入れるまで合計には入りません。</div>
         </div>
         <button id="m-edit" style="${BIG};background:${NAVY_GRAD};border:0;color:#fff;margin-top:12px">金額を入れる</button>
+        ${matBody(it)}
 
         <button id="d-del" style="width:100%;background:none;border:0;color:#b3261e;font-family:var(--font);
           font-size:14px;padding:22px 0 8px;cursor:pointer">この項目を消す</button>`;
@@ -265,6 +304,7 @@ export function openItemDetailPage(roughId, itemId, getState) {
         ${row(`${esc(it.kind)}費`, b.amount)}
         ${b.depreciation ? row('損料 5%（吊具・工具）', b.depreciation) : ''}
       </div>
+      ${matBody(it)}
 
       <button id="d-del" style="width:100%;background:none;border:0;color:#b3261e;font-family:var(--font);
         font-size:14px;padding:22px 0 8px;cursor:pointer">この項目を消す</button>`;
@@ -403,6 +443,42 @@ export function openItemDetailPage(roughId, itemId, getState) {
         },
       });
     });
+    // ---------- 材料の数え方を直す ----------
+    // 本数は現場が直せる（切り上げただけの本数に、余分を足したいことがある）。
+    // 定尺を選び直したときは、合計の長さから本数を出し直す。人が直した本数は残さない
+    //（定尺が変われば要る本数も変わるので、そのまま残すとつじつまが合わなくなる）
+    const mtQty = q('#mt-qty');
+    if (mtQty) mtQty.addEventListener('click', () => {
+      openNumpad({
+        title: `${it.name || '材料'} の本数`, value: it.qty ?? '', unit: '本', allowDecimal: false,
+        onDone: async (n) => {
+          if (n == null || n < 0) return;
+          try { await updateItem(roughId, it.id, { qty: n }); }
+          catch (e) { console.error(e); toast('保存できませんでした'); }
+        },
+      });
+    });
+    const mtLen = q('#mt-len');
+    if (mtLen) mtLen.addEventListener('click', () => {
+      const opts = (it.stockOptions || []).filter((v) => typeof v === 'number');
+      const ov2 = openOverlay({ narrow: true });
+      ov2.el.innerHTML = `
+        <div class="page-head"><div class="bar"><button class="icon-btn" id="ml-x">←</button><span class="ttl">定尺を選ぶ</span></div></div>
+        <div class="page-body"><div class="form-page">
+          <div style="font-size:13px;color:var(--muted);padding-bottom:10px;line-height:1.7">
+            ${esc(it.name || '材料')}<br>合わせて ${it.totalM ?? '—'}m ぶんです</div>
+          ${opts.map((v) => `<button class="btn btn-block" style="height:56px;margin-bottom:8px"
+            data-len="${v}">${v}m　→　${piecesFor(it.totalM, v) ?? '—'}本</button>`).join('')}
+        </div></div>`;
+      ov2.el.querySelector('#ml-x').addEventListener('click', ov2.close);
+      ov2.el.querySelectorAll('[data-len]').forEach((el) => el.addEventListener('click', async () => {
+        const v = Number(el.dataset.len);
+        ov2.close();
+        try { await updateItem(roughId, it.id, { perLengthM: v, qty: piecesFor(it.totalM, v) }); }
+        catch (e) { console.error(e); toast('保存できませんでした'); }
+      }));
+    });
+
     const mUse = q('#m-use');
     if (mUse) mUse.addEventListener('click', () => {
       decideItem(roughId, it.id, mUse.dataset.src, local.get('staff', '')).catch(() => toast('保存できませんでした'));

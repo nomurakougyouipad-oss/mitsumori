@@ -58,7 +58,8 @@ const STEP = {
 const ITEM = {
   type: 'object',
   additionalProperties: false,
-  required: ['kind', 'name', 'state', 'trade', 'persons', 'hours', 'marketAmount', 'qty', 'unit', 'cost', 'steps'],
+  required: ['kind', 'name', 'state', 'trade', 'persons', 'hours', 'marketAmount',
+    'totalQty', 'totalUnit', 'matKind', 'matMaterial', 'matSize', 'qty', 'unit', 'cost', 'steps'],
   properties: {
     kind: { type: 'string', enum: ['材料', '労務', '移動', '外注'] },
     name: { type: 'string', description: '見積書に出す項目名' },
@@ -82,8 +83,34 @@ const ITEM = {
       description: '世の中の相場（税抜・売値）。必ず入れる。写真で細部が分からなくても、'
         + 'その工種・その規模の世間並みの金額を入れる。本当に見当が付かないときだけ null',
     },
-    qty: { type: ['number', 'null'], description: '数量。写真や一言に書いてあるときだけ入れる。無ければ null' },
-    unit: { type: ['string', 'null'], description: '数量の単位。本／枚／m／式 など' },
+    // ---------- 材料を数えるための欄（2026/8/8） ----------
+    // 【本数はAIに数えさせない】アプリが数える。
+    //   定尺（4m／5.5m など）は単価マスターの品名が持っていて、材料ごとに違う。
+    //   AIに定尺を言わせると、マスターに無い長さの品名ができて単価が引けず、
+    //   よつばの単価が黙って消える。割り算（60m÷4m＝15本）も算数なので、
+    //   間違えても誰も気づけない。だからAIには「総量」までを言わせ、
+    //   定尺と本数はアプリが単価マスターから出す（js/rough-material.js）。
+    totalQty: {
+      type: ['number', 'null'],
+      description: '総量。長さもの（配管・アングル等）は合計の長さ、それ以外は個数。'
+        + '写真や一言に書いてあるときはそのまま使う。書いていなければ null',
+    },
+    totalUnit: {
+      type: ['string', 'null'],
+      description: '総量の単位。長さものは m。個数のものは 枚／個／組／式。本数（本）にはしない',
+    },
+    matKind: {
+      type: ['string', 'null'],
+      description: '材料の種類。渡した「材料の種類の一覧」から選ぶ。一覧に無いものは null',
+    },
+    matMaterial: { type: ['string', 'null'], description: '材質。SUS304／SUS316L／SS400 など。分からなければ null' },
+    matSize: {
+      type: ['string', 'null'],
+      description: '呼び径や形。配管は 40A のように呼び径。形材は L-6x65x65 のように形。肉厚は入れない',
+    },
+    // qty・unit はアプリが入れる欄（定尺から出した本数）。AIは触らない
+    qty: { type: ['number', 'null'], description: 'アプリが入れる欄。必ず null' },
+    unit: { type: ['string', 'null'], description: 'アプリが入れる欄。必ず null' },
     // よつばの仕入れ値。単価マスター（1,567品目）の数字で、AIには分からない。
     // ここを埋めさせると、作り話の金額が「よつばの単価」の顔をして出る。必ず null。
     cost: { type: ['number', 'null'], description: 'よつばの仕入れ値。あなたには分からないので必ず null' },
@@ -124,7 +151,7 @@ const SCHEMA = {
 //   直し方の筋: **片方を強めるときは、もう片方も同じ強さで書く。**
 //   よつばの単価と相場は2つで1組。片方だけでは現場が比べられず、画面の意味が消える。
 // ============================================================
-function systemPrompt(trades) {
+function systemPrompt(trades, matKinds) {
   return `あなたは鉄工所（よつば建設工業）の見積を手伝います。
 現場の写真と、職人が打った一言から、概算見積の項目を出してください。
 
@@ -157,13 +184,29 @@ function systemPrompt(trades) {
 
   (1)(2) とも、本当に見当が付かないときだけ null にしてください。null は例外です。
 
+- 【材料の数え方】現場と発注は本数で数えます。ただし**本数はあなたが出さないでください。**
+  定尺（4m・5.5m など）は材料ごとに違い、よつばの単価表が持っています。
+  あなたは「合わせて何mか」までを出してください。定尺で割って本数にするのはアプリの仕事です。
+
+  ・totalQty / totalUnit … 長さもの（配管・アングル・平鋼など）は **合計の長さを m で**。
+      例）40Aのステンレス配管が合わせて60m要る → totalQty: 60, totalUnit: "m"
+      **「本」で答えないでください。** 定尺を知らずに本数を出すと、必ずずれます。
+      枚・個・組で数えるもの（フランジ・エルボ・パッキン等）は、その単位のままでかまいません。
+  ・matKind … 材料の種類。次の一覧から選んでください: ${matKinds.join('・')}
+      一覧に無いもの（ボルト・塗料など）は null にしてください。
+  ・matMaterial … 材質（SUS304／SUS316L／SS400 など）。分からなければ null。
+  ・matSize … 呼び径や形。配管は「40A」。形材は「L-6x65x65」。**肉厚は入れないでください。**
+      定尺は呼び径で決まり、肉厚では変わりません。
+
 - 【推測してはいけないもの】これは上の(1)(2)には掛かりません。掛けないでください。
   写真にも一言にも書いていない 寸法・型式・kW・数量 を推測で埋めないこと。欄でいうと2つだけです。
-  ・qty（数量） … 写真や一言に書いてあるときはそのまま使う。書いていなければ null
+  ・totalQty（総量） … 写真や一言に書いてあるときはそのまま使う。書いていなければ null
   ・cost（よつばの仕入れ値） … 単価マスターの数字で、あなたには分かりません。必ず null。
     0にしないでください。0は「タダ」の意味になります。
     null なら「単価待ち」として空けたまま先へ進めます（相場は入っているので比べる材料は残ります）。
+  qty・unit はアプリが入れる欄です。必ず null のままにしてください。
   分からないものは④の質問に回してください。
+  肉厚が分からないと単価が引けません。分からないときは④で聞いてください。
 
 - 移動が要る仕事のときだけ kind:'移動' の項目を入れてください（人数と時間だけ。距離は現場が入れます）。
   工場で作るだけで現場に出ないなら、移動は入れないでください。
@@ -187,14 +230,21 @@ function systemPrompt(trades) {
 // ============================================================
 const FALLBACK_TRADES = ['現場工事', '整備', '溶接加工', '塗装'];
 
-function tradeNames(sent) {
-  const names = (Array.isArray(sent) ? sent : [])
+// 材料の種類も同じ考え方で、アプリ（＝単価マスターを持っている側）から受け取る。
+// 出どころは js/catalog.js の CATALOG_KINDS のうち、マスターに実在するものだけ
+const FALLBACK_MAT_KINDS = ['配管（SGP）', 'ステンレス配管（TP-A）', 'アングル（山形鋼）', '平鋼（フラットバー）'];
+
+function names(sent, fallback) {
+  const list = (Array.isArray(sent) ? sent : [])
     .filter((s) => typeof s === 'string')
     .map((s) => s.trim())
-    .filter((s) => s && s.length <= 20)
+    .filter((s) => s && s.length <= 30)
     .slice(0, 30);
-  return names.length ? names : FALLBACK_TRADES;
+  return list.length ? list : fallback;
 }
+
+const tradeNames = (sent) => names(sent, FALLBACK_TRADES);
+const matKindNames = (sent) => names(sent, FALLBACK_MAT_KINDS);
 
 // ============================================================
 // 両方そろっているか（よつばの単価 と 相場）
@@ -369,8 +419,9 @@ exports.estimateFromPhotos = onCall(
       throw new HttpsError('invalid-argument', '工事の種類がありません');
     }
 
-    // 職種の呼び方（アプリの単価表にある名前をそのまま聞く。無ければ既定の4つ）
+    // 職種の呼び方と材料の種類（アプリの単価表にある名前をそのまま聞く。無ければ既定）
     const trades = tradeNames(request.data?.trades);
+    const matKinds = matKindNames(request.data?.matKinds);
 
     // ---------- 写真を集める ----------
     const blocks = [];
@@ -455,7 +506,7 @@ exports.estimateFromPhotos = onCall(
       res = await anthropic.messages.stream({
         model: MODEL,
         max_tokens: 32000,
-        system: systemPrompt(trades),
+        system: systemPrompt(trades, matKinds),
         output_config: {
           effort: 'high',
           format: { type: 'json_schema', schema: SCHEMA },
@@ -503,6 +554,10 @@ exports.estimateFromPhotos = onCall(
       // よつばの仕入れ値はAIには分からない。返してきても捨てる。
       // 作り話の数字が「よつばの単価」の顔をして合計候補に出るのがいちばん悪い
       cost: null,
+      // 本数と単位はアプリが単価マスターの定尺から出す（js/rough-material.js）。
+      // AIが「15本」と書いてきても、定尺を知らずに割った本数なので使わない
+      qty: null,
+      unit: null,
       state: '未確定',
       source: 'ai',
       order: i,

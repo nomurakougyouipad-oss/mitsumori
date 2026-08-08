@@ -154,6 +154,28 @@ export function stepsManHours(steps) {
 
 const usableSteps = (item) => (item.steps || []).some((s) => s.enabled !== false);
 
+// ---------- 材料の数え方（2026/8/8） ----------
+// 現場と発注は本数で数える。単価マスターも「1本いくら」で持っている。
+// 定尺は材料ごとに違う（ステンレス配管4m／炭素鋼の配管5.5m）ので、
+// マスターから引いた定尺を item.perLengthM に、割った本数を item.qty に入れてある
+// （割るのは js/rough-material.js。ここは見せ方だけ）。
+const trimNum = (n) => String(Math.round(n * 100) / 100);
+
+export function materialCountText(item) {
+  if (!item || item.kind !== '材料') return '';
+  const n = has(item.qty) ? item.qty : null;
+  // 定尺が引けたもの … 「定尺4m × 15本（60m分）」
+  if (has(item.perLengthM) && n != null) {
+    const total = has(item.totalM) ? `（${trimNum(item.totalM)}m分）` : '';
+    return `定尺${trimNum(item.perLengthM)}m × ${n}本${total}`;
+  }
+  // はじめから個数で数えるもの（フランジ・パッキン等）
+  if (n != null && item.unit) return `${trimNum(n)}${item.unit}`;
+  // 定尺が決まらなかったもの … 総量のまま出す。黙って本数にしない（芯4）
+  if (has(item.totalM)) return `合わせて ${trimNum(item.totalM)}m ／ 定尺が決まっていません`;
+  return '';
+}
+
 // ---------- よつばの単価（自社の原価。率はまだ掛けない） ----------
 // 手順があるときは手順が正。「ざっくり」の人数×時間は手順を出した時点で同じ値になる。
 export function yotsubaBase(item, unitRates) {

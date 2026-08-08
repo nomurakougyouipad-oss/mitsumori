@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>材料を本数で数える</title>
+<!-- ============================================================
+     材料の数え方の検算。「ステンレス40A配管 60m」→「定尺4m × 15本」。
+
+     見るのは3つ。
+       ① 定尺が単価マスターから正しく引けているか（材料ごとに違う）
+       ② 本数が切り上げになっているか（58mでも15本）
+       ③ 単価は絞れたときだけ入っているか（肉厚が決まらないなら単価待ち）
+
+     【AIは呼ばない。料金はかからない。】使うのは実物の単価マスター1,567件。
+     定尺を触ったら必ずこれを通すこと。
+     ============================================================ -->
+<link rel="stylesheet" href="../app.css?v=33">
+<style>
+  body { margin:0; background:#EEF0F3; font-family:"Noto Sans JP",system-ui,sans-serif; padding:16px; }
+  h1 { font-size:17px; margin-bottom:4px; }
+  .sub { font-size:12.5px; color:#6B7783; line-height:1.8; margin-bottom:14px; }
+  pre { background:#fff; border:1px solid #D9DEE4; border-radius:6px; padding:12px;
+        font-size:12.5px; line-height:1.9; white-space:pre-wrap; max-width:940px; }
+  .ok { color:#177a49; font-weight:700; }
+  .ng { color:#b3261e; font-weight:700; }
+  .warn { color:#8A560F; font-weight:700; }
+</style>
+</head>
+<body>
+<h1>材料を本数で数える</h1>
+<div class="sub">
+  実物の単価マスターで検算します。<b>AIは呼びません（料金はかかりません）。</b><br>
+  定尺・本数・単価の引き方を触ったときは、必ずこれを通してください。
+</div>
+<pre id="o">読み込んでいます…</pre>
+
+<script type="module">
+import { ready } from '../js/firebase.js?v=33';
+import { cache, startSubscriptions, onCacheChange } from '../js/store.js?v=33';
+import {
+  resolveMaterial, materialRows, stockLengths, piecesFor,
+  materialKindLabels, kindKeyOf, lengthMeters, MIN_STOCK_M,
+} from '../js/rough-material.js?v=33';
+import { materialCountText } from '../js/rough-calc.js?v=33';
+
+const o = document.getElementById('o');
+let pass = 0, fail = 0;
+const say = (s, cls) => { o.innerHTML += `\n<span class="${cls || ''}">${s}</span>`; };
+const eq = (label, got, want) => {
+  const ok = JSON.stringify(got) === JSON.stringify(want);
+  ok ? pass++ : fail++;
+  say(`${ok ? '○' : '×'} ${label}　… ${JSON.stringify(got)}${ok ? '' : ` （欲しいのは ${JSON.stringify(want)}）`}`, ok ? '' : 'ng');
+};
+
+await ready;
+startSubscriptions();
+await new Promise((done) => {
+  const off = onCacheChange(() => { if (cache.itemsLoaded) { off(); done(); } });
+  if (cache.itemsLoaded) { off(); done(); }
+});
+
+const master = cache.items;
+o.textContent = `単価マスター ${master.length}件で検算します。`;
+
+// ---------- 単位の読み分け ----------
+say('\n■ 長さの読み分け（マスターは種類で書き方が違う）');
+eq('4000 は 4m（TP-A の書き方）', lengthMeters('4000'), 4);
+eq('5.5 は 5.5m（SGP の書き方）', lengthMeters('5.5'), 5.5);
+eq('550 は 0.55m（端材）', lengthMeters('550'), 0.55);
+
+// ---------- 定尺 ----------
+say('\n■ 定尺（呼び径だけで決める。肉厚では変わらない）');
+const rows = materialRows(master);
+const tpa40 = stockLengths(rows, 'tpa', '40A');
+const tpa100 = stockLengths(rows, 'tpa', '100A');
+const sgp100 = stockLengths(rows, 'sgp', '100A');
+say(`  ステンレス配管 40A の定尺候補 : ${tpa40.map((s) => s.meters + 'm').join('・') || 'なし'}`);
+say(`  ステンレス配管 100A の定尺候補: ${tpa100.map((s) => s.meters + 'm').join('・') || 'なし'}`);
+say(`  炭素鋼の配管 100A の定尺候補  : ${sgp100.map((s) => s.meters + 'm').join('・') || 'なし'}`);
+eq('ステンレス40A の定尺は 4m', tpa40[0]?.meters, 4);
+eq('炭素鋼100A の定尺は 5.5m', sgp100[0]?.meters, 5.5);
+eq(`${MIN_STOCK_M}m未満（550mm等）は定尺に混ざらない`,
+  tpa100.filter((s) => s.meters < MIN_STOCK_M).length, 0);
+
+// ---------- 本数（切り上げ） ----------
+say('\n■ 本数（切り上げだけ。ロスの上乗せはしない）');
+eq('60m ÷ 4m = 15本', piecesFor(60, 4), 15);
+eq('58m でも 15本（端数が1本になる）', piecesFor(58, 4), 15);
+eq('56m はちょうど 14本', piecesFor(56, 4), 14);
+eq('60m ÷ 5.5m = 11本', piecesFor(60, 5.5), 11);
+
+// ---------- 現場の文言そのまま ----------
+say('\n■ ステンレス・40A配管・60m（現場で出た文言）');
+const r = resolveMaterial(master, {
+  matKind: 'ステンレス配管（TP-A）', matMaterial: 'SUS304', matSize: '40A',
+  totalQty: 60, totalUnit: 'm',
+});
+say(`  → ${materialCountText({ kind: '材料', ...r })}`);
+say(`  → 品名 ${r.name || '（絞れず）'} ／ 1本 ${r.cost != null ? r.cost.toLocaleString('ja-JP') + '円' : '単価待ち'}`
+  + `${r.why ? ' ／ ' + r.why : ''}`, r.cost == null ? 'warn' : '');
+eq('定尺 4m', r.perLengthM, 4);
+eq('15本', r.qty, 15);
+eq('単位は本', r.unit, '本');
+
+// 58m でも同じ本数（端数が金額に効く、の確認）
+const r58 = resolveMaterial(master, {
+  matKind: 'ステンレス配管（TP-A）', matMaterial: 'SUS304', matSize: '40A',
+  totalQty: 58, totalUnit: 'm',
+});
+eq('58m でも 15本', r58.qty, 15);
+
+// ---------- 個数もの ----------
+say('\n■ フランジなど、はじめから個数で数えるもの');
+const f = resolveMaterial(master, {
+  matKind: null, matMaterial: 'SUS304', matSize: '40A', totalQty: 12, totalUnit: '枚',
+});
+eq('12枚はそのまま', [f.qty, f.unit], [12, '枚']);
+eq('定尺は付かない', f.perLengthM, null);
+
+// ---------- 結び付かなかったとき ----------
+say('\n■ 結び付かなかったとき（勝手に定尺を決めない）');
+const x = resolveMaterial(master, {
+  matKind: 'ステンレス配管（TP-A）', matMaterial: 'SUS304', matSize: '1000A',
+  totalQty: 60, totalUnit: 'm',
+});
+eq('定尺は付けない', x.perLengthM, null);
+eq('総量のまま残す', [x.qty, x.unit], [60, 'm']);
+say(`  → 理由: ${x.why}`, 'warn');
+say(`  → 画面には「${materialCountText({ kind: '材料', ...x })}」と出る`);
+
+// ---------- AIに渡す種類の一覧 ----------
+say('\n■ AIに選ばせる材料の種類（マスターに実在するものだけ）');
+say(`  ${materialKindLabels(master).join('・')}`);
+eq('ラベルから種類キーが引ける', kindKeyOf('ステンレス配管（TP-A）'), 'tpa');
+
+say(`\n${fail ? '×' : '○'} ${pass}件とおり / ${fail}件しっぱい`, fail ? 'ng' : 'ok');
+</script>
+</body>
+</html>

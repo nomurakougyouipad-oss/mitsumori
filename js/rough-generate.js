@@ -14,6 +14,8 @@
 
 import { templateItems, TEMPLATE_LABELS } from './rough-templates.js?v=33';
 import { functions, httpsCallable } from './firebase.js?v=33';
+import { cache } from './store.js?v=33';
+import { applyMaterialCounts, materialKindLabels } from './rough-material.js?v=33';
 
 // ---------- AIが使えるか ----------
 // 画面はこれを見て「AIで出す」か「ひな形から出す」かの見せ方を変える。
@@ -96,11 +98,20 @@ export async function generateByAi({ workType, oneLiner, photos, trades }) {
   // 権限を足すより、持っている側から渡すほうが早くて確か。
   const res = await call({
     workType, oneLiner: oneLiner || '', photoPaths: paths, trades: trades || [],
+    // 材料の種類も名前だけ渡す。マスターに実在する種類だけを選ばせるため
+    matKinds: materialKindLabels(cache.items),
   });
   const data = res.data || {};
+
+  // ---------- 材料を本数に直す ----------
+  // 受付は「合わせて60m」までしか返さない。定尺（4m／5.5m…）は単価マスターが持っていて、
+  // マスターを持っているのはアプリ側なのでここで割る（受付は Firestore を読めない）。
+  // 60m ÷ 定尺4m ＝ 15本。58m でも 15本（切り上げ）。
+  const mat = applyMaterialCounts(data.items || [], cache.items);
+
   return {
     source: SOURCES.AI,
-    items: data.items || [],
+    items: mat.items,
     questions: data.questions || [],
     label: TEMPLATE_LABELS[workType] || workType,
     // 渡した枚数と、受付が実際に読めた枚数。食い違ったら画面で出す（芯4）
@@ -111,5 +122,8 @@ export async function generateByAi({ workType, oneLiner, photos, trades }) {
     // 【なぜ数で返させるか】2026/8/7 は相場が、8/8 はよつばの単価が黙って消えた。
     // どちらも画面は普通に出ていたので、見た人が気づけなかった。数で見えれば気づける（芯4）。
     coverage: data.coverage || null,
+    // 定尺が引けた材料と、総量のままにした材料。片方だけのときと同じで、
+    // 引けなかったことは黙らせない（芯4）。画面で件数を出す
+    materials: { counted: mat.counted, unresolved: mat.unresolved },
   };
 }
